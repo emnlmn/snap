@@ -1,0 +1,162 @@
+/* missile command — the console's world, with a night sky on the left.
+   Accent = what snap chose; amber = direct mode; red = what is coming. */
+
+.mc { display: grid; grid-template-columns: minmax(0, 1fr) 400px; min-height: 0; }
+
+/* ---------- battlefield ---------- */
+.field { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
+.field canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: manipulation; }
+
+.hud {
+  position: absolute; top: 14px; left: var(--gutter);
+  display: flex; gap: 22px; pointer-events: none;
+  font-size: 12px; color: var(--muted);
+}
+.hud b { font: 500 15px var(--mono); color: var(--text); font-variant-numeric: tabular-nums; margin-right: 5px; }
+.hud b.warn { color: var(--bad); }
+
+.tip {
+  position: absolute; top: 16px; right: var(--gutter); pointer-events: none;
+  font-size: 12px; color: var(--faint);
+}
+.tip kbd, .veil kbd { font: 500 11px var(--sans); }
+.tip kbd { padding: 1px 5px; border: 1px solid var(--line-hi); border-radius: 4px; color: var(--muted); }
+
+.veil {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  animation: veil-in .3s var(--ease);
+}
+@keyframes veil-in { from { opacity: 0; } }
+.veil-card { max-width: 46ch; padding: 0 var(--gutter); }
+.veil h1 { font-size: 30px; font-weight: 650; letter-spacing: -.025em; line-height: 1.15; text-wrap: balance; }
+.veil p { margin-top: 10px; color: var(--soft); font-size: 14px; line-height: 1.6; text-wrap: pretty; }
+.veil p b { font: 500 13px var(--mono); color: var(--num); }
+.veil p .k { font: 500 13px var(--mono); color: var(--text); font-variant-numeric: tabular-nums; }
+.veil-act { margin-top: 22px; display: flex; gap: 10px; align-items: center; }
+
+/* ---------- sidebar ---------- */
+.side { border-left: 1px solid var(--line); }
+.side .pane-head .meta { flex: 1; font: 12px var(--mono); min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.side .pane-head .seg { flex: none; }
+.side .seg button { white-space: nowrap; }
+.side .pane-head .meta.busy { color: var(--accent); }
+.seg .dot { margin-right: 6px; vertical-align: 1px; }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
+.dot.shared { background: var(--accent); }
+.dot.direct { background: var(--num); }
+
+.side .stats { gap: 6px 22px; min-height: 63px; align-content: center; }
+.side .stats .stat.lead.direct b { color: var(--num); }
+.stats-empty { font-size: 12.5px; color: var(--muted); }
+
+/* ---------- threat board ---------- */
+.board { padding: 6px 8px 12px; }
+.row {
+  display: grid; grid-template-columns: 50px minmax(0, 1fr) 46px 112px 44px; gap: 10px;
+  align-items: center; padding: 5px 10px; border-radius: 6px;
+  font: 12.5px var(--mono); color: var(--soft); font-variant-numeric: tabular-nums;
+  transition: background .12s;
+}
+.row.head {
+  position: sticky; top: 0; z-index: 1; background: var(--bg);
+  font: 11.5px var(--sans); color: var(--muted); padding-top: 8px; padding-bottom: 6px;
+}
+.row .r { text-align: right; }
+.row .id { color: var(--text); }
+.row .tgt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .tgt.ground, .row .tgt.ruins { color: var(--faint); }
+.row .thr { display: grid; grid-template-columns: minmax(0, 1fr) 52px; gap: 8px; align-items: center; }
+.row .thr .track { position: relative; height: 5px; border-radius: 3px; background: var(--raise); overflow: hidden; }
+.row .thr .track i {
+  position: absolute; inset: 0; border-radius: 3px; background: var(--c, var(--line-hi));
+  transform-origin: left; transform: scaleX(var(--p, 0)); transition: transform .35s var(--ease), background .35s;
+}
+.row .thr em { font: 11.5px var(--mono); font-style: normal; color: var(--c, var(--muted)); }
+.row .pending { color: var(--faint); font-size: 11.5px; white-space: nowrap; }
+.row .p { color: var(--muted); }
+.row.hover { background: var(--hover); }
+.row.pick { background: var(--accent-wash); }
+.row.pick .id, .row.pick .p { color: var(--accent); }
+.row.engaged { opacity: .5; }
+.row.engaged .p { font: 11px var(--sans); color: var(--accent); }
+.board-empty { padding: 28px var(--gutter); font-size: 13px; color: var(--muted); max-width: 40ch; }
+
+/* ---------- chart ---------- */
+.chart { flex: none; padding: 12px var(--gutter) 14px; border-top: 1px solid var(--line); }
+.chart-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.chart-head h3 { font-size: 13px; font-weight: 600; }
+.legend { display: inline-flex; align-items: center; gap: 6px; font: 11.5px var(--mono); color: var(--muted); }
+.legend .dot + .dot, .legend .dot:not(:first-child) { margin-left: 8px; }
+.chart-head .ghost { margin-left: auto; }
+.chart-head .ghost.busy { color: var(--accent); border-color: var(--accent-edge); }
+.chart canvas { display: block; width: 100%; height: 150px; }
+.readout { margin-top: 8px; font-size: 12.5px; color: var(--muted); min-height: 38px; text-wrap: pretty; }
+.readout b { font: 500 12.5px var(--mono); color: var(--text); font-variant-numeric: tabular-nums; }
+.readout b.shared { color: var(--accent); }
+.readout b.direct { color: var(--num); }
+
+.toggle[aria-pressed="true"] { color: var(--text); border-color: var(--line-hi); background: var(--raise); }
+.toggle[aria-pressed="true"]::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ok); margin-right: 7px; vertical-align: 1px;
+}
+
+.err.side-err { margin: 12px var(--gutter) 0; }
+
+/* ---------- last-frame sheet ---------- */
+.frame-btn { position: absolute; left: var(--gutter); bottom: 14px; background: var(--bg); z-index: 2; }
+.frame-btn[aria-expanded="true"] { color: var(--text); border-color: var(--line-hi); }
+.sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 60%; z-index: 3;
+  display: flex; flex-direction: column;
+  background: var(--bg); border-top: 1px solid var(--line-hi);
+  animation: sheet-in .28s var(--ease);
+}
+@keyframes sheet-in { from { transform: translateY(16px); opacity: 0; } }
+.sheet-head {
+  display: flex; align-items: center; gap: 12px; flex: none;
+  padding: 10px var(--gutter); border-bottom: 1px solid var(--line);
+}
+.sheet-head h3 { font-size: 13px; font-weight: 600; }
+.sheet-head .meta { font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.sheet-head .ghost { margin-left: auto; }
+.sheet-body { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+.sheet-body .col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.sheet-body .col + .col { border-left: 1px solid var(--line); }
+.sheet-body h4 {
+  flex: none; padding: 10px var(--gutter) 8px;
+  font: 12px var(--mono); font-weight: 400; color: var(--muted);
+}
+.sheet-body pre {
+  flex: 1; margin: 0; overflow: auto; min-height: 0;
+  padding: 0 var(--gutter) 18px;
+  font: 11.5px/1.6 var(--mono); color: var(--soft);
+  white-space: pre-wrap; word-break: break-word;
+}
+.sheet-body pre .dim { color: var(--faint); }
+
+/* ---------- narrower screens ---------- */
+@media (max-width: 1100px) {
+  .mc { grid-template-columns: minmax(0, 1fr) 360px; }
+  .row { grid-template-columns: 44px minmax(0, 1fr) 40px 96px 40px; gap: 8px; }
+  .tip { display: none; }
+}
+@media (max-width: 900px) {
+  .mc { grid-template-columns: 1fr; }
+  .field { aspect-ratio: 1000 / 700; max-height: 72vh; }
+  .side { border-left: 0; border-top: 1px solid var(--line); }
+  .sheet { height: 72%; }
+  .sheet-body { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  .sheet-body .col + .col { border-left: 0; border-top: 1px solid var(--line); }
+  .side .pane-body { max-height: none; }
+  .hud { gap: 14px; }
+}
+@media (max-width: 520px) {
+  .nav a { padding: 0 6px; font-size: 12.5px; }
+  .status #model { max-width: 14ch; }
+  .row { grid-template-columns: 40px minmax(0, 1fr) 36px 80px 38px; gap: 6px; padding: 5px 6px; }
+  .row .thr { grid-template-columns: 1fr; }
+  .row .thr em { display: none; }
+  .veil h1 { font-size: 24px; }
+}

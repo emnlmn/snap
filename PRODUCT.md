@@ -42,7 +42,8 @@ decode. Deterministic, no API keys, and data never leaves the machine.
 - Internals already in every response under `x_snap`: `total_ms`,
   `prefill_ms`, `cached_head_tokens`, `shared_prefix_tokens`,
   `rewind` (kv|snapshot), `suffix_decode` (batched|sequential),
-  `decoded_items`; `usage.output_tokens` is always 0.
+  `decoded_items`; `usage.input_tokens` counts tokens actually decoded.
+  Nothing is generated, so the response carries no output side.
 
 ## Capabilities and Constraints
 

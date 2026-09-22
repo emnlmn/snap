@@ -52,11 +52,6 @@ jobs:
             os: macos-14
             target: aarch64-apple-darwin
             bin: snap
-          # Intel Macs: Metal framework exists there too.
-          - name: macos-x86_64
-            os: macos-13
-            target: x86_64-apple-darwin
-            bin: snap
           # Portable CPU dispatch: snap + libggml-cpu-*.so shipped together.
           - name: linux-x86_64
             os: ubuntu-24.04

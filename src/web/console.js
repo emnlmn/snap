@@ -596,7 +596,6 @@ function renderResult(req, body, ms) {
   renderRan();
 
   const x = body.x_snap || {};
-  const u = body.usage || {};
   const stat = (v, unit, label, cls = "") =>
     `<div class="stat ${cls}"><b>${esc(v ?? "—")}${unit ? `<small>${unit}</small>` : ""}</b><span>${label}</span></div>`;
   $("stats").innerHTML =
@@ -605,8 +604,7 @@ function renderResult(req, body, ms) {
     stat(x.shared_prefix_tokens, "tok", "shared prefix") +
     stat(x.cached_head_tokens, "tok", "cached head") +
     stat(x.decoded_items, "", `items · ${x.suffix_decode ?? "—"}`) +
-    stat(x.rewind, "", "rewind") +
-    stat(u.output_tokens ?? 0, "", "tokens out");
+    stat(x.rewind, "", "rewind");
   $("stats").hidden = false;
 
   $("answers").innerHTML = Object.entries(req.questions || {}).map(([name, spec]) => {
