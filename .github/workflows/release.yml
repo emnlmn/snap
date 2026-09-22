@@ -1,0 +1,129 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            os: macos-14
+            target: aarch64-apple-darwin
+            bin: snap
+          - name: macos-x86_64
+            os: macos-13
+            target: x86_64-apple-darwin
+            bin: snap
+          # portable CPU dispatch — snap + libggml-cpu-*.so in one tarball
+          - name: linux-x86_64
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            bin: snap
+            features: dynamic-backends
+          # single-file, AVX2 baseline (~2013+ x86 CPUs)
+          - name: linux-x86_64-v3
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            bin: snap
+            rustflags: -C target-cpu=x86-64-v3
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            bin: snap
+            features: dynamic-backends
+          # fully static single file — for alpine/containers/odd distros
+          - name: linux-x86_64-musl
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            bin: snap
+            musl: true
+            rustflags: -C target-cpu=x86-64-v3
+          - name: linux-x86_64-vulkan
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            bin: snap
+            features: vulkan
+            vulkan: true
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: snap.exe
+            features: dynamic-backends
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.name }}
+
+      - name: musl cross toolchain
+        if: matrix.musl
+        run: |
+          curl -fsSL https://musl.cc/x86_64-linux-musl-cross.tgz | sudo tar xz -C /opt
+          echo "/opt/x86_64-linux-musl-cross/bin" >> "$GITHUB_PATH"
+          {
+            echo "CC=x86_64-linux-musl-gcc"
+            echo "CXX=x86_64-linux-musl-g++"
+            echo "AR=x86_64-linux-musl-ar"
+            echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-linux-musl-gcc"
+          } >> "$GITHUB_ENV"
+
+      - name: vulkan headers + shader compiler
+        if: matrix.vulkan
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev glslang-tools spirv-tools
+          sudo apt-get install -y glslc || true  # name varies by distro; glslangValidator is the fallback
+
+      - name: build
+        shell: bash
+        env:
+          FEATURES: ${{ matrix.features }}
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: |
+          args=(--locked --release --target "${{ matrix.target }}")
+          [ -n "$FEATURES" ] && args+=(--features "$FEATURES")
+          cargo build "${args[@]}"
+
+      - name: package
+        shell: bash
+        run: |
+          cd "target/${{ matrix.target }}/release"
+          strip "${{ matrix.bin }}" 2>/dev/null || true
+          files=("${{ matrix.bin }}")
+          shopt -s nullglob
+          files+=(libggml* libllama* *.dll)
+          files+=(README.md)
+          cp "$GITHUB_WORKSPACE/README.md" .
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          tar czf "$GITHUB_WORKSPACE/dist/snap-${{ matrix.name }}.tar.gz" "${files[@]}"
+          tar tzf "$GITHUB_WORKSPACE/dist/snap-${{ matrix.name }}.tar.gz"
+
+      - name: verify packaged binary starts
+        shell: bash
+        run: |
+          tmp=$(mktemp -d)
+          tar xzf "dist/snap-${{ matrix.name }}.tar.gz" -C "$tmp"
+          "$tmp/${{ matrix.bin }}" --help >/dev/null
+          "$tmp/${{ matrix.bin }}" models >/dev/null
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/snap-${{ matrix.name }}.tar.gz
+          generate_release_notes: true

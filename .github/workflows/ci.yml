@@ -1,0 +1,193 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: lint
+      # mirrors `make lint`
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --release -- -D warnings
+
+  test:
+    name: unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: test
+      # debug profile: llama.cpp still compiles, but no LTO link — tests are
+      # pure logic, they never load a model
+      - run: cargo test --locked
+
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple Silicon: Metal is llama.cpp's upstream default — no features.
+          - name: macos-arm64
+            os: macos-14
+            target: aarch64-apple-darwin
+            bin: snap
+          # Intel Macs: Metal framework exists there too.
+          - name: macos-x86_64
+            os: macos-13
+            target: x86_64-apple-darwin
+            bin: snap
+          # Portable CPU dispatch: snap + libggml-cpu-*.so shipped together.
+          - name: linux-x86_64
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            bin: snap
+            features: dynamic-backends
+          # Single-file alternative: AVX2 baseline (x86-64-v3, ~2013+ CPUs).
+          - name: linux-x86_64-v3
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            bin: snap
+            rustflags: -C target-cpu=x86-64-v3
+          # aarch64: baseline armv8-a is slow; all-variants dispatch instead.
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            bin: snap
+            features: dynamic-backends
+          # Fully static single file; AVX2 baseline since dynamic backends
+          # would defeat the static point.
+          - name: linux-x86_64-musl
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            bin: snap
+            musl: true
+            rustflags: -C target-cpu=x86-64-v3
+          # GPU driver path — build only, runners have no Vulkan device.
+          - name: linux-x86_64-vulkan
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            bin: snap
+            features: vulkan
+            vulkan: true
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: snap.exe
+            features: dynamic-backends
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: build-${{ matrix.name }}
+
+      - name: musl cross toolchain
+        if: matrix.musl
+        run: |
+          curl -fsSL https://musl.cc/x86_64-linux-musl-cross.tgz | sudo tar xz -C /opt
+          echo "/opt/x86_64-linux-musl-cross/bin" >> "$GITHUB_PATH"
+          {
+            echo "CC=x86_64-linux-musl-gcc"
+            echo "CXX=x86_64-linux-musl-g++"
+            echo "AR=x86_64-linux-musl-ar"
+            echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-linux-musl-gcc"
+          } >> "$GITHUB_ENV"
+
+      - name: vulkan headers + shader compiler
+        if: matrix.vulkan
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev glslang-tools spirv-tools
+          sudo apt-get install -y glslc || true  # name varies by distro; glslangValidator is the fallback
+
+      - name: build
+        shell: bash
+        env:
+          FEATURES: ${{ matrix.features }}
+          RUSTFLAGS: ${{ matrix.rustflags }}
+        run: |
+          args=(--locked --release --target "${{ matrix.target }}")
+          [ -n "$FEATURES" ] && args+=(--features "$FEATURES")
+          cargo build "${args[@]}"
+
+      - name: package artifact
+        shell: bash
+        run: |
+          cd "target/${{ matrix.target }}/release"
+          strip "${{ matrix.bin }}" 2>/dev/null || true
+          files=("${{ matrix.bin }}")
+          shopt -s nullglob
+          files+=(libggml* libllama* *.dll)
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          tar czf "$GITHUB_WORKSPACE/dist/snap-${{ matrix.name }}.tar.gz" "${files[@]}"
+          tar tzf "$GITHUB_WORKSPACE/dist/snap-${{ matrix.name }}.tar.gz"
+
+      - name: verify packaged binary starts
+        shell: bash
+        run: |
+          tmp=$(mktemp -d)
+          tar xzf "dist/snap-${{ matrix.name }}.tar.gz" -C "$tmp"
+          "$tmp/${{ matrix.bin }}" --help >/dev/null
+          "$tmp/${{ matrix.bin }}" models >/dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snap-${{ matrix.name }}
+          path: dist/snap-${{ matrix.name }}.tar.gz
+          retention-days: 14
+
+  smoke:
+    name: smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: smoke-${{ matrix.os }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ matrix.os }}-minicpm5-2b-v1
+          restore-keys: hf-${{ matrix.os }}-
+      - name: build
+        env:
+          # runners have AVX2; also exercises the rustflags -> ggml flag path
+          RUSTFLAGS: ${{ matrix.os == 'ubuntu-24.04' && '-C target-cpu=x86-64-v3' || '' }}
+        run: cargo build --locked --release
+      - name: run smoke.json via -p (downloads ~1.5 GB model on cache miss)
+        run: ./target/release/snap -p eval/smoke.json
+      - name: models + check CLI sanity
+        run: |
+          ./target/release/snap models
+          ./target/release/snap --help >/dev/null

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>snap · console</title>
+<link rel="stylesheet" href="/playground/app.css">
+</head>
+<body>
+<header class="topbar">
+  <span class="brand">snap</span>
+  <span class="status wait" id="srv"><i></i><span id="model">connecting…</span></span>
+</header>
+
+<main class="split">
+
+  <section class="pane" aria-label="Request">
+    <div class="pane-head">
+      <h2>Request</h2>
+      <div class="seg" id="tabs" role="tablist">
+        <button data-t="builder" class="on" role="tab">Editor</button>
+        <button data-t="json" role="tab">JSON</button>
+        <button data-t="curl" role="tab">cURL</button>
+      </div>
+      <button class="ghost" id="examples" aria-haspopup="menu">Examples</button>
+    </div>
+
+    <div class="pane-body">
+      <div id="pane-builder" class="builder">
+        <section class="box" aria-labelledby="h-state">
+          <div class="box-head">
+            <h3 id="h-state">State</h3>
+            <span class="hint">JSON or plain text · read once, shared by every question</span>
+            <button class="link" id="fmt" title="Pretty-print JSON state">Format</button>
+          </div>
+          <textarea id="state" class="box-body state" spellcheck="false" aria-labelledby="h-state"></textarea>
+        </section>
+
+        <section class="box" aria-labelledby="h-q">
+          <div class="box-head">
+            <h3 id="h-q">Questions</h3>
+            <span class="count" id="qcount">0</span>
+            <button class="link" id="addq" aria-haspopup="menu">Add question</button>
+          </div>
+          <div id="tree" class="box-body tree" spellcheck="false"></div>
+        </section>
+      </div>
+
+      <div id="pane-json" class="code-pane" hidden>
+        <textarea id="json" spellcheck="false" aria-label="Request body"></textarea>
+        <p class="note" id="json-note">Body for <code>POST /v1/systemone</code>. Edits sync back to the editor when you switch tabs.</p>
+      </div>
+
+      <div id="pane-curl" class="code-pane" hidden>
+        <textarea id="curl" readonly spellcheck="false" aria-label="cURL command"></textarea>
+        <p class="note"><button class="ghost" id="copy-curl">Copy</button></p>
+      </div>
+    </div>
+
+    <div class="pane-foot">
+      <div class="knobs">
+        <span class="knob">mode <button class="e" id="mode" aria-haspopup="menu">shared</button></span>
+        <label class="knob">temperature <input id="temp" type="number" min="0" step="0.1" value="1"></label>
+      </div>
+      <button class="run" id="run"><span id="run-label">Run</span><kbd>⌘ ↵</kbd></button>
+    </div>
+  </section>
+
+  <section class="pane" aria-label="Response">
+    <div class="pane-head">
+      <h2>Response</h2>
+      <span class="meta" id="ran"></span>
+      <div class="seg" id="rtabs" role="tablist">
+        <button data-r="result" class="on" role="tab">Result</button>
+        <button data-r="raw" role="tab">Raw</button>
+      </div>
+    </div>
+
+    <div class="stats" id="stats" hidden></div>
+
+    <div class="pane-body">
+      <div id="result">
+        <div class="start" id="empty">
+          <h3>Start from an example</h3>
+          <p class="lede">Every answer comes back as a full probability map: one forward pass, zero generated tokens. Pick one, it runs straight away.</p>
+          <h4>The three primitives</h4>
+          <div class="lessons" id="lessons"></div>
+          <h4>Use cases</h4>
+          <div class="cases" id="cases"></div>
+        </div>
+        <div id="answers"></div>
+      </div>
+      <pre id="raw" class="raw" hidden>Nothing sent yet.</pre>
+    </div>
+  </section>
+
+</main>
+
+<div class="pop" id="pop" role="menu" hidden></div>
+<script src="/playground/console.js"></script>
+</body>
+</html>

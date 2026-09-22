@@ -1,0 +1,23 @@
+{
+  "state": "Luigi Rossi, 34 anni, sviluppatore software a Milano. Ordina regolarmente pasta integrale e latte. Il prodotto 'Pasta Barilla integrale 500g' e disponibile a EUR 1.89, 'Pasta Barilla classica' a EUR 1.45 (ESAURITO), 'Pasta Voiello integrale' a EUR 2.10.",
+  "questions": {
+    "scelta": {
+      "type": "choice",
+      "instructions": "Quale pasta consigliare? Mai prodotti esauriti.",
+      "criteria": {
+        "barilla_int": "Pasta Barilla integrale 500g EUR 1.89",
+        "barilla_class": "Pasta Barilla classica EUR 1.45",
+        "voiello": "Pasta Voiello integrale EUR 2.10"
+      }
+    },
+    "allergie": {
+      "type": "boolean",
+      "instructions": "Il cliente ha allergie dichiarate?"
+    },
+    "gradimento": {
+      "type": "score",
+      "instructions": "Quanto e probabile che gradisca la pasta integrale?",
+      "criteria": ["per nulla", "poco", "abbastanza", "molto"]
+    }
+  }
+}
