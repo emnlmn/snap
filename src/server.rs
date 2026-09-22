@@ -15,8 +15,17 @@ use serde_json::{json, Value};
 use crate::api::{from_native, SystemoneRequest};
 use crate::engine::Engine;
 
+struct Slot {
+    engine: Engine,
+    /// the tested-model spec the engine was built from (e.g. "spark-4b")
+    name: String,
+}
+
 struct AppState {
-    engine: Mutex<Engine>,
+    slot: Mutex<Slot>,
+    /// serializes model swaps — only one load at a time
+    switch: Mutex<()>,
+    n_ctx: i32,
     started: Instant,
 }
 
@@ -28,16 +37,64 @@ fn err422(e: anyhow::Error) -> (StatusCode, Json<Value>) {
 }
 
 async fn healthz(State(s): State<Arc<AppState>>) -> Json<Value> {
-    let model = s.engine.lock().unwrap().model_id.clone();
-    Json(json!({"status": "ok", "model": model, "uptime_s": s.started.elapsed().as_secs()}))
+    let slot = s.slot.lock().unwrap();
+    Json(json!({
+        "status": "ok",
+        "model": slot.engine.model_id,
+        "name": slot.name,
+        "uptime_s": s.started.elapsed().as_secs(),
+    }))
 }
 
 async fn models(State(s): State<Arc<AppState>>) -> Json<Value> {
-    let model = s.engine.lock().unwrap().model_id.clone();
+    let active = s.slot.lock().unwrap().name.clone();
     Json(json!({
         "object": "list",
-        "data": [{"id": model, "object": "model", "created": 0, "owned_by": "snap"}],
+        "data": crate::models::MODELS.iter().map(|(n, repo, file)| json!({
+            "id": n, "object": "model", "created": 0, "owned_by": "snap",
+            "repo": repo, "file": file, "active": *n == active,
+        })).collect::<Vec<_>>(),
     }))
+}
+
+/// POST /v1/models {"model": "<spec>"} — load and hot-swap the resident
+/// model. The old engine keeps serving until the new one is ready.
+async fn switch_model(
+    State(s): State<Arc<AppState>>,
+    Json(req): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let name = req
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    if name.is_empty() {
+        return Err(err422(anyhow::anyhow!(
+            "body must be {{\"model\": \"<name>\"}}"
+        )));
+    }
+    let s2 = s.clone();
+    let n_ctx = s.n_ctx;
+    let name2 = name.clone();
+    let model_id = tokio::task::spawn_blocking(move || -> Result<String> {
+        let _serial = s2.switch.lock().unwrap();
+        if s2.slot.lock().unwrap().name == name2 {
+            return Ok(s2.slot.lock().unwrap().engine.model_id.clone());
+        }
+        let path = crate::models::resolve(&name2)?;
+        let eng = Engine::new(path.to_string_lossy().as_ref(), n_ctx, 1024)?;
+        let model_id = eng.model_id.clone();
+        let mut slot = s2.slot.lock().unwrap();
+        slot.engine = eng;
+        slot.name = name2;
+        Ok(model_id)
+    })
+    .await
+    .map_err(|e| err422(anyhow::anyhow!(e)))?
+    .map_err(err422)?;
+    Ok(Json(
+        json!({"status": "ok", "model": model_id, "name": name}),
+    ))
 }
 
 async fn systemone(
@@ -45,7 +102,7 @@ async fn systemone(
     Json(req): Json<SystemoneRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let native = req.to_native();
-    let out = tokio::task::spawn_blocking(move || s.engine.lock().unwrap().decide(&native))
+    let out = tokio::task::spawn_blocking(move || s.slot.lock().unwrap().engine.decide(&native))
         .await
         .map_err(|e| err422(anyhow::anyhow!(e)))?
         .map_err(err422)?;
@@ -68,21 +125,31 @@ async fn pg_console_js() -> impl IntoResponse {
         include_str!("web/console.js"),
     )
 }
-
-
-pub async fn serve(engine: Engine, host: &str, port: u16) -> Result<()> {
+async fn pg_logo() -> impl IntoResponse {
+    (
+        [(CONTENT_TYPE, "image/png")],
+        include_bytes!("web/logo.png").as_slice(),
+    )
+}
+pub async fn serve(engine: Engine, model: &str, n_ctx: i32, host: &str, port: u16) -> Result<()> {
     let state = Arc::new(AppState {
-        engine: Mutex::new(engine),
+        slot: Mutex::new(Slot {
+            engine,
+            name: model.to_string(),
+        }),
+        switch: Mutex::new(()),
+        n_ctx,
         started: Instant::now(),
     });
     let app = Router::new()
         .route("/", get(|| async { Redirect::temporary("/playground") }))
         .route("/healthz", get(healthz))
-        .route("/v1/models", get(models))
+        .route("/v1/models", get(models).post(switch_model))
         .route("/v1/systemone", post(systemone))
         .route("/playground", get(pg_console))
         .route("/playground/app.css", get(pg_css))
         .route("/playground/console.js", get(pg_console_js))
+        .route("/playground/logo.png", get(pg_logo))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind((host, port))
         .await

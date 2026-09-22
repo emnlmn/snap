@@ -14,7 +14,9 @@ serde_json = { version = "1", features = ["preserve_order"] }
 anyhow = "1"
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net"] }
-hf-hub = "0.4"
+# sync api only; defaults pull native-tls/openssl which can't build on musl —
+# ureq's own default tls is rustls
+hf-hub = { version = "0.4", default-features = false, features = ["ureq"] }
 ureq = { version = "3", features = ["json"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

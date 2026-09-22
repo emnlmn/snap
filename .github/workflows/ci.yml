@@ -76,13 +76,20 @@ jobs:
             bin: snap
             features: dynamic-backends
           # Fully static single file; AVX2 baseline since dynamic backends
-          # would defeat the static point.
+          # would defeat the static point. relocation-model=static → non-PIE:
+          # musl static-pie mis-relocates llama.cpp's C++ .init_array pointers
+          # (SIGSEGV calling a file-offset address in a BuiltinRule ctor).
           - name: linux-x86_64-musl
             os: ubuntu-24.04
             target: x86_64-unknown-linux-musl
             bin: snap
             musl: true
-            rustflags: -C target-cpu=x86-64-v3
+            # bootlin ships libstdc++.so — rustc's -Wl,-Bdynamic -lstdc++ adds
+            # it as DT_NEEDED into a binary with no interp (crash at init), and
+            # under -static it's a hard error, so the toolchain step deletes it.
+            # The trailing -lc re-scans libc.a after the last -lstdc++ — rustc
+            # emits one after -lc, so libstdc++.a's members need libc revisited.
+            rustflags: -C target-cpu=x86-64-v3 -C relocation-model=static -C link-arg=-Wl,-Bstatic -C link-arg=-lc
           # GPU driver path — build only, runners have no Vulkan device.
           - name: linux-x86_64-vulkan
             os: ubuntu-24.04
@@ -109,8 +116,27 @@ jobs:
       - name: musl cross toolchain
         if: matrix.musl
         run: |
-          curl -fsSL https://musl.cc/x86_64-linux-musl-cross.tgz | sudo tar xz -C /opt
-          echo "/opt/x86_64-linux-musl-cross/bin" >> "$GITHUB_PATH"
+          # musl.cc blackholes the runners' IPs (connect timeout on v4+v6);
+          # bootlin's musl toolchain is a drop-in gcc+g++ replacement.
+          # rustc detects a musl-capable linker by the tool's file name, so
+          # expose the x86_64-linux-* tools as x86_64-linux-musl-* via symlinks.
+          curl -fsSL --retry 5 --retry-all-errors --connect-timeout 15 \
+            https://toolchains.bootlin.com/downloads/releases/toolchains/x86-64/tarballs/x86-64--musl--stable-2024.05-1.tar.xz \
+            | sudo tar xJ -C /opt
+          TC=/opt/x86-64--musl--stable-2024.05-1
+          # hide the shared libstdc++: rustc's -Wl,-Bdynamic -lstdc++ would
+          # pick it → "attempted static link of dynamic object". -static-libstdc++
+          # only rewrites the driver's implicit -lstdc++, not an explicit one.
+          sudo find "$TC" -name 'libstdc++.so*' -delete
+          # wrapper scripts, not symlinks: bootlin's gcc is itself a wrapper
+          # that resolves <argv0>.br_real — symlinking breaks that lookup
+          sudo mkdir -p /opt/musl-alias
+          for t in gcc g++ ar ranlib; do
+            printf '#!/bin/sh\nexec %s/bin/x86_64-linux-%s "$@"\n' "$TC" "$t" \
+              | sudo tee "/opt/musl-alias/x86_64-linux-musl-$t" >/dev/null
+            sudo chmod +x "/opt/musl-alias/x86_64-linux-musl-$t"
+          done
+          echo "/opt/musl-alias" >> "$GITHUB_PATH"
           {
             echo "CC=x86_64-linux-musl-gcc"
             echo "CXX=x86_64-linux-musl-g++"
@@ -122,8 +148,21 @@ jobs:
         if: matrix.vulkan
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan-dev glslang-tools spirv-tools
+          # spirv-headers: ggml-vulkan does find_package(SPIRV-Headers)
+          sudo apt-get install -y libvulkan-dev glslang-tools spirv-tools spirv-headers
           sudo apt-get install -y glslc || true  # name varies by distro; glslangValidator is the fallback
+
+      # llama.cpp's armv9.2 cpu variant compiles with -march=...+sme, which
+      # ubuntu-24.04's default gcc-13 rejects — it needs gcc-14.
+      - name: gcc-14 for armv9.2 +sme
+        if: matrix.name == 'linux-aarch64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-14 g++-14
+          {
+            echo "CC=gcc-14"
+            echo "CXX=g++-14"
+          } >> "$GITHUB_ENV"
 
       - name: build
         shell: bash
@@ -144,8 +183,10 @@ jobs:
           shopt -s nullglob
           files+=(libggml* libllama* *.dll)
           mkdir -p "$GITHUB_WORKSPACE/dist"
-          tar czf "$GITHUB_WORKSPACE/dist/snap-${{ matrix.name }}.tar.gz" "${files[@]}"
-          tar tzf "$GITHUB_WORKSPACE/dist/snap-${{ matrix.name }}.tar.gz"
+          # stdout/stdin instead of -f <path>: GNU tar parses "D:\..." as
+          # host:path, and bsdtar (macOS) lacks --force-local
+          tar czf - "${files[@]}" > "$GITHUB_WORKSPACE/dist/snap-${{ matrix.name }}.tar.gz"
+          tar tzf - < "$GITHUB_WORKSPACE/dist/snap-${{ matrix.name }}.tar.gz"
 
       - name: verify packaged binary starts
         shell: bash

@@ -156,7 +156,7 @@ pub fn meta_val(model: &Model, key: &str) -> Option<String> {
     let ckey = CString::new(key).ok()?;
     let mut size = 256i32;
     loop {
-        let mut buf = vec![0i8; size as usize];
+        let mut buf = vec![0 as c_char; size as usize];
         let n = unsafe {
             sys::llama_model_meta_val_str(model.0, ckey.as_ptr(), buf.as_mut_ptr(), size as usize)
         };
