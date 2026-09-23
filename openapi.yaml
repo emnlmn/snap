@@ -1,0 +1,476 @@
+openapi: 3.1.0
+info:
+  title: SNAP Decision API
+  version: 0.1.0
+  summary: Typed decisions from unstructured state — one forward pass, zero generated text.
+  description: |
+    SNAP compiles every question into a prompt whose first answer token must be a
+    letter (A–Z, one per option), reads the logits at that position, and returns a
+    probability distribution — no text generation, no parsing, no retries.
+
+    A single endpoint, `POST /v1/systemone`, speaks the TypeSafe/Jev wire format
+    plus optional snap extensions (`numeric` questions, `allow_abstain`, `mode`).
+    Jev clients can ignore every extension: defaults preserve Jev semantics.
+
+    **Determinism.** Same input, same distribution. Probabilities are softmaxed
+    letter logits — optionally temperature-calibrated per question type when the
+    server is started with a `snap calibrate` file.
+  license:
+    name: MIT
+
+servers:
+  - url: http://127.0.0.1:8018
+    description: Local `snap serve` (default bind)
+
+tags:
+  - name: decisions
+    description: The decision endpoint — the whole product surface.
+  - name: ops
+    description: Readiness and model discovery.
+
+paths:
+  /v1/systemone:
+    post:
+      operationId: decide
+      tags: [decisions]
+      summary: Answer a set of typed questions about a state
+      description: |
+        All questions share the same `state`. With `mode: shared` (default) the
+        common prompt prefix is evaluated once; every question suffix decodes in
+        a single batched call on full-attention models (automatic sequential
+        fallback otherwise — see `x_snap` in the response).
+
+        `questions` is a map of caller-chosen names to question objects; each
+        name maps to one answer in the response. Question objects are strictly
+        validated — unknown fields are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecideRequest'
+            examples:
+              full:
+                summary: All four question types over one state
+                value:
+                  state:
+                    subject: "Duplicate charge on invoice #4411"
+                    body: "Hi, we were billed twice for March. Please refund."
+                  questions:
+                    route:
+                      type: choice
+                      instructions: "Which team should handle this request?"
+                      criteria:
+                        billing: "invoices, payments, refunds"
+                        technical: "bugs, outages, errors"
+                        sales: "pricing, upgrades, contracts"
+                    urgent:
+                      type: noul
+                      instructions: "Is an SLA breach likely?"
+                      allow_abstain: true
+                    impact:
+                      type: score
+                      criteria: ["minor annoyance", "real cost", "business critical"]
+                    refund:
+                      type: numeric
+                      instructions: "Refund amount in EUR"
+                      min: 0
+                      max: 500
+                      granularity: 10
+              minimal:
+                summary: Smallest valid request
+                value:
+                  state: "The site has been down for an hour."
+                  questions:
+                    outage: {type: noul}
+      responses:
+        '200':
+          description: Decisions computed — one answer per question, keyed by name.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DecideResponse'
+              example:
+                answers:
+                  route:
+                    type: choice
+                    status: decided
+                    confidence: 0.91
+                    choice: billing
+                    probabilities: {billing: 0.87, technical: 0.09, sales: 0.03, __abstain__: 0.01}
+                  urgent:
+                    type: noul
+                    status: decided
+                    confidence: 0.88
+                    noul: 0.94
+                    boolean: true
+                    choice: "yes"
+                  impact:
+                    type: score
+                    status: contested
+                    confidence: 0.31
+                    score: 0.62
+                    level: 1
+                    probabilities: {"minor annoyance": 0.2, "real cost": 0.45, "business critical": 0.35}
+                  refund:
+                    type: numeric
+                    status: decided
+                    confidence: 0.76
+                    value: 212.5
+                    probabilities: {__below__: 0.02, __above__: 0.05, __abstain__: 0.01}
+                model: snap-minicpm5-2b-q4_k_m
+                usage: {input_tokens: 184, output_tokens: 0}
+                x_snap:
+                  shared_prefix_tokens: 96
+                  cached_head_tokens: 31
+                  rewind: kv
+                  suffix_decode: batched
+                  prefill_ms: 41.2
+                  total_ms: 103.7
+        '400':
+          description: Malformed JSON body.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '422':
+          description: |
+            Validation or engine failure. Covers: unknown question fields or
+            type, missing/insufficient criteria, more than 256 choice options,
+            more score levels or numeric anchors than letter slots (≤ 26
+            including `__abstain__` and range markers), invalid `temperature`,
+            `min >= max`, prompt exceeding the server context, inference
+            errors. The message states the exact violation.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+              example: {error: "score: 27 levels exceed 26 letter slots"}
+
+  /v1/models:
+    get:
+      operationId: listModels
+      tags: [ops]
+      summary: The model currently loaded by this process
+      description: One process serves one model — the list always has a single entry.
+      responses:
+        '200':
+          description: OpenAI-style model list.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ModelList'}
+              example:
+                object: list
+                data: [{id: snap-minicpm5-2b-q4_k_m, object: model, created: 0, owned_by: snap}]
+
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [ops]
+      summary: Readiness probe
+      description: |
+        The listener binds only after engine warm-up (model mmap, capability
+        probes, resident prompt head), so a successful connection already means
+        "ready". This endpoint reports liveness + identity.
+      responses:
+        '200':
+          description: Engine is warm and serving.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Health'}
+              example: {status: ok, model: snap-minicpm5-2b-q4_k_m, uptime_s: 42}
+
+components:
+  schemas:
+    DecideRequest:
+      type: object
+      required: [state, questions]
+      properties:
+        model:
+          type: string
+          description: Accepted for client compatibility — ignored; the server always uses its loaded model.
+        state:
+          description: Any JSON value — object, string, array. Serialized verbatim into the prompt.
+        questions:
+          type: object
+          minProperties: 1
+          maxProperties: 64
+          additionalProperties:
+            $ref: '#/components/schemas/Question'
+        temperature:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 10
+          default: 1.0
+          description: |
+            Softmax temperature over letter logits. 1.0 = raw logits. When the
+            server loads a calibration file, the fitted per-type temperature is
+            multiplied in — e.g. `temperature: 0.5` on a type calibrated at
+            T=2 scores as T=1.
+        mode:
+          type: string
+          enum: [shared, direct]
+          default: shared
+          description: |
+            `shared` amortizes the common state prefix across questions.
+            `direct` decodes each question independently (verification/reference;
+            answers are identical, latency is not).
+      additionalProperties: true  # envelope is tolerant of extra SDK keys
+
+    Question:
+      oneOf:
+        - $ref: '#/components/schemas/NoulQuestion'
+        - $ref: '#/components/schemas/ChoiceQuestion'
+        - $ref: '#/components/schemas/ScoreQuestion'
+        - $ref: '#/components/schemas/NumericQuestion'
+      discriminator:
+        propertyName: type
+        mapping:
+          noul: '#/components/schemas/NoulQuestion'
+          boolean: '#/components/schemas/NoulQuestion'
+          choice: '#/components/schemas/ChoiceQuestion'
+          score: '#/components/schemas/ScoreQuestion'
+          numeric: '#/components/schemas/NumericQuestion'
+
+    QuestionBase:
+      type: object
+      properties:
+        instructions:
+          type: string
+          default: ""
+          description: Natural-language framing of the question.
+        allow_abstain:
+          type: boolean
+          default: false
+          description: |
+            Adds an `__abstain__` option ("insufficient information"). If it wins,
+            the answer reports `status: abstained` instead of a forced pick.
+            Consumes one letter slot; on expanded choices (> 26 options) there is
+            no slot — the question abstains when no candidate reaches P(yes) 0.5.
+
+    NoulQuestion:
+      allOf:
+        - $ref: '#/components/schemas/QuestionBase'
+        - type: object
+          required: [type]
+          properties:
+            type:
+              type: string
+              enum: [noul, boolean]
+              description: Yes/no question (`boolean` is an alias; responses always report `noul`).
+
+    ChoiceQuestion:
+      allOf:
+        - $ref: '#/components/schemas/QuestionBase'
+        - type: object
+          required: [type, criteria]
+          properties:
+            type:
+              type: string
+              enum: [choice]
+            criteria:
+              description: |
+                The option set — 2 to 256 options. Object form maps answer keys
+                to descriptions (keys are what `choice` returns); array form
+                uses the strings themselves. Up to 26 options (25 with
+                `allow_abstain`) are read as single-letter logits; beyond that
+                each option is scored by its own yes/no probe and the yes-masses
+                normalize into the returned distribution.
+              oneOf:
+                - type: object
+                  minProperties: 2
+                  additionalProperties: {type: string}
+                - type: array
+                  minItems: 2
+                  items: {type: string}
+
+    ScoreQuestion:
+      allOf:
+        - $ref: '#/components/schemas/QuestionBase'
+        - type: object
+          required: [type, criteria]
+          properties:
+            type:
+              type: string
+              enum: [score]
+            criteria:
+              type: array
+              minItems: 2
+              items: {type: string}
+              description: Level descriptions ordered low → high. `score` is the probability-weighted position in [0, 1]; `level` is the winning index.
+
+    NumericQuestion:
+      allOf:
+        - $ref: '#/components/schemas/QuestionBase'
+        - type: object
+          required: [type, min, max]
+          properties:
+            type:
+              type: string
+              enum: [numeric]
+            min:
+              type: number
+              description: Lower bound of the range (must be < `max`).
+            max:
+              type: number
+              description: Upper bound of the range.
+            granularity:
+              type: integer
+              minimum: 2
+              maximum: 24
+              default: 8
+              description: |
+                Interior anchor count (evenly spaced between `min` and `max`).
+                `granularity` + `__below__` + `__above__` + optional abstain ≤ 26.
+            step:
+              type: number
+              exclusiveMinimum: 0
+              description: Overrides `granularity` — anchor count becomes `round((max-min)/step)+1`, clamped to 2..=24.
+
+    DecideResponse:
+      type: object
+      required: [answers, model, usage, x_snap]
+      properties:
+        answers:
+          type: object
+          description: Keyed by the request's question names.
+          additionalProperties:
+            $ref: '#/components/schemas/Answer'
+        model:
+          type: string
+          description: Server-side model identifier (e.g. `snap-qwen3.8-4b-q4_k_m`).
+        usage:
+          type: object
+          properties:
+            input_tokens: {type: integer, description: Shared prefix once + every decoded suffix (expansion probes included).}
+            output_tokens: {type: integer, enum: [0], description: Always 0 — nothing is generated.}
+        x_snap:
+          type: object
+          description: Honest internals — exactly what the engine did.
+          properties:
+            shared_prefix_tokens: {type: integer}
+            cached_head_tokens: {type: integer, description: Resident prompt-head tokens skipped entirely.}
+            rewind: {type: string, enum: [kv, snapshot], description: How context state is restored between questions.}
+            suffix_decode: {type: string, enum: [batched, sequential], description: Whether question suffixes ran in one batched decode.}
+            decoded_items: {type: integer, description: Units actually decoded — grows past the question count when a large choice expands into per-option probes.}
+            prefill_ms: {type: number}
+            total_ms: {type: number}
+
+    Answer:
+      oneOf:
+        - $ref: '#/components/schemas/NoulAnswer'
+        - $ref: '#/components/schemas/ChoiceAnswer'
+        - $ref: '#/components/schemas/ScoreAnswer'
+        - $ref: '#/components/schemas/NumericAnswer'
+      discriminator:
+        propertyName: type
+        mapping:
+          noul: '#/components/schemas/NoulAnswer'
+          choice: '#/components/schemas/ChoiceAnswer'
+          score: '#/components/schemas/ScoreAnswer'
+          numeric: '#/components/schemas/NumericAnswer'
+
+    AnswerBase:
+      type: object
+      required: [type, status, confidence]
+      properties:
+        status:
+          type: string
+          enum: [decided, contested, abstained, out_of_bounds]
+          description: |
+            `decided` — clear winner (top-two gap ≥ 0.15).
+            `contested` — winner returned but top-two gap < 0.15.
+            `abstained` — `__abstain__` won (only possible if `allow_abstain`).
+            `out_of_bounds` — a `__below__`/`__above__` anchor won (numeric only).
+            Typed fields are populated regardless — check `status` before acting.
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Normalized top probability — 1 = certain, 0 = uniform over the slots.
+
+    NoulAnswer:
+      allOf:
+        - $ref: '#/components/schemas/AnswerBase'
+        - type: object
+          required: [noul, boolean, choice]
+          properties:
+            type: {type: string, enum: [noul]}
+            noul:
+              type: number
+              minimum: 0
+              maximum: 1
+              description: P(yes) — the Jev field.
+            boolean: {type: boolean, description: Decoded verdict (P(yes) ≥ P(no)).}
+            choice: {type: string, enum: ["yes", "no"]}
+
+    ChoiceAnswer:
+      allOf:
+        - $ref: '#/components/schemas/AnswerBase'
+        - type: object
+          required: [choice, probabilities]
+          properties:
+            type: {type: string, enum: [choice]}
+            choice: {type: string, description: Winning option key.}
+            probabilities:
+              type: object
+              additionalProperties: {type: number}
+              description: Full distribution over options; includes `__abstain__` when enabled.
+
+    ScoreAnswer:
+      allOf:
+        - $ref: '#/components/schemas/AnswerBase'
+        - type: object
+          required: [score, level, probabilities]
+          properties:
+            type: {type: string, enum: [score]}
+            score: {type: number, minimum: 0, maximum: 1, description: Probability-weighted position along the criteria scale.}
+            level:
+              type: [integer, "null"]
+              description: Index of the winning level (0-based); null when a special slot won.
+            probabilities:
+              type: object
+              additionalProperties: {type: number}
+              description: Keyed by level description text.
+
+    NumericAnswer:
+      allOf:
+        - $ref: '#/components/schemas/AnswerBase'
+        - type: object
+          required: [value, probabilities]
+          properties:
+            type: {type: string, enum: [numeric]}
+            value:
+              type: [number, "null"]
+              description: Probability-weighted mean over interior anchors; null when all mass is out of bounds.
+            probabilities:
+              type: object
+              additionalProperties: {type: number}
+              description: Includes `__below__` / `__above__` (and `__abstain__` when enabled) so callers see range-break mass.
+
+    ModelList:
+      type: object
+      properties:
+        object: {type: string, enum: [list]}
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: string}
+              object: {type: string, enum: [model]}
+              created: {type: integer}
+              owned_by: {type: string}
+
+    Health:
+      type: object
+      properties:
+        status: {type: string, enum: [ok]}
+        model: {type: string}
+        uptime_s: {type: integer}
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: 'Human-readable violation, e.g. "numeric: granularity must be in 2..=24".'

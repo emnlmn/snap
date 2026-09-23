@@ -1,0 +1,48 @@
+[package]
+name = "snap"
+version = "0.1.0"
+edition = "2021"
+description = "SNAP: typed decisions from a single forward pass (single-pass neural answer probabilities)"
+license = "MIT"
+build = "build.rs"
+
+[dependencies]
+llama-cpp-sys-2 = "=0.1.157"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+anyhow = "1"
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net"] }
+hf-hub = "0.4"
+ureq = { version = "3", features = ["json"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[build-dependencies]
+cc = { version = "1", features = ["parallel"] }
+
+# Backend passthrough to llama-cpp-sys-2. Default build = Metal on Apple
+# Silicon (llama.cpp upstream default), CPU elsewhere. Opt-in per target:
+#   cargo build --release --features cuda        # NVIDIA, needs CUDA toolkit
+#   cargo build --release --features vulkan      # AMD/Intel/generic GPU driver
+#   cargo build --release --features rocm        # AMD ROCm/HIP
+#   cargo build --release --features dynamic-backends  # portable CPU binary
+# Features are additive and combinable (e.g. cuda + dynamic-backends).
+[features]
+cuda = ["llama-cpp-sys-2/cuda"]
+vulkan = ["llama-cpp-sys-2/vulkan"]
+metal = ["llama-cpp-sys-2/metal"]
+rocm = ["llama-cpp-sys-2/rocm"]
+opencl = ["llama-cpp-sys-2/opencl"]
+openmp = ["llama-cpp-sys-2/openmp"]
+mkl = ["llama-cpp-sys-2/mkl"]
+# All CPU variants compiled in, dispatched at load — what the release
+# artifacts use so one binary runs on old and new CPUs alike.
+dynamic-backends = ["llama-cpp-sys-2/dynamic-backends"]
+# Fuller static libstdc++ linkage for distributable Linux builds.
+static-stdcxx = ["llama-cpp-sys-2/static-stdcxx"]
+
+[profile.release]
+lto = true
+codegen-units = 1
