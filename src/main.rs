@@ -204,9 +204,6 @@ fn main() -> Result<()> {
             for (name, repo, file) in models::MODELS {
                 println!("  {name:14} {repo}/{file}");
             }
-            println!(
-                "  (the tested set — new candidates get evaluated, then a row in src/models.rs)"
-            );
         }
         Cmd::Check { url } => {
             let out: serde_json::Value =
