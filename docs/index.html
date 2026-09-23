@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>snap · typed decisions from one forward pass</title>
+<meta name="description" content="snap (Single-pass Neural Answer Probabilities): typed decisions from unstructured state. One forward pass, zero generated text. Local, deterministic, Jev-compatible.">
+<meta property="og:title" content="snap · typed decisions from one forward pass">
+<meta property="og:description" content="One forward pass, zero generated text. A local LLM decision engine that returns probability distributions, not prose.">
+<meta property="og:image" content="https://emnlmn.github.io/snap/logo.png">
+<meta property="og:type" content="website">
+<link rel="icon" type="image/png" href="logo.png">
+<style>
+/* snap landing. Same world as the console: warm paper, deep green-black
+   ink, one crocodile-green accent marking what is live. */
+
+:root {
+  --bg: #f5f5ef;
+  --surface: #ffffff;
+  --raise: #ecece4;
+  --line: #e0e0d6;
+  --line-hi: #cdcdc1;
+  --text: #1a1f1b;
+  --soft: #3d443e;
+  --muted: #646b64;
+  --faint: #6b7064;
+  --accent: #2a7a47;
+  --accent-deep: #226539;
+  --accent-ink: #ffffff;
+  --string: #7d5410;
+  --bad: #c0392b;
+  --ok: #2f9e5a;
+  --hover: rgba(26, 31, 27, .045);
+  --ink: #131517;
+  --ink-text: #e6e7e4;
+  --ink-soft: #a7aaa3;
+  --ink-line: #2b2e2a;
+  --accent-wash: color-mix(in srgb, var(--accent) 9%, transparent);
+  --accent-edge: color-mix(in srgb, var(--accent) 45%, transparent);
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
+  --r: 10px;
+  --gutter: 24px;
+  --ease: cubic-bezier(.16, 1, .3, 1);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+h1, h2, h3, p, ol, ul { margin: 0; }
+a { color: var(--accent-deep); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { color: var(--accent); }
+code, pre, kbd { font-family: var(--mono); }
+* { scrollbar-width: thin; scrollbar-color: var(--line-hi) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line-hi); border-radius: 10px; border: 3px solid var(--bg); }
+::-webkit-scrollbar-track { background: transparent; }
+
+.wrap { max-width: 1060px; margin: 0 auto; padding: 0 var(--gutter); }
+
+/* ---------- header ---------- */
+.top {
+  position: sticky; top: 0; z-index: 10;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.top .wrap { display: flex; align-items: center; gap: 10px; height: 56px; }
+.mark { width: 30px; height: 30px; display: block; }
+.brand { font-weight: 650; font-size: 15px; letter-spacing: -.01em; }
+.top nav { display: flex; gap: 2px; margin-left: 18px; }
+.top nav a {
+  padding: 5px 10px; border-radius: 6px;
+  font-size: 13px; color: var(--muted); text-decoration: none;
+  transition: color .15s, background .15s;
+}
+.top nav a:hover { color: var(--text); background: var(--hover); }
+.gh {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 12px; border: 1px solid var(--line-hi); border-radius: 8px;
+  background: var(--surface);
+  font-size: 13px; font-weight: 550; color: var(--text); text-decoration: none;
+  transition: border-color .15s, background .15s;
+}
+.gh:hover { border-color: var(--faint); background: var(--raise); color: var(--text); }
+.gh svg { width: 15px; height: 15px; fill: currentColor; }
+
+/* ---------- hero ---------- */
+.hero { padding: 84px 0 64px; }
+.hero .wrap { display: grid; grid-template-columns: 1.05fr .95fr; gap: 56px; align-items: center; }
+h1 {
+  font-size: clamp(2.1rem, 4.6vw, 3.2rem);
+  line-height: 1.08; font-weight: 700; letter-spacing: -.025em;
+  text-wrap: balance;
+}
+.hero .tag {
+  margin-top: 18px;
+  font: 14px var(--mono); color: var(--accent-deep);
+}
+.lede { margin-top: 14px; font-size: 16px; color: var(--soft); max-width: 34rem; text-wrap: pretty; }
+.cta { margin-top: 30px; display: flex; gap: 10px; flex-wrap: wrap; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 18px; border-radius: var(--r);
+  font-size: 14px; font-weight: 600; text-decoration: none;
+  transition: background .15s, border-color .15s, transform .15s var(--ease);
+}
+.btn.primary { background: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { background: var(--accent-deep); color: var(--accent-ink); }
+.btn.ghost { border: 1px solid var(--line-hi); color: var(--text); background: var(--surface); }
+.btn.ghost:hover { border-color: var(--faint); background: var(--raise); color: var(--text); }
+.micro { margin-top: 20px; font-size: 12.5px; color: var(--muted); }
+.micro code { font-size: 12px; color: var(--soft); }
+
+/* ---------- demo card ---------- */
+.demo {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.demo-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 16px; border-bottom: 1px solid var(--line);
+  font: 12px var(--mono); color: var(--muted);
+}
+.demo-head .ep { color: var(--soft); }
+.demo-head .model { margin-left: auto; color: var(--faint); }
+.demo-state {
+  padding: 12px 16px; border-bottom: 1px solid var(--line);
+  font: 12px/1.55 var(--mono); color: var(--soft);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.demo-state b { color: var(--muted); font-weight: 500; }
+.q { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.q:last-of-type { border-bottom: 0; }
+.q-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.q-name { font: 12px var(--mono); font-weight: 600; color: var(--text); }
+.q-type { font: 12px var(--mono); color: var(--faint); }
+.q-winner { margin-left: auto; font: 12px var(--mono); color: var(--accent-deep); font-weight: 600; }
+.bar { display: grid; grid-template-columns: 64px 1fr 44px; align-items: center; gap: 10px; padding: 3px 0; }
+.bar .lbl { font: 12px var(--mono); color: var(--muted); text-align: right; }
+.bar.win .lbl { color: var(--text); font-weight: 600; }
+.track { height: 7px; background: var(--raise); border-radius: 4px; overflow: hidden; }
+.fill {
+  height: 100%; width: 0;
+  background: var(--line-hi); border-radius: 4px;
+  transition: width .8s var(--ease);
+}
+.win .fill { background: var(--accent); }
+.pct { font: 12px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+.win .pct { color: var(--accent-deep); font-weight: 600; }
+.demo-foot {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; border-top: 1px solid var(--line);
+  font: 12px var(--mono); color: var(--muted);
+}
+.demo-foot .ms { color: var(--text); font-variant-numeric: tabular-nums; }
+.replay {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 0; background: none; border-radius: 6px; padding: 4px 8px;
+  font: 12px var(--mono); color: var(--accent-deep); cursor: pointer;
+  transition: background .15s;
+}
+.replay:hover { background: var(--accent-wash); }
+.replay svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.note { font-size: 12px; color: var(--faint); margin-top: 10px; }
+
+/* ---------- sections ---------- */
+section { padding: 72px 0; }
+section + section { border-top: 1px solid var(--line); }
+h2 {
+  font-size: clamp(1.45rem, 2.6vw, 1.9rem);
+  line-height: 1.2; font-weight: 700; letter-spacing: -.02em;
+  margin-bottom: 18px; text-wrap: balance;
+}
+.sub { color: var(--soft); max-width: 44rem; text-wrap: pretty; }
+.sub + .sub { margin-top: 12px; }
+
+/* the pipeline you delete */
+.pipe {
+  margin-top: 30px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  padding: 22px 26px;
+  font: 13.5px/2 var(--mono);
+}
+.pipe .dead { color: var(--faint); }
+.pipe .dead s { text-decoration-color: var(--bad); text-decoration-thickness: 1.5px; }
+.pipe .live { color: var(--text); }
+.pipe .live .hl { color: var(--accent-deep); font-weight: 600; }
+.pipe .arrow { color: var(--faint); }
+
+/* how it works */
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin-top: 34px; }
+.step .n { font: 12px var(--mono); color: var(--accent-deep); font-weight: 600; }
+.step h3 { font-size: 15.5px; font-weight: 650; margin: 8px 0 6px; letter-spacing: -.01em; }
+.step p { font-size: 13.5px; color: var(--muted); }
+.alphabet { margin-top: 36px; display: flex; flex-wrap: wrap; gap: 5px; }
+.alphabet span {
+  width: 30px; height: 34px; display: grid; place-items: center;
+  border: 1px solid var(--line); border-radius: 6px;
+  font: 12px var(--mono); color: var(--faint);
+  background: var(--surface);
+}
+.alphabet span.hot {
+  background: var(--accent-wash); border-color: var(--accent-edge);
+  color: var(--accent-deep); font-weight: 600;
+}
+.alphabet-cap { margin-top: 12px; font-size: 12.5px; color: var(--muted); }
+.alphabet-cap code { font-size: 11.5px; }
+
+/* numbers */
+.tables { display: grid; grid-template-columns: 1.25fr 1fr; gap: 40px; margin-top: 32px; align-items: start; }
+.tbl-cap { font-size: 12.5px; color: var(--muted); margin-bottom: 10px; }
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 8px 0; text-align: right; border-bottom: 1px solid var(--line); }
+th:first-child, td:first-child { text-align: left; }
+thead th {
+  font-size: 11.5px; font-weight: 600; color: var(--muted);
+  border-bottom: 1px solid var(--line-hi);
+}
+tbody tr:last-child td { border-bottom: 0; }
+td { font-variant-numeric: tabular-nums; color: var(--soft); }
+td.m { font-family: var(--mono); font-size: 12.5px; }
+td.snapcol, th.snapcol { color: var(--text); font-weight: 600; }
+td.delta { color: var(--accent-deep); font-weight: 600; }
+td.na { color: var(--faint); }
+.acc { margin-top: 40px; }
+.acc .tbl-cap { margin-bottom: 10px; }
+
+/* jev */
+.jev { display: grid; grid-template-columns: .9fr 1.1fr; gap: 48px; align-items: start; }
+.jev-endpoint {
+  background: var(--ink); color: var(--ink-text);
+  border-radius: 14px; padding: 22px 24px;
+  font: 14px/1.9 var(--mono);
+}
+.jev-endpoint .m { color: #8fd4a8; font-weight: 600; }
+.jev-endpoint .dim { color: var(--ink-soft); }
+.jev h2 { margin-bottom: 14px; }
+.jev p { color: var(--soft); font-size: 14.5px; }
+.jev p + p { margin-top: 10px; }
+.jev .fields { margin-top: 16px; font: 12.5px/1.9 var(--mono); color: var(--muted); }
+.jev .fields b { color: var(--soft); font-weight: 500; }
+.jev .disclaimer { margin-top: 18px; font-size: 12.5px; color: var(--faint); }
+
+/* install */
+.install { display: grid; grid-template-columns: 1.15fr .85fr; gap: 48px; align-items: start; }
+.term {
+  background: var(--ink); color: var(--ink-text);
+  border-radius: 14px; overflow: hidden;
+}
+.term-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-bottom: 1px solid var(--ink-line);
+}
+.term-head i { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-line); }
+.term-head .t { margin-left: 6px; font: 12px var(--mono); color: var(--ink-soft); }
+.copy {
+  margin-left: auto; border: 0; background: none; border-radius: 6px; padding: 3px 8px;
+  font: 12px var(--mono); color: var(--ink-soft); cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.copy:hover { background: rgba(255,255,255,.07); color: var(--ink-text); }
+.term pre {
+  margin: 0; padding: 18px 20px;
+  font: 12.8px/1.75 var(--mono);
+  overflow-x: auto;
+}
+.term .c { color: var(--ink-soft); }
+.term .p { color: #8fd4a8; user-select: none; }
+.install .steps-side p { color: var(--soft); font-size: 14px; }
+.install .steps-side p + p { margin-top: 12px; }
+.plat { margin-top: 18px; font: 12px/1.9 var(--mono); color: var(--muted); }
+.plat b { color: var(--soft); font-weight: 500; }
+
+/* footer */
+footer { border-top: 1px solid var(--line); padding: 40px 0 56px; }
+footer .wrap { display: flex; align-items: center; gap: 12px; }
+footer .mark { width: 24px; height: 24px; }
+footer .tag { font-style: italic; color: var(--muted); font-size: 13.5px; }
+footer .links { margin-left: auto; display: flex; gap: 18px; font-size: 13px; }
+footer .links a { color: var(--muted); text-decoration: none; }
+footer .links a:hover { color: var(--text); }
+
+@media (max-width: 880px) {
+  .hero { padding: 56px 0 48px; }
+  .hero .wrap, .jev, .install, .tables { grid-template-columns: 1fr; }
+  .hero .wrap { gap: 40px; }
+  .steps { grid-template-columns: 1fr; gap: 20px; }
+  section { padding: 52px 0; }
+  .top nav { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .fill { transition: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <img class="mark" src="logo.png" alt="snap crocodile logo">
+    <span class="brand">snap</span>
+    <nav aria-label="Sections">
+      <a href="#how">How</a>
+      <a href="#numbers">Numbers</a>
+      <a href="#jev">Jev</a>
+      <a href="#install">Install</a>
+    </nav>
+    <a class="gh" href="https://github.com/emnlmn/snap" aria-label="snap on GitHub">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<main>
+
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <h1>Typed decisions from unstructured state.</h1>
+      <p class="tag">one forward pass · zero generated text</p>
+      <p class="lede">snap compiles every question to a letter alphabet (A through Z, one slot per
+        option), reads the logits at a single position, and softmaxes them into a probability
+        distribution. The jaw snaps shut on the answer. No prose, no parsing, no retries.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/emnlmn/snap/releases">Download the binary</a>
+        <a class="btn ghost" href="https://github.com/emnlmn/snap">View source</a>
+      </div>
+      <p class="micro">macOS · Linux · single static Rust binary · MIT · not affiliated with <a href="https://typesafe.ai">typesafe.ai</a></p>
+    </div>
+
+    <div>
+      <div class="demo" role="img" aria-label="Example snap response: three typed answers with probability distributions">
+        <div class="demo-head">
+          <span class="ep">POST /v1/systemone</span>
+          <span class="model">qwen3.8-4b · shared</span>
+        </div>
+        <div class="demo-state"><b>state</b> = "Customer: charged twice, furious, threatening chargeback…"</div>
+
+        <div class="q">
+          <div class="q-head"><span class="q-name">route</span><span class="q-type">choice</span><span class="q-winner">billing</span></div>
+          <div class="bar win"><span class="lbl">billing</span><span class="track"><span class="fill" data-p=".87"></span></span><span class="pct">.87</span></div>
+          <div class="bar"><span class="lbl">tech</span><span class="track"><span class="fill" data-p=".09"></span></span><span class="pct">.09</span></div>
+          <div class="bar"><span class="lbl">account</span><span class="track"><span class="fill" data-p=".04"></span></span><span class="pct">.04</span></div>
+        </div>
+
+        <div class="q">
+          <div class="q-head"><span class="q-name">urgent</span><span class="q-type">noul</span><span class="q-winner">true</span></div>
+          <div class="bar win"><span class="lbl">true</span><span class="track"><span class="fill" data-p=".94"></span></span><span class="pct">.94</span></div>
+          <div class="bar"><span class="lbl">false</span><span class="track"><span class="fill" data-p=".06"></span></span><span class="pct">.06</span></div>
+        </div>
+
+        <div class="q">
+          <div class="q-head"><span class="q-name">impact</span><span class="q-type">score</span><span class="q-winner">high · 0.81</span></div>
+          <div class="bar"><span class="lbl">low</span><span class="track"><span class="fill" data-p=".05"></span></span><span class="pct">.05</span></div>
+          <div class="bar"><span class="lbl">mid</span><span class="track"><span class="fill" data-p=".14"></span></span><span class="pct">.14</span></div>
+          <div class="bar win"><span class="lbl">high</span><span class="track"><span class="fill" data-p=".81"></span></span><span class="pct">.81</span></div>
+        </div>
+
+        <div class="demo-foot">
+          <span><span class="ms" id="ms">0</span> ms · 3 questions, one state prefix</span>
+          <button class="replay" id="replay">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5a5.5 5.5 0 1 1-5.3 4M2.7 2.8v3.7h3.7"/></svg>
+            replay
+          </button>
+        </div>
+      </div>
+      <p class="note">Recorded output. Deterministic: replay returns the same distribution.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>SNAP never lets it talk.</h2>
+    <p class="sub">Somewhere in your stack there's a prompt asking for JSON, a parser that mostly
+      works, a retry loop for when it doesn't, and a token bill for thousands of generated words
+      you immediately throw away. All of it exists for one reason: the only way to interrogate a
+      chat model is to let it talk.</p>
+    <div class="pipe" aria-label="Pipeline comparison">
+      <div class="dead"><s>prompt <span class="arrow">→</span> generate prose <span class="arrow">→</span> parse JSON <span class="arrow">→</span> validate <span class="arrow">→</span> retry <span class="arrow">→</span> bill</s></div>
+      <div class="live">prompt <span class="arrow">→</span> <span class="hl">one decode <span class="arrow">→</span> distribution</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <h2>Logits in, distributions out.</h2>
+    <p class="sub">The output surface is a fixed alphabet of letters. Structured by construction:
+      there is nothing downstream to parse, validate, or repair. All questions in a request share
+      the same state prefix, evaluated once; on full-attention models the question suffixes decode
+      in a single batched call.</p>
+
+    <div class="steps">
+      <div class="step">
+        <span class="n">1</span>
+        <h3>Compile</h3>
+        <p>Each question (<code>noul</code>, <code>choice</code>, <code>score</code>,
+        <code>numeric</code>) becomes a prompt whose first answer token must be a letter.</p>
+      </div>
+      <div class="step">
+        <span class="n">2</span>
+        <h3>Read one position</h3>
+        <p>snap takes the logits at that single token position. One <code>llama_decode</code> per
+        question, batched across parallel KV sequences.</p>
+      </div>
+      <div class="step">
+        <span class="n">3</span>
+        <h3>Softmax</h3>
+        <p>Letter variants pool and normalize into a distribution over your options, calibrated
+        after <code>snap calibrate</code>.</p>
+      </div>
+    </div>
+
+    <div class="alphabet" aria-label="The letter alphabet output surface">
+      <span>A</span><span class="hot">B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span><span>I</span><span>J</span><span>K</span><span>L</span><span>M</span><span>N</span><span>O</span><span>P</span><span>Q</span><span>R</span><span>S</span><span>T</span><span>U</span><span>V</span><span>W</span><span>X</span><span>Y</span><span>Z</span>
+    </div>
+    <p class="alphabet-cap">The entire output surface. Past 26 options, each candidate gets its own
+      yes/no probe batched over the shared prefix (up to <code>256</code>).</p>
+  </div>
+</section>
+
+<section id="numbers">
+  <div class="wrap">
+    <h2>Measured, not promised.</h2>
+    <p class="sub">Apple Silicon, Metal, in-process, p50. Reproduce with
+      <code>snap bench</code> and <code>snap evaluate eval/*.jsonl</code>.</p>
+
+    <div class="tables">
+      <div>
+        <p class="tbl-cap">Latency · questions share one state prefix</p>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>scenario</th><th>minicpm5-2b</th><th>spark-4b</th><th class="snapcol">qwen3.8-4b</th></tr></thead>
+          <tbody>
+            <tr><td>single question</td><td class="m">136 ms</td><td class="m">272 ms</td><td class="m snapcol">284 ms</td></tr>
+            <tr><td>4 questions, shared</td><td class="m">114 ms/q</td><td class="m">204 ms/q</td><td class="m snapcol">249 ms/q</td></tr>
+            <tr><td>8 questions, shared</td><td class="m">100 ms/q</td><td class="m">217 ms/q</td><td class="m snapcol">248 ms/q</td></tr>
+            <tr><td>8 KB state, 1 question</td><td class="m">1245 ms</td><td class="m">2818 ms</td><td class="m snapcol">2427 ms</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <div>
+        <p class="tbl-cap">Same MiniCPM-2B weights: snap vs Ollama</p>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>workload</th><th>Ollama</th><th class="snapcol">snap</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>1 question</td><td class="m">193 ms</td><td class="m snapcol">136 ms</td><td class="delta">−30%</td></tr>
+            <tr><td>4 questions</td><td class="m">788 ms</td><td class="m snapcol">454 ms</td><td class="delta">−42%</td></tr>
+            <tr><td>8 questions</td><td class="m">1884 ms</td><td class="m snapcol">803 ms</td><td class="delta">−57%</td></tr>
+            <tr><td>~8k-token state</td><td class="m na">rejected</td><td class="m snapcol">1245 ms</td><td class="na">—</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="acc">
+      <p class="tbl-cap">Accuracy · eval/core (52 cases) · eval/edge (19)</p>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>model</th><th>core</th><th>edge</th><th>ms/case</th></tr></thead>
+        <tbody>
+          <tr><td>qwen3.8-4b Q4_K_M</td><td class="m snapcol">90.4%</td><td class="m snapcol">89.5%</td><td class="m">~240</td></tr>
+          <tr><td>spark-4b Q8_0</td><td class="m">88.5%</td><td class="m">73.7%</td><td class="m">~230</td></tr>
+          <tr><td>minicpm5-2b Q4_K_M</td><td class="m">67.3%</td><td class="m">57.9%</td><td class="m">~135</td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">Raw probabilities are honest but uncalibrated: <code>snap calibrate</code> fits
+        one temperature per question type on your labeled cases, bound to the model and prompt
+        version, with ECE printed before and after.</p>
+    </div>
+  </div>
+</section>
+
+<section id="jev">
+  <div class="wrap jev">
+    <div class="jev-endpoint" aria-label="API endpoint">
+      <span class="m">POST</span> /v1/systemone<br>
+      <span class="dim"># noul · choice · score · numeric<br>
+      # abstain · mode shared|direct<br>
+      # one surface, no parallel API</span>
+    </div>
+    <div>
+      <h2>Drop-in Jev.</h2>
+      <p>The wire format is TypeSafe's Jev: point an existing client at a local
+        <code>snap serve</code> and it works: same request, same response shape.</p>
+      <p>Snap extensions are optional fields a Jev client can ignore; defaults preserve Jev
+        semantics. Answers carry extras (<code>status</code>, <code>confidence</code>, full
+        <code>probabilities</code>) on top of the Jev shape.</p>
+      <div class="fields">
+        <b>"type": "numeric"</b> → distribution over {min, max, granularity}<br>
+        <b>allow_abstain</b> → adds an __abstain__ slot, status "abstained"<br>
+        <b>"mode"</b> → "shared" (prefix amortized) or "direct"
+      </div>
+      <p class="disclaimer">snap is an independent implementation, not affiliated with
+        <a href="https://typesafe.ai">TypeSafe AI</a>. Jev itself is a hosted model in early access.</p>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap install">
+    <div class="term">
+      <div class="term-head">
+        <i></i><i></i><i></i>
+        <span class="t">sh</span>
+        <button class="copy" id="copy">copy</button>
+      </div>
+      <pre id="term"><span class="c"># pick your platform's tarball from Releases</span>
+<span class="p">$</span> curl -LO https://github.com/emnlmn/snap/releases/latest/download/snap-macos-arm64.tar.gz
+<span class="p">$</span> tar xzf snap-*.tar.gz
+<span class="p">$</span> ./snap serve --model qwen3.8-4b
+<span class="c"># → http://localhost:8018/playground</span>
+<span class="c"># first run pulls the GGUF (~1.5–4 GB), then fully offline</span></pre>
+    </div>
+    <div class="steps-side">
+      <h2>Runs where your data lives.</h2>
+      <p>No API key, no telemetry, no third party reading your customers' tickets. Weights are a
+        GGUF on disk, downloaded once from HuggingFace.</p>
+      <p>Nothing to jailbreak: the model cannot emit a payload because it cannot emit text.</p>
+      <div class="plat">
+        <b>macOS</b> arm64 · Metal<br>
+        <b>Linux</b> x86_64 · x86-64-v3 · aarch64 · musl (static) · vulkan<br>
+        <b>Source</b> cargo build --release (llama.cpp vendored)
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <img class="mark" src="logo.png" alt="">
+    <span class="tag">One pass. One distribution. The jaw snaps shut.</span>
+    <nav class="links">
+      <a href="https://github.com/emnlmn/snap">GitHub</a>
+      <a href="https://github.com/emnlmn/snap/releases">Releases</a>
+      <a href="https://github.com/emnlmn/snap/blob/main/README.md">README</a>
+      <a href="https://typesafe.ai">typesafe.ai</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+const TARGET_MS = 284;
+const fills = [...document.querySelectorAll('.fill')];
+const msEl = document.getElementById('ms');
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let raf;
+
+function run() {
+  cancelAnimationFrame(raf);
+  fills.forEach(f => { f.style.transition = 'none'; f.style.width = '0'; });
+  void document.querySelector('.demo').offsetWidth; // reflow
+  if (reduced) {
+    fills.forEach(f => f.style.width = (f.dataset.p * 100) + '%');
+    msEl.textContent = TARGET_MS;
+    return;
+  }
+  const t0 = performance.now();
+  const dur = 700;
+  fills.forEach((f, i) => {
+    f.style.transition = `width ${dur}ms cubic-bezier(.16,1,.3,1) ${i * 55}ms`;
+    f.style.width = (f.dataset.p * 100) + '%';
+  });
+  const tick = now => {
+    const k = Math.min(1, (now - t0) / dur);
+    msEl.textContent = Math.round(TARGET_MS * (1 - Math.pow(1 - k, 3)));
+    if (k < 1) raf = requestAnimationFrame(tick);
+  };
+  raf = requestAnimationFrame(tick);
+}
+
+document.getElementById('replay').addEventListener('click', run);
+
+// first run when the demo scrolls into view
+const io = new IntersectionObserver((es) => {
+  if (es.some(e => e.isIntersecting)) { run(); io.disconnect(); }
+}, { threshold: .4 });
+io.observe(document.querySelector('.demo'));
+
+// copy install commands
+document.getElementById('copy').addEventListener('click', async (e) => {
+  const clean = "curl -LO https://github.com/emnlmn/snap/releases/latest/download/snap-macos-arm64.tar.gz\ntar xzf snap-*.tar.gz\n./snap serve --model qwen3.8-4b";
+  try { await navigator.clipboard.writeText(clean); e.target.textContent = 'copied'; }
+  catch { e.target.textContent = 'select + ⌘C'; }
+  setTimeout(() => e.target.textContent = 'copy', 1600);
+});
+</script>
+</body>
+</html>
