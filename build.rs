@@ -58,12 +58,19 @@ fn main() {
 /// Backend modules for GGML_BACKEND_DL are copied likewise — upstream leaves
 /// them in OUT_DIR where dlopen can't find them. The exe dir is what ships in
 /// release tarballs.
+///
+/// On linux we force old-style DT_RPATH: the default DT_RUNPATH only applies
+/// to the executable's own NEEDED entries, while the shipped libllama.so has
+/// its own deps on libggml-*.so — only RPATH is inherited down the chain.
 fn stage_shared_libs() {
     println!("cargo:rerun-if-env-changed=LLAMA_BUILD_SHARED_LIBS");
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     match target_os.as_str() {
         "macos" => println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path"),
-        "linux" => println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN"),
+        "linux" => {
+            println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN");
+            println!("cargo:rustc-link-arg=-Wl,--disable-new-dtags");
+        }
         _ => {} // windows: DLLs resolve from the exe dir natively
     }
     // OUT_DIR = target/[triple/]<profile>/build/snap-<hash>/out -> profile dir

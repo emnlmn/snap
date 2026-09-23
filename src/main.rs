@@ -310,7 +310,7 @@ fn main() -> Result<()> {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?;
-            rt.block_on(server::serve(eng, host, *port))?;
+            rt.block_on(server::serve(eng, &m.model, m.ctx, host, *port))?;
         }
     }
     Ok(())

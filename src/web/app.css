@@ -51,16 +51,27 @@ code { font: .92em var(--mono); color: var(--soft); }
 
 /* ---------- top bar ---------- */
 .topbar {
-  display: flex; align-items: center; gap: 16px;
+  display: flex; align-items: center; gap: 10px;
   height: 48px; padding: 0 var(--gutter);
   border-bottom: 1px solid var(--line);
 }
-.brand { font-weight: 650; font-size: 15px; letter-spacing: -.01em; }
-.status { display: inline-flex; align-items: center; gap: 8px; font: 12px var(--mono); color: var(--muted); }
-.status i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); transition: background .2s; }
+.mark { display: block; width: 32px; height: 32px; }
+.brand { font-weight: 650; font-size: 15px; letter-spacing: -.01em; margin-right: 6px; }
+.status {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 0; background: none; border-radius: 6px; padding: 4px 8px;
+  font: 12px var(--mono); color: var(--muted);
+  transition: background .15s, color .15s;
+}
+.status:hover { background: var(--raise); color: var(--soft); }
+.status svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.6; opacity: .7; }
+.status i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); transition: background .2s; flex: none; }
 .status.wait i { background: var(--faint); }
+.status.loading i { background: var(--num); animation: blink 1s var(--ease) infinite; }
+@keyframes blink { 50% { opacity: .3; } }
 .status.down i { background: var(--bad); }
 .status.down { color: var(--bad); }
+.status #model { max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- split layout ---------- */
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 0; }
@@ -129,6 +140,7 @@ code { font: .92em var(--mono); color: var(--soft); }
 }
 .knob input:hover { border-color: var(--line-hi); }
 .knob input:focus { border-color: rgba(143, 179, 255, .5); }
+.knob input.bad { border-color: rgba(240, 140, 132, .6); color: var(--bad); }
 
 /* ---------- request: two boxes ---------- */
 .builder { display: grid; gap: 16px; padding: 16px var(--gutter) 24px; }

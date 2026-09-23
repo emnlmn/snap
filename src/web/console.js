@@ -406,10 +406,16 @@ $("mode").onclick = (e) => openPop(e.currentTarget, MODES.map(([m, hint]) => ({
   label: m, hint, current: m === doc.mode,
   on: () => { doc.mode = m; $("mode").innerHTML = `${m}${ICON.caret}`; syncPanes(); },
 })));
-$("temp").addEventListener("input", (e) => {
-  const v = parseFloat(e.target.value);
-  doc.temperature = Number.isFinite(v) && v >= 0 ? v : 1;
-  syncPanes();
+const tempIn = $("temp");
+tempIn.addEventListener("input", () => {
+  const v = parseFloat(tempIn.value);
+  const ok = Number.isFinite(v) && v > 0 && v <= 10;
+  tempIn.classList.toggle("bad", !ok);
+  if (ok) { doc.temperature = v; syncPanes(); }
+});
+tempIn.addEventListener("blur", () => {
+  tempIn.value = doc.temperature;
+  tempIn.classList.remove("bad");
 });
 
 /* ---------------- popover ---------------- */
@@ -660,16 +666,72 @@ function renderRan() {
 }
 setInterval(renderRan, 5000);
 
-/* ---------------- health ---------------- */
+/* ---------------- model picker + health ---------------- */
+let currentName = null; // tested-model spec the engine is running
+let wantModel = null;   // spec a switch is in flight for
+
+$("srv").onclick = async (e) => {
+  const anchor = e.currentTarget;
+  let items = [];
+  try {
+    const j = await (await fetch("/v1/models")).json();
+    items = (j.data || []).map((m) => ({
+      label: m.id,
+      hint: (m.file || "").replace(/\.gguf$/i, ""),
+      current: m.active ?? m.id === currentName,
+      on: () => switchModel(m.id),
+    }));
+  } catch { /* fall through to the single-item menu */ }
+  if (!items.length)
+    items = [{ label: currentName || $("model").textContent, hint: "", current: true, on: () => {} }];
+  openPop(anchor, items);
+};
+
+async function switchModel(name) {
+  if (wantModel || name === currentName) return;
+  wantModel = name;
+  const srv = $("srv");
+  srv.classList.add("loading");
+  $("model").textContent = `loading ${name}…`;
+  try {
+    const r = await fetch("/v1/models", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: name }),
+    });
+    if (!r.ok) throw new Error((await r.json()).error || `HTTP ${r.status}`);
+    const j = await r.json();
+    wantModel = null;
+    currentName = j.name || name;
+    srv.classList.remove("loading", "down", "wait");
+    $("model").textContent = currentName;
+    srv.title = j.model || currentName;
+    return;
+  } catch (e) {
+    wantModel = null;
+    srv.classList.remove("loading");
+    srv.classList.add("down");
+    $("model").textContent = "switch failed";
+    srv.title = String(e.message || e);
+  }
+  // the health poll confirms the new resident model
+}
+
 async function health() {
   try {
     const j = await (await fetch("/healthz")).json();
-    $("model").textContent = j.model;
-    $("srv").classList.remove("down", "wait");
+    currentName = j.name || null;
+    if (wantModel && j.name !== wantModel) return; // still loading
+    wantModel = null;
+    $("srv").classList.remove("down", "wait", "loading");
+    $("model").textContent = j.name || j.model;
+    $("srv").title = j.model;
   } catch {
+    if (wantModel) return;
     $("model").textContent = "server unreachable";
     $("srv").classList.remove("wait");
     $("srv").classList.add("down");
+    $("srv").title = "POST /healthz is not answering";
   }
 }
 
