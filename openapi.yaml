@@ -119,7 +119,7 @@ paths:
                     value: 212.5
                     probabilities: {__below__: 0.02, __above__: 0.05, __abstain__: 0.01}
                 model: snap-minicpm5-2b-q4_k_m
-                usage: {input_tokens: 184, output_tokens: 0}
+                usage: {input_tokens: 184}
                 x_snap:
                   shared_prefix_tokens: 96
                   cached_head_tokens: 31
@@ -340,8 +340,7 @@ components:
         usage:
           type: object
           properties:
-            input_tokens: {type: integer, description: Shared prefix once + every decoded suffix (expansion probes included).}
-            output_tokens: {type: integer, enum: [0], description: Always 0 — nothing is generated.}
+            input_tokens: {type: integer, description: Shared prefix once + every decoded suffix (expansion probes included). Nothing is ever generated, so there is no output side.}
         x_snap:
           type: object
           description: Honest internals — exactly what the engine did.

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>snap · missile command</title>
+<link rel="icon" type="image/png" href="/playground/logo.png?v=2">
+<link rel="stylesheet" href="/playground/app.css">
+<link rel="stylesheet" href="/playground/missile.css">
+</head>
+<body>
+<header class="topbar">
+  <img class="mark" src="/playground/logo.png" alt="" width="32" height="32">
+  <span class="brand">snap</span>
+  <span class="status wait" id="srv"><i></i><span id="model">connecting…</span></span>
+  <nav class="nav" aria-label="Playground">
+    <a href="/playground">Console</a>
+    <a href="/playground/missile" aria-current="page">Missile<span class="nav-long"> Command</span></a>
+  </nav>
+</header>
+
+<main class="mc">
+
+  <section class="field" id="field" aria-label="Battlefield">
+    <canvas id="cv" aria-label="Missiles falling toward six cities. Click to drop a missile on that spot."></canvas>
+    <div class="hud">
+      <span><b id="h-kills">0</b> intercepted</span>
+      <span><b id="h-cities">6/6</b> cities</span>
+      <span><b id="h-alive">0</b> incoming</span>
+    </div>
+    <p class="tip">Click to drop a missile on that spot · <kbd>⇧</kbd> click for a salvo of five</p>
+    <button class="ghost frame-btn" id="frame-btn" aria-expanded="false">Last frame</button>
+
+    <div class="sheet" id="sheet" hidden>
+      <div class="sheet-head">
+        <h3>Last frame</h3>
+        <span class="meta" id="sheet-meta"></span>
+        <button class="ghost" id="sheet-close" aria-label="Close">Close</button>
+      </div>
+      <div class="sheet-body">
+        <div class="col">
+          <h4>→ POST /v1/systemone</h4>
+          <pre id="req-json">No frame sent yet — press Start.</pre>
+        </div>
+        <div class="col">
+          <h4 id="res-head">← response</h4>
+          <pre id="res-json">—</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="veil" id="veil">
+      <div class="veil-card">
+        <h1 id="v-title">Missile Command</h1>
+        <p id="v-body">Missiles fall on six cities. Each frame, snap reads the whole sky once, scores every missile in the same pass and picks the one to shoot. Flip to <b>direct</b> and each missile costs its own pass.</p>
+        <div class="veil-act">
+          <button class="run" id="v-go"><span id="v-go-label">Start defending</span><kbd>Space</kbd></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <aside class="pane side" aria-label="snap decisions">
+    <div class="pane-head">
+      <h2>Decisions</h2>
+      <span class="meta" id="live"></span>
+      <div class="seg" id="modes" role="radiogroup" aria-label="Decode mode">
+        <button data-m="shared" class="on" role="radio" aria-checked="true" title="State read once, all missiles batched in one decode"><i class="dot shared"></i>shared</button>
+        <button data-m="direct" role="radio" aria-checked="false" title="Each missile evaluated on its own pass"><i class="dot direct"></i>direct</button>
+      </div>
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="pane-body">
+      <div class="board" id="board" role="table" aria-label="Threat per missile">
+        <div class="row head" role="row">
+          <span role="columnheader">missile</span>
+          <span role="columnheader">target</span>
+          <span role="columnheader" class="r">impact</span>
+          <span role="columnheader">threat</span>
+          <span role="columnheader" class="r">shoot</span>
+        </div>
+        <div id="rows"></div>
+      </div>
+      <p class="board-empty" id="board-empty">The sky is clear. Start the rain or click the battlefield to drop a missile.</p>
+    </div>
+
+    <section class="chart" aria-labelledby="h-chart">
+      <div class="chart-head">
+        <h3 id="h-chart">Latency per frame</h3>
+        <span class="legend"><i class="dot shared"></i>shared <i class="dot direct"></i>direct</span>
+        <button class="ghost" id="sweep" title="Pause the game and time 1 to 24 missiles in both modes">Sweep 1–24</button>
+      </div>
+      <canvas id="chart" aria-label="Server time in milliseconds against missiles in the frame"></canvas>
+      <p class="readout" id="readout">Each dot is one decision: missiles in the frame against server time.</p>
+    </section>
+
+    <div class="pane-foot">
+      <div class="knobs">
+        <button class="ghost" id="salvo" title="Drop five missiles (S)">Salvo ×5</button>
+        <button class="ghost toggle" id="rain" aria-pressed="true" title="Missiles keep falling on their own">Rain</button>
+      </div>
+      <button class="run" id="go"><span id="go-label">Start</span><kbd>Space</kbd></button>
+    </div>
+  </aside>
+
+</main>
+<script src="/playground/missile.js"></script>
+</body>
+</html>

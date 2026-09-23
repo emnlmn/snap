@@ -320,42 +320,62 @@ impl Engine {
     ) -> Result<(Map<String, Value>, Instant)> {
         let ctx = self.mctx.context("no mctx")?;
         let start = if plen > 0 { plen } else { hstart };
+        // An item whose whole prompt is the shared prefix has no suffix to
+        // decode: its answer row is the one the prefix decode itself emits.
+        let mut prefix_row = None;
         unsafe {
             for seq in 1..llamac::MAX_SEQS {
                 llamac::mem_rm(ctx, seq, -1, -1);
             }
             llamac::mem_rm(ctx, 0, hstart as i32, -1);
             if plen > hstart {
-                llamac::batch_decode(
+                prefix_row = llamac::batch_decode(
                     ctx,
                     &[(0, &items[0].toks[hstart..plen], hstart as i32)],
                     self.n_batch as usize,
                     self.n_vocab,
-                )?;
+                )?
+                .into_iter()
+                .next();
             }
         }
         let t_prefill = Instant::now();
         let wave = (llamac::MAX_SEQS - 1) as usize;
-        let mut rows_all = Vec::with_capacity(items.len());
-        for chunk in items.chunks(wave) {
-            let seqs: Vec<(i32, &[i32], i32)> = chunk
+        let mut rows_all: Vec<Option<Vec<f32>>> = vec![None; items.len()];
+        for (w, chunk) in items.chunks(wave).enumerate() {
+            let base = w * wave;
+            let live: Vec<usize> = (0..chunk.len())
+                .filter(|&i| chunk[i].toks.len() > start)
+                .collect();
+            let seqs: Vec<(i32, &[i32], i32)> = live
                 .iter()
                 .enumerate()
-                .map(|(i, it)| (i as i32 + 1, &it.toks[start..], start as i32))
+                .map(|(s, &i)| (s as i32 + 1, &chunk[i].toks[start..], start as i32))
                 .collect();
             unsafe {
-                for i in 0..chunk.len() {
-                    llamac::mem_cp(ctx, 0, i as i32 + 1, 0, start as i32);
+                for s in 0..live.len() {
+                    llamac::mem_cp(ctx, 0, s as i32 + 1, 0, start as i32);
                 }
-                let rows = llamac::batch_decode(ctx, &seqs, self.n_batch as usize, self.n_vocab)?;
-                for i in 1..=chunk.len() as i32 {
-                    llamac::mem_rm(ctx, i, -1, -1);
+                if !seqs.is_empty() {
+                    let rows =
+                        llamac::batch_decode(ctx, &seqs, self.n_batch as usize, self.n_vocab)?;
+                    for i in 1..=live.len() as i32 {
+                        llamac::mem_rm(ctx, i, -1, -1);
+                    }
+                    for (&i, row) in live.iter().zip(rows) {
+                        rows_all[base + i] = Some(row);
+                    }
                 }
-                rows_all.extend(rows);
+            }
+            for (i, it) in chunk.iter().enumerate() {
+                if it.toks.len() == start {
+                    rows_all[base + i] = prefix_row.clone();
+                }
             }
         }
         let mut answers = Map::new();
         for (it, row) in items.iter().zip(rows_all) {
+            let row = row.context("item produced no logits")?;
             let logits = self.letter_logits(&row, it.slots.len());
             answers.insert(
                 it.name.clone(),
@@ -441,6 +461,7 @@ impl Engine {
         let mut answers = match answers {
             Some(a) => a,
             None => {
+                let mut prefix_row = None;
                 unsafe {
                     if self.can_rewind {
                         llamac::mem_rm(self.ctx, 0, hstart as i32, -1); // keep resident head
@@ -450,12 +471,14 @@ impl Engine {
                         llamac::mem_clear(self.ctx);
                     }
                     if plen > hstart {
-                        llamac::batch_decode(
+                        prefix_row = llamac::batch_decode(
                             self.ctx,
                             &[(0, &items[0].toks[hstart..plen], hstart as i32)],
                             self.n_batch as usize,
                             self.n_vocab,
-                        )?;
+                        )?
+                        .into_iter()
+                        .next();
                     }
                 }
                 let state = if self.can_rewind {
@@ -468,18 +491,23 @@ impl Engine {
                 let mut out = Map::new();
                 for it in &items {
                     let start = if plen > 0 { plen } else { hstart };
-                    let row = unsafe {
-                        match &state {
-                            None => llamac::mem_rm(self.ctx, 0, start as i32, -1),
-                            Some(st) => llamac::state_load(self.ctx, st),
+                    // whole prompt inside the shared prefix: reuse its logit row
+                    let row = if it.toks.len() == start {
+                        prefix_row.clone().context("missing shared-prefix logits")?
+                    } else {
+                        unsafe {
+                            match &state {
+                                None => llamac::mem_rm(self.ctx, 0, start as i32, -1),
+                                Some(st) => llamac::state_load(self.ctx, st),
+                            }
+                            llamac::batch_decode(
+                                self.ctx,
+                                &[(0, &it.toks[start..], start as i32)],
+                                self.n_batch as usize,
+                                self.n_vocab,
+                            )?
+                            .remove(0)
                         }
-                        llamac::batch_decode(
-                            self.ctx,
-                            &[(0, &it.toks[start..], start as i32)],
-                            self.n_batch as usize,
-                            self.n_vocab,
-                        )?
-                        .remove(0)
                     };
                     let logits = self.letter_logits(&row, it.slots.len());
                     out.insert(
@@ -508,7 +536,7 @@ impl Engine {
         Ok(json!({
             "answers": answers,
             "model": self.model_id,
-            "usage": {"input_tokens": input_tokens, "output_tokens": 0},
+            "usage": {"input_tokens": input_tokens},
             "x_snap": {
                 "shared_prefix_tokens": plen,
                 "cached_head_tokens": hstart,

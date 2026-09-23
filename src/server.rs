@@ -125,6 +125,21 @@ async fn pg_console_js() -> impl IntoResponse {
         include_str!("web/console.js"),
     )
 }
+async fn pg_missile() -> Html<&'static str> {
+    Html(include_str!("web/missile.html"))
+}
+async fn pg_missile_css() -> impl IntoResponse {
+    (
+        [(CONTENT_TYPE, "text/css; charset=utf-8")],
+        include_str!("web/missile.css"),
+    )
+}
+async fn pg_missile_js() -> impl IntoResponse {
+    (
+        [(CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("web/missile.js"),
+    )
+}
 async fn pg_logo() -> impl IntoResponse {
     (
         [(CONTENT_TYPE, "image/png")],
@@ -150,6 +165,9 @@ pub async fn serve(engine: Engine, model: &str, n_ctx: i32, host: &str, port: u1
         .route("/playground/app.css", get(pg_css))
         .route("/playground/console.js", get(pg_console_js))
         .route("/playground/logo.png", get(pg_logo))
+        .route("/playground/missile", get(pg_missile))
+        .route("/playground/missile.css", get(pg_missile_css))
+        .route("/playground/missile.js", get(pg_missile_js))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind((host, port))
         .await
