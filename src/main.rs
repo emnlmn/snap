@@ -4,6 +4,7 @@ mod calibrate;
 mod decisions;
 mod engine;
 mod evaluate;
+mod instances;
 mod llamac;
 mod models;
 mod prompts;
@@ -120,6 +121,23 @@ enum Cmd {
         #[arg(long, default_value = "http://127.0.0.1:8018")]
         url: String,
     },
+    /// list running snap servers
+    Ps,
+    /// stop running servers (no args: the one server, else see `snap ps`)
+    Stop {
+        /// stop every running snap server
+        #[arg(long)]
+        all: bool,
+        /// stop the server on this port (repeatable)
+        #[arg(long, conflicts_with = "all")]
+        port: Vec<u16>,
+        /// stop the server with this pid (repeatable)
+        #[arg(long, conflicts_with = "all")]
+        pid: Vec<u32>,
+        /// don't wait for a graceful drain — SIGKILL
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 /// The request behind -p / decide: inline JSON wins, then a path that
@@ -162,6 +180,128 @@ fn decide_request(m: &ModelArgs, req: api::SystemoneRequest) -> Result<()> {
 fn parse_layout(s: &str) -> std::result::Result<crate::schema::Layout, String> {
     serde_json::from_value::<crate::schema::Layout>(serde_json::json!(s))
         .map_err(|_| "expected auto|state_first|question_first|header".to_string())
+}
+
+/// `snap serve` body — model load + warmup + blocking axum loop.
+fn serve(m: &ModelArgs, host: &str, port: u16) -> Result<()> {
+    eprintln!("snap: loading {} …", m.model);
+    let path = models::resolve(&m.model)?;
+    let mut eng = engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
+    if let Some(c) = &m.calibration {
+        eng.load_calibration(c)?;
+    }
+    // warm the backend pipelines before the port opens — the first
+    // real request shouldn't pay shader-compile + buffer setup
+    if let Err(e) = eng.warmup() {
+        eprintln!("snap: warmup failed: {e}");
+    }
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(server::serve(eng, &m.model, m.ctx, m.threads, host, port))
+}
+
+fn print_ps(live: &[instances::Instance]) {
+    println!(
+        "{:<7} {:<15} {:<22} {:<8} STATE",
+        "PID", "MODEL", "ADDRESS", "UPTIME"
+    );
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    for i in live {
+        let (uptime, model, state) = match &i.state {
+            instances::State::Serving { uptime_s, model } => {
+                (instances::fmt_uptime(*uptime_s), model.as_str(), "serving")
+            }
+            instances::State::Starting => (
+                instances::fmt_uptime(now.saturating_sub(i.info.started)),
+                i.info.model.as_str(),
+                "starting",
+            ),
+            instances::State::Unresponsive => (
+                instances::fmt_uptime(now.saturating_sub(i.info.started)),
+                i.info.model.as_str(),
+                "unresponsive",
+            ),
+        };
+        let pid = if i.info.pid == 0 {
+            "-".to_string()
+        } else {
+            i.info.pid.to_string()
+        };
+        println!(
+            "{:<7} {:<15} {:<22} {:<8} {}",
+            pid,
+            model,
+            format!("{}:{}", i.info.host, i.info.port),
+            uptime,
+            state
+        );
+    }
+}
+
+/// `snap stop`: pick targets, SIGTERM, wait, escalate on unix.
+fn stop(all: bool, port: &[u16], pid: &[u32], force: bool) -> Result<()> {
+    use std::collections::BTreeSet;
+    let live = instances::list();
+    let mut targets: BTreeSet<u32> = BTreeSet::new();
+    if all {
+        targets.extend(live.iter().map(|i| i.info.pid));
+    } else {
+        for p in port {
+            match live.iter().find(|i| i.info.port == *p) {
+                Some(i) => drop(targets.insert(i.info.pid)),
+                None => anyhow::bail!("no snap server on :{p}"),
+            }
+        }
+        for p in pid {
+            match live.iter().find(|i| i.info.pid == *p) {
+                Some(i) => drop(targets.insert(i.info.pid)),
+                None => anyhow::bail!("no snap server with pid {p}"),
+            }
+        }
+        if port.is_empty() && pid.is_empty() {
+            match live.as_slice() {
+                [] => {}
+                [i] => drop(targets.insert(i.info.pid)),
+                _ => {
+                    print_ps(&live);
+                    anyhow::bail!(
+                        "multiple snap servers — `snap stop --all`, or pick one with --port/--pid"
+                    );
+                }
+            }
+        }
+    }
+    if targets.is_empty() {
+        println!("no snap servers running");
+        return Ok(());
+    }
+    for pid in targets {
+        let i = live.iter().find(|i| i.info.pid == pid).unwrap();
+        if pid == 0 {
+            eprintln!(
+                ":{} is serving but not tracked (started outside this snap) — kill it manually",
+                i.info.port
+            );
+            continue;
+        }
+        if !force && !instances::confirmed(i) {
+            eprintln!(
+                "pid {pid} isn't verified as a snap server (pid reuse?) — `--force` to kill anyway"
+            );
+            continue;
+        }
+        if instances::kill(pid, force)? {
+            instances::unregister(pid);
+            println!("stopped :{} (pid {pid})", i.info.port);
+        } else {
+            eprintln!("pid {pid} still alive — retry with `--force`");
+        }
+    }
+    Ok(())
 }
 
 fn init_logs(debug: bool) {
@@ -220,11 +360,28 @@ fn main() -> Result<()> {
         Cmd::Check { url } => {
             let out: serde_json::Value =
                 ureq::get(&format!("{}/healthz", url.trim_end_matches('/')))
-                    .call()?
+                    .call()
+                    .with_context(|| {
+                        format!("no snap server at {url} — `snap ps` lists running ones")
+                    })?
                     .body_mut()
                     .read_json()?;
             println!("{}", serde_json::to_string(&out)?);
         }
+        Cmd::Ps => {
+            let live = instances::list();
+            if live.is_empty() {
+                println!("no snap servers running");
+            } else {
+                print_ps(&live);
+            }
+        }
+        Cmd::Stop {
+            all,
+            port,
+            pid,
+            force,
+        } => stop(*all, port, pid, *force)?,
         Cmd::Calibrate { m, files, output } => {
             init_logs(m.debug);
             if files.is_empty() {
@@ -315,21 +472,22 @@ fn main() -> Result<()> {
         }
         Cmd::Serve { m, host, port } => {
             init_logs(m.debug);
-            let path = models::resolve(&m.model)?;
-            let mut eng =
-                engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
-            if let Some(c) = &m.calibration {
-                eng.load_calibration(c)?;
+            if let Some(i) = instances::on_port(*port) {
+                let who = if i.info.pid == 0 {
+                    "untracked".to_string()
+                } else {
+                    format!("pid {}", i.info.pid)
+                };
+                anyhow::bail!(
+                    "snap is already serving on :{port} ({who}) — \
+                     `snap stop --port {port}` or pick another --port"
+                );
             }
-            // warm the backend pipelines before the port opens — the first
-            // real request shouldn't pay shader-compile + buffer setup
-            if let Err(e) = eng.warmup() {
-                eprintln!("snap: warmup failed: {e}");
-            }
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()?;
-            rt.block_on(server::serve(eng, &m.model, m.ctx, m.threads, host, *port))?;
+            // registered before the slow load so `snap ps` shows "starting"
+            instances::register(host, *port, &m.model)?;
+            let r = serve(m, host, *port);
+            instances::unregister(std::process::id());
+            r?;
         }
     }
     Ok(())

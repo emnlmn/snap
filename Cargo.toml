@@ -21,6 +21,14 @@ ureq = { version = "3", features = ["json"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# pid liveness + SIGTERM/SIGKILL for `snap ps` / `snap stop`
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# OpenProcess/TerminateProcess — windows has no signals
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
 [build-dependencies]
 cc = { version = "1", features = ["parallel"] }
 
