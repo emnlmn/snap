@@ -74,9 +74,16 @@ question. No prose, no parsing, no retries, no hallucinated JSON keys.
   prefix, evaluated once. On full-attention architectures every question
   suffix decodes in **a single batched call** across parallel KV
   sequences. The constant prompt head stays resident between requests.
+- **Questions amortized too.** `layout: question_first` flips the prompt —
+  the question head is identical across requests and stays resident on its
+  own KV sequence (state snapshots on hybrid archs, LRU-bounded). Repeat
+  workloads — the same triage questions on a stream of tickets — decode
+  only the state.
 - **Honest internals.** `x_snap` reports exactly what happened:
-  `cached_head_tokens`, `shared_prefix_tokens`, `rewind: kv|snapshot`,
-  `suffix_decode: batched|sequential`, prefill/total ms.
+  `cached_head_tokens`, `shared_prefix_tokens`, `qhead_hits/misses`,
+  `rewind: kv|snapshot`, `suffix_decode: batched|sequential`,
+  prefill/total ms. Every answer also carries `coverage` — how much of the
+  model's raw next-token mass landed on the allowed letters at all.
 
 ## The API — drop-in Jev, extended
 
@@ -92,6 +99,19 @@ them and defaults preserve Jev semantics:
 | question `"type": "numeric"` | `{min, max, granularity}` — distribution over a numeric range |
 | question `allow_abstain` | default `false`; `true` adds an `__abstain__` slot (status `abstained`) |
 | request `mode` | `shared` (default, prefix amortized) or `direct` |
+| request `layout` | `auto` (default), `state_first`, `question_first`, `header` |
+
+`layout` controls where the question sits relative to the state.
+`question_first` makes the question head cacheable across requests and
+reads more accurately on short states; `state_first` prefills a long
+document once for all questions; `header` lists every question before the
+state so the document is encoded with all of them in view. `auto` picks
+`question_first` only when the question heads outweigh the state — the
+case where warm caches win (qf re-decodes the state per question, sf
+decodes it once). It falls back to `state_first` for states > 2000 chars
+with several questions, whenever any question has `allow_abstain` (an
+abstain slot read before the evidence primes abstention), or when the
+state is bigger than the heads. The resolved layout is in `x_snap`.
 
 Answers carry extras on top of the Jev shape — `status`, `confidence`,
 full `probabilities`, and typed fields (`boolean`, `level`, `value`) —
@@ -186,6 +206,24 @@ time with ≤0.03 mean drift — a tiny sample (n=2), but the harness works.
 
 MiniCPM-2B is the speed/footprint option; the 4B models are the
 production pick.
+
+### TypeSafe's public cases
+
+`eval/typesafe_public.py` runs the 20 public cases from
+[evals.typesafe.ai](https://evals.typesafe.ai) — four workflows, 373
+decisions, reference = frontier consensus — against a running `snap serve`,
+then scores agreement the same way
+[jev-on-a-laptop](https://github.com/rorshopping/jev-on-a-laptop) does, so
+numbers are comparable across Jev reproductions (extraction logic adapted
+from it, MIT). TypeSafe's raw case data is fetched at runtime, never
+committed.
+
+```bash
+python3 eval/typesafe_public.py fetch && python3 eval/typesafe_public.py extract
+snap serve --model qwen3.8-4b --ctx 32768 &   # invoices need room
+python3 eval/typesafe_public.py answer --out results/typesafe-public/snap-qwen38.json
+python3 eval/typesafe_public.py score results/typesafe-public/snap-qwen38.json
+```
 
 ## Calibration
 

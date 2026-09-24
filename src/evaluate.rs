@@ -54,7 +54,11 @@ pub fn judge(ans: &Value, expect: &Value) -> Option<bool> {
     None
 }
 
-pub(crate) fn build_req(case: &Value, no_abstain: bool) -> Result<DecideRequest> {
+pub(crate) fn build_req(
+    case: &Value,
+    no_abstain: bool,
+    layout: Option<crate::schema::Layout>,
+) -> Result<DecideRequest> {
     let mut q = case["question"].clone();
     if no_abstain {
         q.as_object_mut()
@@ -68,6 +72,10 @@ pub(crate) fn build_req(case: &Value, no_abstain: bool) -> Result<DecideRequest>
         questions,
         temperature: 1.0,
         mode: Mode::Shared,
+        // --layout wins; else cases may pin one for A/B runs; else auto
+        layout: layout
+            .or_else(|| serde_json::from_value(case["layout"].clone()).ok())
+            .unwrap_or(crate::schema::Layout::Auto),
     })
 }
 
@@ -364,6 +372,7 @@ pub fn evaluate(
     limit: Option<usize>,
     no_abstain: bool,
     perturb: bool,
+    layout: Option<crate::schema::Layout>,
 ) -> Result<Value> {
     let n = limit.unwrap_or(cases.len()).min(cases.len());
     let mut rows = Vec::new();
@@ -382,7 +391,7 @@ pub fn evaluate(
             );
             continue;
         }
-        let req = build_req(case, no_abstain)?;
+        let req = build_req(case, no_abstain, layout)?;
         let out = engine.decide(&req)?;
         let ans = out["answers"]["q"].clone();
         let expect = case.get("expect").cloned().unwrap_or(json!({}));
@@ -390,14 +399,14 @@ pub fn evaluate(
         collect_dist(case, &ans, &mut dist);
         if let Some(vars) = case["variants"].as_array() {
             for var in vars {
-                let vreq = build_req(&merged_case(case, var), no_abstain)?;
+                let vreq = build_req(&merged_case(case, var), no_abstain, layout)?;
                 let vans = engine.decide(&vreq)?["answers"]["q"].clone();
                 cons.push(("declared", pick(&ans) == pick(&vans), drift(&ans, &vans)));
             }
         }
         if perturb {
             for (kind, var) in auto_variants(case) {
-                let vreq = build_req(&merged_case(case, &var), no_abstain)?;
+                let vreq = build_req(&merged_case(case, &var), no_abstain, layout)?;
                 let vans = engine.decide(&vreq)?["answers"]["q"].clone();
                 cons.push((kind, pick(&ans) == pick(&vans), drift(&ans, &vans)));
             }
@@ -420,6 +429,7 @@ pub fn evaluate_url(
     limit: Option<usize>,
     no_abstain: bool,
     perturb: bool,
+    layout: Option<crate::schema::Layout>,
 ) -> Result<Value> {
     let url = url.trim_end_matches('/');
     let n = limit.unwrap_or(cases.len()).min(cases.len());
@@ -427,9 +437,15 @@ pub fn evaluate_url(
     let mut dist = Vec::new();
     let mut cons: Vec<(&'static str, bool, f64)> = Vec::new();
     let post = |req: &DecideRequest| -> Result<(Value, f64)> {
+        let layout_str = match req.layout {
+            crate::schema::Layout::Auto => "auto",
+            crate::schema::Layout::StateFirst => "state_first",
+            crate::schema::Layout::QuestionFirst => "question_first",
+            crate::schema::Layout::Header => "header",
+        };
         let payload = json!({
             "state": req.state, "questions": req.questions,
-            "temperature": req.temperature, "mode": "shared",
+            "temperature": req.temperature, "mode": "shared", "layout": layout_str,
         });
         let t0 = Instant::now();
         let out: Value = ureq::post(&format!("{url}/v1/systemone"))
@@ -452,7 +468,7 @@ pub fn evaluate_url(
             );
             continue;
         }
-        let req = build_req(case, no_abstain)?;
+        let req = build_req(case, no_abstain, layout)?;
         let (out, ms) = post(&req)?;
         let ans = out["answers"]["q"].clone();
         let expect = case.get("expect").cloned().unwrap_or(json!({}));
@@ -460,7 +476,7 @@ pub fn evaluate_url(
         collect_dist(case, &ans, &mut dist);
         if let Some(vars) = case["variants"].as_array() {
             for var in vars {
-                let vreq = build_req(&merged_case(case, var), no_abstain)?;
+                let vreq = build_req(&merged_case(case, var), no_abstain, layout)?;
                 let (vout, _) = post(&vreq)?;
                 let vans = &vout["answers"]["q"];
                 cons.push(("declared", pick(&ans) == pick(vans), drift(&ans, vans)));
@@ -468,7 +484,7 @@ pub fn evaluate_url(
         }
         if perturb {
             for (kind, var) in auto_variants(case) {
-                let vreq = build_req(&merged_case(case, &var), no_abstain)?;
+                let vreq = build_req(&merged_case(case, &var), no_abstain, layout)?;
                 let (vout, _) = post(&vreq)?;
                 let vans = &vout["answers"]["q"];
                 cons.push((kind, pick(&ans) == pick(vans), drift(&ans, vans)));
@@ -658,9 +674,9 @@ mod tests {
             "state": "s",
             "question": {"type": "boolean"}
         });
-        let r = build_req(&case, true).unwrap();
+        let r = build_req(&case, true, None).unwrap();
         assert_eq!(r.questions["q"]["allow_abstain"], false);
-        let r = build_req(&case, false).unwrap();
+        let r = build_req(&case, false, None).unwrap();
         assert!(r.questions["q"].get("allow_abstain").is_none());
     }
 }

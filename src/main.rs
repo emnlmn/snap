@@ -78,6 +78,9 @@ enum Cmd {
         /// skip auto-generated stability probes (reversal, rewording, noise)
         #[arg(long)]
         no_perturb: bool,
+        /// force a prompt layout for all cases (auto|state_first|question_first|header)
+        #[arg(long, value_parser = parse_layout)]
+        layout: Option<crate::schema::Layout>,
         /// write full report JSON (create-only)
         #[arg(long)]
         output: Option<String>,
@@ -151,6 +154,11 @@ fn decide_request(m: &ModelArgs, req: api::SystemoneRequest) -> Result<()> {
     let out = api::from_native(&eng.decide(&req.to_native())?);
     println!("{}", serde_json::to_string_pretty(&out)?);
     Ok(())
+}
+
+fn parse_layout(s: &str) -> std::result::Result<crate::schema::Layout, String> {
+    serde_json::from_value::<crate::schema::Layout>(serde_json::json!(s))
+        .map_err(|_| "expected auto|state_first|question_first|header".to_string())
 }
 
 fn init_logs(debug: bool) {
@@ -248,19 +256,20 @@ fn main() -> Result<()> {
             limit,
             no_abstain,
             no_perturb,
+            layout,
             output,
         } => {
             init_logs(m.debug);
             let cases = evaluate::load_cases(file)?;
             let rep = if let Some(url) = url {
-                evaluate::evaluate_url(url, &cases, *limit, *no_abstain, !*no_perturb)?
+                evaluate::evaluate_url(url, &cases, *limit, *no_abstain, !*no_perturb, *layout)?
             } else {
                 let path = models::resolve(&m.model)?;
                 let mut eng = engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024)?;
                 if let Some(c) = &m.calibration {
                     eng.load_calibration(c)?;
                 }
-                evaluate::evaluate(&mut eng, &cases, *limit, *no_abstain, !*no_perturb)?
+                evaluate::evaluate(&mut eng, &cases, *limit, *no_abstain, !*no_perturb, *layout)?
             };
             evaluate::print_report(&rep);
             if let Some(o) = output {

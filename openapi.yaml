@@ -9,7 +9,8 @@ info:
     probability distribution — no text generation, no parsing, no retries.
 
     A single endpoint, `POST /v1/systemone`, speaks the TypeSafe/Jev wire format
-    plus optional snap extensions (`numeric` questions, `allow_abstain`, `mode`).
+    plus optional snap extensions (`numeric` questions, `allow_abstain`, `mode`,
+    `layout`).
     Jev clients can ignore every extension: defaults preserve Jev semantics.
 
     **Determinism.** Same input, same distribution. Probabilities are softmaxed
@@ -96,6 +97,7 @@ paths:
                     type: choice
                     status: decided
                     confidence: 0.91
+                    coverage: 0.97
                     choice: billing
                     probabilities: {billing: 0.87, technical: 0.09, sales: 0.03, __abstain__: 0.01}
                   urgent:
@@ -121,6 +123,7 @@ paths:
                 model: snap-minicpm5-2b-q4_k_m
                 usage: {input_tokens: 184}
                 x_snap:
+                  layout: state_first
                   shared_prefix_tokens: 96
                   cached_head_tokens: 31
                   rewind: kv
@@ -213,6 +216,22 @@ components:
             `shared` amortizes the common state prefix across questions.
             `direct` decodes each question independently (verification/reference;
             answers are identical, latency is not).
+        layout:
+          type: string
+          enum: [auto, state_first, question_first, header]
+          default: auto
+          description: |
+            Prompt layout — where the question sits relative to the state.
+            `question_first` puts QUESTION+OPTIONS before STATE: heads stay
+            resident across requests (LRU over seqs or state snapshots), so
+            repeat workloads decode only the state. `state_first` amortizes
+            one long document across all questions of the request. `header`
+            lists every question before the state, then each on its own —
+            the document is read with all questions in view. `auto` picks
+            question_first only when question heads dominate the state —
+            warm caches then decode less — and falls back to state_first for
+            abstain-enabled questions or states > 2000 chars with several
+            questions.
       additionalProperties: true  # envelope is tolerant of extra SDK keys
 
     Question:
@@ -345,8 +364,11 @@ components:
           type: object
           description: Honest internals — exactly what the engine did.
           properties:
+            layout: {type: string, enum: [state_first, question_first, header], description: The layout actually run (`auto` is resolved).}
             shared_prefix_tokens: {type: integer}
             cached_head_tokens: {type: integer, description: Resident prompt-head tokens skipped entirely.}
+            qhead_hits: {type: integer, description: question_first only — questions whose head was already resident.}
+            qhead_misses: {type: integer, description: question_first only — questions whose head had to be decoded.}
             rewind: {type: string, enum: [kv, snapshot], description: How context state is restored between questions.}
             suffix_decode: {type: string, enum: [batched, sequential], description: Whether question suffixes ran in one batched decode.}
             decoded_items: {type: integer, description: Units actually decoded — grows past the question count when a large choice expands into per-option probes.}
@@ -385,6 +407,15 @@ components:
           minimum: 0
           maximum: 1
           description: Normalized top probability — 1 = certain, 0 = uniform over the slots.
+        coverage:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: |
+            Fraction of the raw next-token mass that landed on the allowed
+            letters at all, before renormalization. Low coverage means the
+            model wanted to emit something else entirely — a stronger "this
+            answer is forced" signal than confidence alone.
 
     NoulAnswer:
       allOf:

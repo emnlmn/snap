@@ -98,7 +98,7 @@ code, pre, kbd { font-family: var(--mono); }
 
 /* ---------- hero ---------- */
 .hero { padding: 84px 0 64px; }
-.hero .wrap { display: grid; grid-template-columns: 1.05fr .95fr; gap: 56px; align-items: center; }
+.hero .wrap { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 56px; align-items: center; }
 h1 {
   font-size: clamp(2.1rem, 4.6vw, 3.2rem);
   line-height: 1.08; font-weight: 700; letter-spacing: -.025em;
@@ -161,7 +161,8 @@ h1 {
   border-radius: 14px;
   overflow: hidden;
   display: flex; flex-direction: column;
-  min-height: 540px;
+  min-height: 676px;
+  min-width: 0;
 }
 .demo-head {
   display: flex; align-items: center; gap: 10px;
@@ -173,8 +174,9 @@ h1 {
 .demo-head .model { margin-left: auto; color: var(--faint); }
 .demo-state {
   padding: 12px 16px; border-bottom: 1px solid var(--line);
-  font: 12px/1.55 var(--mono); color: var(--soft);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font: 11.5px/1.6 var(--mono); color: var(--soft);
+  white-space: pre-wrap; overflow-wrap: break-word;
+  max-height: 194px; overflow-y: auto;
 }
 .demo-state b { color: var(--muted); font-weight: 500; }
 .q { padding: 12px 16px; border-bottom: 1px solid var(--line); }
@@ -183,11 +185,12 @@ h1 {
 .q-name { font: 12px var(--mono); font-weight: 600; color: var(--text); }
 .q-type { font: 12px var(--mono); color: var(--faint); }
 .q-winner { margin-left: auto; font: 12px var(--mono); color: var(--accent-deep); font-weight: 600; }
-.bar { display: grid; grid-template-columns: 64px 1fr 44px; align-items: center; gap: 10px; padding: 3px 0; }
-.bar .lbl { font: 12px var(--mono); color: var(--muted); text-align: right; }
+.bar { display: grid; grid-template-columns: 74px 1fr 44px; align-items: center; gap: 10px; padding: 3px 0; }
+.bar .lbl { font: 12px var(--mono); color: var(--muted); text-align: right; white-space: nowrap; }
 .bar.win .lbl { color: var(--text); font-weight: 600; }
-.track { height: 8px; background: var(--raise); border-radius: 4px; overflow: hidden; }
+.track { display: block; height: 8px; background: var(--raise); border-radius: 4px; overflow: hidden; }
 .fill {
+  display: block;
   height: 100%; width: 0;
   background: var(--bar-dim); border-radius: 4px;
   transition: width .7s var(--ease);
@@ -392,9 +395,9 @@ footer .links a:hover { color: var(--text); }
     <div>
       <h1>Typed decisions from unstructured state.</h1>
       <p class="tag">one forward pass · zero generated text</p>
-      <p class="lede">snap compiles every question to a letter alphabet (A through Z, one slot per
-        option), reads the logits at a single position, and softmaxes them into a probability
-        distribution. The jaw snaps shut on the answer. No prose, no parsing, no retries.</p>
+      <p class="lede">Give it a state, ask your questions: get back a yes/no, a class, a score or
+        a number, each with its probabilities. A decision your code can use as-is. No parsing,
+        no retries, nothing leaves the machine.</p>
       <div class="chips">
         <span class="chip">100% local</span>
         <span class="chip">0 output tokens</span>
@@ -420,7 +423,9 @@ footer .links a:hover { color: var(--text); }
           <span class="case" id="case-name">ticket triage</span>
           <span class="model">qwen3.8-4b · shared</span>
         </div>
-        <div class="demo-state"><b>state</b> = "Customer: charged twice, furious, threatening chargeback..."</div>
+        <div class="demo-state"><b>"state"</b>: {
+  "ticket": "charged twice, furious, wants a chargeback."
+}</div>
 
         <div class="q">
           <div class="q-head"><span class="q-name">route</span><span class="q-type">choice</span><span class="q-winner">billing</span></div>
@@ -455,7 +460,6 @@ footer .links a:hover { color: var(--text); }
           </button>
         </div>
       </div>
-      <p class="note">Recorded live from qwen3.8-4b, one pass. Deterministic: same input, same distribution.</p>
     </div>
   </div>
 </section>
@@ -480,7 +484,8 @@ footer .links a:hover { color: var(--text); }
     <p class="sub">The output surface is a fixed alphabet of letters. Structured by construction:
       there is nothing downstream to parse, validate, or repair. All questions in a request share
       the same state prefix, evaluated once; on full-attention models the question suffixes decode
-      in a single batched call.</p>
+      in a single batched call. With <code>layout: question_first</code> the question head itself
+      stays resident in KV across requests — repeat workloads decode only the state.</p>
 
     <div class="steps">
       <div class="step">
@@ -523,10 +528,10 @@ footer .links a:hover { color: var(--text); }
         <div class="tbl-wrap"><table>
           <thead><tr><th>scenario</th><th>minicpm5-2b</th><th>spark-4b</th><th class="snapcol">qwen3.8-4b</th></tr></thead>
           <tbody>
-            <tr><td>single question</td><td class="m">136 ms</td><td class="m">272 ms</td><td class="m snapcol">284 ms</td></tr>
-            <tr><td>4 questions, shared</td><td class="m">114 ms/q</td><td class="m">204 ms/q</td><td class="m snapcol">249 ms/q</td></tr>
-            <tr><td>8 questions, shared</td><td class="m">100 ms/q</td><td class="m">217 ms/q</td><td class="m snapcol">248 ms/q</td></tr>
-            <tr><td>8 KB state, 1 question</td><td class="m">1245 ms</td><td class="m">2818 ms</td><td class="m snapcol">2427 ms</td></tr>
+            <tr><td>single question</td><td class="m">50 ms</td><td class="m">87 ms</td><td class="m snapcol">87 ms</td></tr>
+            <tr><td>4 questions, shared</td><td class="m">36 ms/q</td><td class="m">60 ms/q</td><td class="m snapcol">97 ms/q</td></tr>
+            <tr><td>8 questions, shared</td><td class="m">31 ms/q</td><td class="m">55 ms/q</td><td class="m snapcol">93 ms/q</td></tr>
+            <tr><td>8 KB state, 1 question</td><td class="m">1392 ms</td><td class="m">2778 ms</td><td class="m snapcol">2429 ms</td></tr>
           </tbody>
         </table></div>
       </div>
@@ -535,10 +540,10 @@ footer .links a:hover { color: var(--text); }
         <div class="tbl-wrap"><table>
           <thead><tr><th>workload</th><th>Ollama</th><th class="snapcol">snap</th><th></th></tr></thead>
           <tbody>
-            <tr><td>1 question</td><td class="m">193 ms</td><td class="m snapcol">136 ms</td><td class="delta">-30%</td></tr>
-            <tr><td>4 questions</td><td class="m">788 ms</td><td class="m snapcol">454 ms</td><td class="delta">-42%</td></tr>
-            <tr><td>8 questions</td><td class="m">1884 ms</td><td class="m snapcol">803 ms</td><td class="delta">-57%</td></tr>
-            <tr><td>~8k-token state</td><td class="m na">rejected</td><td class="m snapcol">1245 ms</td><td class="na">n/a</td></tr>
+            <tr><td>1 question</td><td class="m">193 ms</td><td class="m snapcol">50 ms</td><td class="delta">-74%</td></tr>
+            <tr><td>4 questions</td><td class="m">788 ms</td><td class="m snapcol">146 ms</td><td class="delta">-81%</td></tr>
+            <tr><td>8 questions</td><td class="m">1884 ms</td><td class="m snapcol">246 ms</td><td class="delta">-87%</td></tr>
+            <tr><td>~8k-token state</td><td class="m na">rejected</td><td class="m snapcol">1392 ms</td><td class="na">n/a</td></tr>
           </tbody>
         </table></div>
       </div>
@@ -585,11 +590,13 @@ footer .links a:hover { color: var(--text); }
         <code>snap serve</code> and it works. Same request, same response shape.</p>
       <p>Snap extensions are optional fields a Jev client can ignore; defaults preserve Jev
         semantics. Answers carry extras (<code>status</code>, <code>confidence</code>, full
-        <code>probabilities</code>) on top of the Jev shape.</p>
+        <code>probabilities</code>, <code>coverage</code>) on top of the Jev shape.</p>
       <div class="fields">
         <b>"type": "numeric"</b> → distribution over {min, max, granularity}<br>
         <b>allow_abstain</b> → adds an __abstain__ slot, status "abstained"<br>
-        <b>"mode"</b> → "shared" (prefix amortized) or "direct"
+        <b>"mode"</b> → "shared" (prefix amortized) or "direct"<br>
+        <b>"layout"</b> → "auto" | state_first | question_first | header<br>
+        <b>coverage</b> → per-answer: mass on the allowed letters pre-renorm
       </div>
       <p class="disclaimer">snap is an independent implementation. Jev itself is a hosted
         model in early access. Shape of the response shown; values illustrative.</p>
@@ -613,10 +620,13 @@ footer .links a:hover { color: var(--text); }
         <tr><td>options per question</td><td class="m snapcol">256</td><td class="m">255</td><td class="m">16</td></tr>
         <tr><td>calibrated probabilities</td><td class="snapcol"><code>snap calibrate</code></td><td>claimed</td><td>per-workload T</td></tr>
         <tr><td>input context</td><td class="m snapcol">model max · --ctx</td><td class="m">32k</td><td class="m">262k</td></tr>
+        <tr><td><a href="https://evals.typesafe.ai">TypeSafe public eval</a></td><td class="m snapcol">66% · 2.6B model</td><td class="m">~88%</td><td class="na">n/a</td></tr>
       </tbody>
     </table></div>
     <p class="note">Jev column from its public description; SemIf column from its repo. snap's
-      context is the loaded model's own, 8192 tokens by default.</p>
+      context is the loaded model's own, 8192 tokens by default. The eval row is agreement with
+      the published consensus on the 373 public decisions — reproduce with
+      <code>eval/typesafe_public.py</code>; Jev's ~88% is its reported number.</p>
   </div>
 </section>
 
@@ -669,7 +679,7 @@ footer .links a:hover { color: var(--text); }
 const CASES = [
   {
     name: 'ticket triage',
-    state: '"Customer: charged twice, furious, threatening chargeback..."',
+    state: '{\n  "ticket": "charged twice, furious, wants a chargeback."\n}',
     ms: 510,
     qs: [
       { n: 'route',  t: 'choice', w: 'billing', wt: 'billing',     bars: [['billing', .99], ['tech', .01], ['account', 0]] },
@@ -679,7 +689,7 @@ const CASES = [
   },
   {
     name: 'on-call triage',
-    state: '{context: "Fri 18:40, payments deploy 18:05", alerts: {a1: "checkout p95 2.1s rising", a2: "disk 87%", a3: "pay success 96.8%", a4: "staging down"}}',
+    state: '{\n  "ctx": "fri 18:40 · payments deploy 18:05",\n  "alerts": {\n    "a1": "checkout p95 300ms → 2.1s",\n    "a2": "disk 87%, full in ~36h",\n    "a3": "pay success 99.1 → 96.8%",\n    "a4": "staging login down"\n  }\n}',
     ms: 723,
     qs: [
       { n: 'sev_a1', t: 'score',  w: 'sev1', wt: 'sev1 · 0.74', bars: [['sev3', .16], ['sev2', .19], ['sev1', .65]] },
@@ -689,7 +699,7 @@ const CASES = [
   },
   {
     name: 'CV screen',
-    state: '{resume: "8y Python (Django, FastAPI), Kafka, AWS. Led a team of 5. No mobile."}',
+    state: '{\n  "resume": "8y Python · AWS · led 5 · no mobile"\n}',
     ms: 543,
     qs: [
       { n: 'led_team',  t: 'noul',   w: 'true',    wt: 'true',         bars: [['true', .99], ['false', .01]] },
@@ -738,7 +748,7 @@ function render(i, animate) {
   cur = i;
   const c = CASES[i];
   caseEl.textContent = c.name;
-  stateEl.innerHTML = `<b>state</b> = ${c.state}`;
+  stateEl.innerHTML = `<b>"state"</b>: ${c.state}`;
   demo.querySelectorAll('.q').forEach(q => q.remove());
   c.qs.forEach(q => {
     const el = document.createElement('div');

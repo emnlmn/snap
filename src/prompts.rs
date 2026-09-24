@@ -2,14 +2,14 @@
 
 use serde_json::Value;
 
-use crate::schema::{QType, Question};
+use crate::schema::{Layout, QType, Question};
 
 pub const ABSTAIN: &str = "__abstain__";
 pub const BELOW: &str = "__below__";
 pub const ABOVE: &str = "__above__";
 
 /// Bump when the prompt format changes: calibration files bind to it.
-pub const PROMPT_VERSION: u32 = 1;
+pub const PROMPT_VERSION: u32 = 2;
 
 pub const SYSTEM: &str = "You are a decision engine. Given a state and a question, you evaluate the options and reply with only the letter of the best option. Never explain.";
 
@@ -110,13 +110,9 @@ pub(crate) fn value_text(v: &Value) -> String {
     }
 }
 
-pub fn user_message(state: &Value, q: &Question, slots: &[Slot]) -> String {
-    let mut lines = vec![
-        "STATE".to_string(),
-        render_state(state),
-        String::new(),
-        "QUESTION".to_string(),
-    ];
+/// The QUESTION + OPTIONS block shared by every layout.
+fn question_block(q: &Question, slots: &[Slot]) -> Vec<String> {
+    let mut lines = vec!["QUESTION".to_string()];
     if !q.instructions.is_empty() {
         lines.push(q.instructions.clone());
     }
@@ -133,6 +129,50 @@ pub fn user_message(state: &Value, q: &Question, slots: &[Slot]) -> String {
     lines.push("OPTIONS".to_string());
     for (i, slot) in slots.iter().enumerate() {
         lines.push(format!("{}) {}", LETTERS[i] as char, slot.text));
+    }
+    lines
+}
+
+/// `preamble` lists every original question of the request ("1. name — instr")
+/// and is only used by Layout::Header: the state is then encoded with all of
+/// them in view while staying a single shared prefix.
+pub fn user_message(
+    state: &Value,
+    q: &Question,
+    slots: &[Slot],
+    layout: Layout,
+    preamble: &[String],
+) -> String {
+    let qblock = question_block(q, slots);
+    let mut lines: Vec<String> = Vec::new();
+    match layout {
+        Layout::QuestionFirst => {
+            lines.extend(qblock);
+            lines.push(String::new());
+            lines.push("STATE".to_string());
+            lines.push(render_state(state));
+        }
+        Layout::Header => {
+            lines.push("QUESTIONS".to_string());
+            lines.push(
+                "You will be asked each of these questions about the state below, one at a time. \
+                 Read the state with all of them in mind."
+                    .to_string(),
+            );
+            lines.extend(preamble.iter().cloned());
+            lines.push(String::new());
+            lines.push("STATE".to_string());
+            lines.push(render_state(state));
+            lines.push(String::new());
+            lines.extend(qblock);
+        }
+        // StateFirst (and a resolved Auto) — snap's original order.
+        _ => {
+            lines.push("STATE".to_string());
+            lines.push(render_state(state));
+            lines.push(String::new());
+            lines.extend(qblock);
+        }
     }
     lines.push(String::new());
     lines.push("Reply with one letter only.".to_string());
@@ -210,12 +250,37 @@ mod tests {
     fn user_message_shape() {
         let qu = q(json!({"type": "boolean", "instructions": "Is it spam?"}));
         let s = slots_for(&qu);
-        let m = user_message(&json!("hello world"), &qu, &s);
+        let m = user_message(&json!("hello world"), &qu, &s, Layout::StateFirst, &[]);
         assert!(m.starts_with("STATE\nhello world"));
         assert!(m.contains("QUESTION\nIs it spam?"));
         assert!(m.contains("A) Yes"));
         assert!(m.contains("B) No"));
         assert!(m.contains("C) None of the above"));
         assert!(m.ends_with("Reply with one letter only."));
+    }
+
+    #[test]
+    fn user_message_question_first() {
+        let qu = q(json!({"type": "boolean", "instructions": "Is it spam?"}));
+        let s = slots_for(&qu);
+        let m = user_message(&json!("hello world"), &qu, &s, Layout::QuestionFirst, &[]);
+        assert!(m.starts_with("QUESTION\nIs it spam?"));
+        assert!(m.contains("\n\nSTATE\nhello world\n\nReply with one letter only."));
+        assert!(!m.contains("QUESTIONS"));
+    }
+
+    #[test]
+    fn user_message_header() {
+        let qu = q(json!({"type": "boolean", "instructions": "Is it spam?"}));
+        let s = slots_for(&qu);
+        let preamble = vec![
+            "1. spam — Is it spam?".to_string(),
+            "2. mood — Mood?".to_string(),
+        ];
+        let m = user_message(&json!("hello world"), &qu, &s, Layout::Header, &preamble);
+        assert!(m.starts_with("QUESTIONS\n"));
+        assert!(m.contains("1. spam — Is it spam?"));
+        // state still comes before the concrete question
+        assert!(m.find("\nSTATE\n").unwrap() < m.find("\nQUESTION\n").unwrap());
     }
 }

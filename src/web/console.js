@@ -665,11 +665,14 @@ function renderResult(req, body, ms) {
   const x = body.x_snap || {};
   const stat = (v, unit, label, cls = "") =>
     `<div class="stat ${cls}"><b>${esc(v ?? "—")}${unit ? `<small>${unit}</small>` : ""}</b><span>${label}</span></div>`;
+  const qh = x.qhead_hits != null ? `${x.qhead_hits}/${(x.qhead_hits ?? 0) + (x.qhead_misses ?? 0)}` : null;
   $("stats").innerHTML =
     stat(x.total_ms, "ms", "total", "lead") +
     stat(x.prefill_ms, "ms", "prefill") +
-    stat(x.shared_prefix_tokens, "tok", "shared prefix") +
+    stat(body.usage?.input_tokens, "tok", "decoded") +
+    (x.shared_prefix_tokens > 0 ? stat(x.shared_prefix_tokens, "tok", "shared prefix") : "") +
     stat(x.cached_head_tokens, "tok", "cached head") +
+    (qh ? stat(qh, "", "qhead hits") : "") +
     stat(x.decoded_items, "", `items · ${x.suffix_decode ?? "—"}`) +
     stat(x.rewind, "", "rewind");
   $("stats").hidden = false;
