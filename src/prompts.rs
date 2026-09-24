@@ -9,7 +9,9 @@ pub const BELOW: &str = "__below__";
 pub const ABOVE: &str = "__above__";
 
 /// Bump when the prompt format changes: calibration files bind to it.
-pub const PROMPT_VERSION: u32 = 2;
+/// v3: expanded probes put the candidate last (shared-stem clustering),
+/// Layout::Catalog added, compact_state rendering added.
+pub const PROMPT_VERSION: u32 = 3;
 
 pub const SYSTEM: &str = "You are a decision engine. Given a state and a question, you evaluate the options and reply with only the letter of the best option. Never explain.";
 
@@ -45,6 +47,111 @@ pub fn render_state(state: &Value) -> String {
     match state {
         Value::String(s) => s.clone(),
         v => serde_json::to_string(v).unwrap_or_default(),
+    }
+}
+
+/// yaml-lite state rendering: same data without the JSON punctuation noise —
+/// "key: value" lines, `- item` lists, scalars quoted only when ambiguous.
+/// Structured states cost ~10-20% fewer tokens than serde_json's output.
+pub fn render_state_compact(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        other => {
+            let mut s = String::new();
+            compact_lines(other, 0, &mut s);
+            s.trim_end().to_string()
+        }
+    }
+}
+
+/// Bare scalars: safe only when the text can't be misread as another type or
+/// eat the "key: " / ", " structure; anything else falls back to JSON quoting.
+fn bare_scalar(s: &str) -> bool {
+    !s.is_empty()
+        && !s.contains('\n')
+        && !s.contains(": ")
+        && !s.contains(", ")
+        && !s.ends_with(':')
+        && !s.starts_with(|c: char| "-[]{}\"'#,!?&*|>@`%".contains(c) || c.is_whitespace())
+        && !s.ends_with(char::is_whitespace)
+        && s.parse::<f64>().is_err()
+        && !matches!(
+            s,
+            "true" | "false" | "null" | "~" | "yes" | "no" | "on" | "off"
+        )
+}
+
+fn compact_scalar(v: &Value) -> String {
+    match v {
+        Value::String(s) if bare_scalar(s) => s.clone(),
+        other => serde_json::to_string(other).unwrap_or_default(),
+    }
+}
+
+/// Object-array table detection: all elements are objects sharing the same
+/// scalar-valued keys, so a csv row form works — JSON repeats every key name
+/// per row, which is where most of its waste lives. Returns the columns.
+fn table_keys(a: &[Value]) -> Option<Vec<String>> {
+    let first = a.first()?.as_object()?;
+    if first.is_empty() {
+        return None;
+    }
+    let keys: Vec<String> = first.keys().cloned().collect();
+    let uniform = a.iter().all(|x| {
+        x.as_object().is_some_and(|m| {
+            m.len() == keys.len()
+                && keys
+                    .iter()
+                    .all(|k| m.get(k).is_some_and(|v| !v.is_object() && !v.is_array()))
+        })
+    });
+    uniform.then_some(keys)
+}
+
+fn compact_lines(v: &Value, ind: usize, out: &mut String) {
+    let pad = "  ".repeat(ind);
+    match v {
+        Value::Object(m) => {
+            for (k, val) in m {
+                out.push_str(&pad);
+                out.push_str(k);
+                match val {
+                    Value::Object(_) | Value::Array(_) => {
+                        out.push_str(":\n");
+                        compact_lines(val, ind + 1, out);
+                    }
+                    _ => {
+                        out.push_str(": ");
+                        out.push_str(&compact_scalar(val));
+                        out.push('\n');
+                    }
+                }
+            }
+        }
+        Value::Array(a) => {
+            if let Some(cols) = table_keys(a) {
+                // uniform objects: column header once, then bare csv rows
+                out.push_str(&format!("{pad}({})\n", cols.join(", ")));
+                for x in a {
+                    let m = x.as_object().unwrap();
+                    let row: Vec<String> = cols.iter().map(|k| compact_scalar(&m[k])).collect();
+                    out.push_str(&format!("{pad}{}\n", row.join(", ")));
+                }
+            } else if a.iter().all(|x| !x.is_object() && !x.is_array()) {
+                // scalar lists inline — "key: a, b, c" beats a dash per item
+                let row: Vec<String> = a.iter().map(compact_scalar).collect();
+                out.push_str(&format!("{pad}{}\n", row.join(", ")));
+            } else {
+                for x in a {
+                    out.push_str(&format!("{pad}- {}\n", compact_scalar(x)));
+                }
+            }
+        }
+        _ => {
+            out.push_str(&pad);
+            out.push_str(&compact_scalar(v));
+            out.push('\n');
+        }
     }
 }
 
@@ -133,11 +240,65 @@ pub fn question_block(q: &Question, slots: &[Slot]) -> Vec<String> {
     lines
 }
 
+/// One entry of the QUESTIONS catalog used by Layout::Catalog: the numbered
+/// question (name + instructions). Options live in the item tail instead —
+/// letters read most reliably right next to the answer position.
+pub fn catalog_entry(i: usize, name: &str, q: &Question) -> Vec<String> {
+    let mut head = format!("{}) {}", i + 1, name);
+    if !q.instructions.is_empty() {
+        head.push_str(" — ");
+        head.push_str(&q.instructions);
+    }
+    let mut lines = vec![head];
+    if q.qtype == QType::Numeric {
+        lines.push(format!(
+            "   Pick the closest value in range [{}, {}], or below/above the range.",
+            fmt_g(q.min.unwrap()),
+            fmt_g(q.max.unwrap())
+        ));
+    }
+    lines
+}
+
+/// Catalog layout: the question set (numbered, instructions only) sits before
+/// the state so the model reads it with all questions in view; the per-item
+/// tail carries the name pointer + the OPTIONS block right at the answer
+/// position. The question-independent `[head+catalog]` span caches across
+/// requests on the same question set.
+pub fn catalog_message(
+    cat: &[String],
+    state: &str,
+    idx: usize,
+    name: &str,
+    slots: &[Slot],
+) -> String {
+    let mut lines: Vec<String> = vec![
+        "QUESTIONS".to_string(),
+        "You will be asked each of these questions about the state below, one at a time, by number. \
+         Read the state with all of them in mind."
+            .to_string(),
+    ];
+    lines.extend(cat.iter().cloned());
+    lines.push(String::new());
+    lines.push("STATE".to_string());
+    lines.push(state.to_string());
+    lines.push(String::new());
+    lines.push(format!("QUESTION {} — {}", idx + 1, name));
+    lines.push(String::new());
+    lines.push("OPTIONS".to_string());
+    for (i, slot) in slots.iter().enumerate() {
+        lines.push(format!("{}) {}", LETTERS[i] as char, slot.text));
+    }
+    lines.push(String::new());
+    lines.push("Reply with one letter only.".to_string());
+    lines.join("\n")
+}
+
 /// `preamble` lists every original question of the request ("1. name — instr")
 /// and is only used by Layout::Header: the state is then encoded with all of
 /// them in view while staying a single shared prefix.
 pub fn user_message(
-    state: &Value,
+    state: &str,
     q: &Question,
     slots: &[Slot],
     layout: Layout,
@@ -150,7 +311,7 @@ pub fn user_message(
             lines.extend(qblock);
             lines.push(String::new());
             lines.push("STATE".to_string());
-            lines.push(render_state(state));
+            lines.push(state.to_string());
         }
         Layout::Header => {
             lines.push("QUESTIONS".to_string());
@@ -162,14 +323,14 @@ pub fn user_message(
             lines.extend(preamble.iter().cloned());
             lines.push(String::new());
             lines.push("STATE".to_string());
-            lines.push(render_state(state));
+            lines.push(state.to_string());
             lines.push(String::new());
             lines.extend(qblock);
         }
         // StateFirst (and a resolved Auto) — snap's original order.
         _ => {
             lines.push("STATE".to_string());
-            lines.push(render_state(state));
+            lines.push(state.to_string());
             lines.push(String::new());
             lines.extend(qblock);
         }
@@ -250,7 +411,7 @@ mod tests {
     fn user_message_shape() {
         let qu = q(json!({"type": "boolean", "instructions": "Is it spam?"}));
         let s = slots_for(&qu);
-        let m = user_message(&json!("hello world"), &qu, &s, Layout::StateFirst, &[]);
+        let m = user_message("hello world", &qu, &s, Layout::StateFirst, &[]);
         assert!(m.starts_with("STATE\nhello world"));
         assert!(m.contains("QUESTION\nIs it spam?"));
         assert!(m.contains("A) Yes"));
@@ -263,7 +424,7 @@ mod tests {
     fn user_message_question_first() {
         let qu = q(json!({"type": "boolean", "instructions": "Is it spam?"}));
         let s = slots_for(&qu);
-        let m = user_message(&json!("hello world"), &qu, &s, Layout::QuestionFirst, &[]);
+        let m = user_message("hello world", &qu, &s, Layout::QuestionFirst, &[]);
         assert!(m.starts_with("QUESTION\nIs it spam?"));
         assert!(m.contains("\n\nSTATE\nhello world\n\nReply with one letter only."));
         assert!(!m.contains("QUESTIONS"));
@@ -277,10 +438,41 @@ mod tests {
             "1. spam — Is it spam?".to_string(),
             "2. mood — Mood?".to_string(),
         ];
-        let m = user_message(&json!("hello world"), &qu, &s, Layout::Header, &preamble);
+        let m = user_message("hello world", &qu, &s, Layout::Header, &preamble);
         assert!(m.starts_with("QUESTIONS\n"));
         assert!(m.contains("1. spam — Is it spam?"));
         // state still comes before the concrete question
         assert!(m.find("\nSTATE\n").unwrap() < m.find("\nQUESTION\n").unwrap());
+    }
+
+    #[test]
+    fn catalog_message_shape() {
+        let qu = q(json!({"type": "boolean", "instructions": "Is it spam?"}));
+        let s = slots_for(&qu);
+        let cat = catalog_entry(0, "spam", &qu);
+        let m = catalog_message(&cat, "hello world", 0, "spam", &s);
+        assert!(m.starts_with("QUESTIONS\n"));
+        assert!(m.contains("1) spam — Is it spam?"));
+        // options live in the tail, right before the reply cue
+        assert!(m.contains("\nSTATE\nhello world\n\nQUESTION 1 — spam\n\nOPTIONS\nA) Yes"));
+        assert!(m.ends_with("Reply with one letter only."));
+    }
+
+    #[test]
+    fn render_state_compact_shape() {
+        let v = json!({"user": {"name": "ada", "n": 3}, "tags": ["x", "y"], "note": "see: this"});
+        let s = render_state_compact(&v);
+        assert!(s.contains("user:\n  name: ada\n  n: 3"));
+        assert!(s.contains("tags:\n  x, y"));
+        // ": " inside a string must stay quoted
+        assert!(s.contains("note: \"see: this\""));
+        // strings that look like scalars stay quoted too
+        assert!(render_state_compact(&json!({"v": "true"})).contains("\"true\""));
+        // plain strings pass through untouched
+        assert_eq!(render_state_compact(&json!("plain text")), "plain text");
+        // uniform object arrays become a csv table with one header line
+        let v = json!({"items": [{"sku": "a", "qty": 1}, {"sku": "b", "qty": 2}]});
+        let s = render_state_compact(&v);
+        assert!(s.contains("items:\n  (sku, qty)\n  a, 1\n  b, 2"), "{s}");
     }
 }

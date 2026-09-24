@@ -82,7 +82,7 @@ enum Cmd {
         /// skip auto-generated stability probes (reversal, rewording, noise)
         #[arg(long)]
         no_perturb: bool,
-        /// force a prompt layout for all cases (auto|state_first|question_first|header)
+        /// force a prompt layout for all cases (auto|state_first|question_first|header|catalog)
         #[arg(long, value_parser = parse_layout)]
         layout: Option<crate::schema::Layout>,
         /// write full report JSON (create-only)
@@ -179,7 +179,7 @@ fn decide_request(m: &ModelArgs, req: api::SystemoneRequest) -> Result<()> {
 
 fn parse_layout(s: &str) -> std::result::Result<crate::schema::Layout, String> {
     serde_json::from_value::<crate::schema::Layout>(serde_json::json!(s))
-        .map_err(|_| "expected auto|state_first|question_first|header".to_string())
+        .map_err(|_| "expected auto|state_first|question_first|header|catalog".to_string())
 }
 
 /// `snap serve` body — model load + warmup + blocking axum loop.

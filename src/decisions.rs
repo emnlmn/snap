@@ -205,6 +205,67 @@ pub fn merge_scored(q: &Question, keys: &[String], p_yes: &[f64]) -> Value {
     ]))
 }
 
+/// Merge paged choice answers (Expand::Pages): each page voted over ≤26
+/// candidates, so an option's page-conditional probability is its share
+/// within its own page. Shares are renormalized across all options — a
+/// strong runner-up in a contested page can still lose to an easy winner
+/// elsewhere, which is the documented trade-off of the paged mode.
+pub fn merge_paged(q: &Question, keys: &[String], pages: &[Value]) -> Value {
+    let mut raw: Vec<f64> = Vec::with_capacity(keys.len());
+    for k in keys {
+        raw.push(
+            pages
+                .iter()
+                .map(|p| p["probabilities"][k.as_str()].as_f64().unwrap_or(0.0))
+                .sum(),
+        );
+    }
+    let sum: f64 = raw.iter().sum();
+    let norm: Vec<f64> = if sum > 0.0 {
+        raw.iter().map(|p| p / sum).collect()
+    } else {
+        vec![1.0 / keys.len().max(1) as f64; keys.len()]
+    };
+    let best = norm
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    let mut ordered = norm.clone();
+    ordered.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    let gap = if ordered.len() > 1 {
+        ordered[0] - ordered[1]
+    } else {
+        1.0
+    };
+    // pages never abstain (no abstain slot); all-empty pages mean the
+    // answers were missing — surface that as abstained, else gap-judged
+    let status = if sum <= 0.0 && q.allow_abstain {
+        "abstained"
+    } else if gap < UNCERTAIN_GAP {
+        "contested"
+    } else {
+        "decided"
+    };
+    let mut prob_map = Map::new();
+    for (i, k) in keys.iter().enumerate() {
+        prob_map.insert(k.clone(), json!(r6(norm[i])));
+    }
+    Value::Object(Map::from_iter([
+        ("status".into(), json!(status)),
+        ("probabilities".into(), Value::Object(prob_map)),
+        (
+            "confidence".into(),
+            json!((confidence(&norm) * 1e4).round() / 1e4),
+        ),
+        (
+            "choice".into(),
+            json!(keys.get(best).cloned().unwrap_or_default()),
+        ),
+    ]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

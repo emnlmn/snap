@@ -138,6 +138,23 @@ pub enum Layout {
     /// All question instructions listed before the STATE, then each question
     /// again on its own — the document is read with every question in view.
     Header,
+    /// QUESTIONS catalog (with OPTIONS) before STATE, then each item is only
+    /// a "QUESTION i" pointer — the catalog caches across requests on the
+    /// same question set and per-item suffixes shrink to ~12 tokens.
+    Catalog,
+}
+
+/// How a choice with more options than letter slots expands into multiple
+/// items (see `expand_choice`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Expand {
+    /// One boolean probe per option — absolute yes-probability per option.
+    #[default]
+    Probes,
+    /// Pages of ≤26 candidates as real choice questions — far fewer items,
+    /// but probabilities are per-page conditional, not absolute.
+    Pages,
 }
 
 pub(crate) fn default_layout() -> Layout {
@@ -159,6 +176,13 @@ pub struct DecideRequest {
     pub mode: Mode,
     #[serde(default = "default_layout")]
     pub layout: Layout,
+    /// How over-26-option choices expand (see `expand_choice`).
+    #[serde(default)]
+    pub expand: Expand,
+    /// Render the state as yaml-lite lines instead of compact JSON — fewer
+    /// punctuation tokens on structured states.
+    #[serde(default)]
+    pub compact_state: bool,
 }
 
 impl DecideRequest {
