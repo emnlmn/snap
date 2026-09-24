@@ -7,19 +7,23 @@
 //! prompt head (template header + system) is kept resident so requests skip its
 //! prefill entirely.
 //!
-//! Full-attention models use a second context with `n_seq_max` sequences on a
-//! unified KV cache: the shared prefix is copied to seqs 1..k via
-//! `memory_seq_cp` and every question suffix is decoded in ONE batched
-//! `llama_decode`. Hybrid/recurrent models cannot rewind/copy arbitrary KV
-//! positions, so the whole context state is snapshotted after the prefix and
-//! restored per question. Zero sampling, zero parsing, one logit row each.
+//! A second context (`mctx`) holds `n_seq_max` sequences — fork-and-discard:
+//! the shared prefix is decoded on a holder seq, copied to per-item work seqs
+//! via `memory_seq_cp`, and every suffix is decoded in ONE batched
+//! `llama_decode` per wave. Seqs are removed whole after use — never trimmed
+//! partially — so the same path works on hybrid/recurrent archs (their
+//! per-seq state makes `n_seq_max` smaller there). The `[head+state]` span
+//! (or `[head+catalog]` under `layout: catalog`) also caches cross-request
+//! on a resident entry seq. Zero sampling, zero parsing, one logit row each.
 //!
 //! `layout: question_first` flips the prompt (QUESTION+OPTIONS, then STATE):
 //! nothing is shared inside one request, but the question head is identical
 //! across requests — it stays resident on an mctx seq (or as a ctx state
 //! snapshot on hybrid archs) in a tick-LRU cache, so repeat workloads decode
 //! only the state. Stolen from snapjudge, which measured it both faster and
-//! more accurate on short states.
+//! more accurate on short states. `layout: catalog` instead puts a numbered
+//! QUESTIONS list before the STATE and leaves only a `QUESTION i — name` +
+//! OPTIONS tail per item — the question set itself caches cross-request.
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -32,7 +36,7 @@ use serde_json::{json, Map, Value};
 use crate::decisions;
 use crate::llamac;
 use crate::prompts::{self, Slot};
-use crate::schema::{DecideRequest, Layout, Mode, QType, Question, MAX_SLOTS};
+use crate::schema::{DecideRequest, Expand, Layout, Mode, QType, Question, MAX_SLOTS};
 
 const HEAD_SENTINEL: &str = "\u{1}snap-head\u{1}";
 /// Stands in for the state when measuring where a question_first head ends.
@@ -513,6 +517,8 @@ impl Engine {
             temperature: 1.0,
             mode: Mode::Shared,
             layout: Layout::StateFirst,
+            expand: Expand::default(),
+            compact_state: false,
         };
         self.decide(&req)?;
         let mut one = Map::new();
@@ -651,33 +657,24 @@ impl Engine {
     /// BPE may merge the separator into the first state token, so this stays a
     /// conservative boundary either way.
     fn head_split(&self, q: &Question, slots: &[Slot], toks: &[i32]) -> Result<usize> {
-        let probe = prompts::user_message(
-            &Value::String(STATE_SENTINEL.into()),
-            q,
-            slots,
-            Layout::QuestionFirst,
-            &[],
-        );
+        let probe = prompts::user_message(STATE_SENTINEL, q, slots, Layout::QuestionFirst, &[]);
         let ptoks = self.prompt_tokens(&probe)?;
         // clamp so at least the final (answer-position) token stays a suffix
         Ok(common_prefix_len(&[toks, ptoks.as_slice()]).min(toks.len().saturating_sub(1)))
     }
 
-    /// Token index where the first question block starts — the `[head+state]`
-    /// span before it is question-independent, so it's the unit worth caching
-    /// across requests on the same state (any question set). Probes the real
-    /// prompt with the same user message truncated at the question block, so
-    /// the boundary is measured in-context.
-    fn state_prefix_len(
-        &self,
-        it: &Item,
-        state: &Value,
-        layout: Layout,
-        preamble: &[String],
-    ) -> usize {
-        let qb = prompts::question_block(&it.q, &it.slots).join("\n");
-        let umsg = prompts::user_message(state, &it.q, &it.slots, layout, preamble);
-        let Some(pos) = umsg.rfind(&qb) else { return 0 };
+    /// Token index where the cached-prefix unit ends. state_first/header
+    /// cache `[head+state]` — the question-independent span before the first
+    /// question block; catalog caches `[head+QUESTIONS]` — the
+    /// state-independent span before the STATE marker, reusable across
+    /// requests on the same question set. The boundary is measured in-context
+    /// by tokenizing the real message truncated at the marker.
+    fn cache_prefix_len(&self, it: &Item, umsg: &str, layout: Layout) -> usize {
+        let pos = match layout {
+            Layout::Catalog => umsg.find("\nSTATE\n"),
+            _ => umsg.rfind(&prompts::question_block(&it.q, &it.slots).join("\n")),
+        };
+        let Some(pos) = pos else { return 0 };
         let Ok(probe) = self.prompt_tokens(&umsg[..pos]) else {
             return 0;
         };
@@ -1400,20 +1397,26 @@ impl Engine {
         // expand over-budget choices first: the layout heuristic wants the
         // real item count (a 30-option choice is 30 probes sharing the state)
         let mut pending: Vec<(String, Question, f64)> = Vec::new();
-        let mut expanded: Vec<(String, Question, Vec<String>)> = Vec::new();
+        let mut expanded: Vec<(String, Question, Vec<String>, usize)> = Vec::new();
         let mut originals: Vec<(String, String)> = Vec::new();
         let mut any_abstain = false;
         for (name, q) in req.questions()? {
             originals.push((name.clone(), q.instructions.clone()));
             any_abstain |= q.allow_abstain;
-            match expand_choice(&q) {
+            match expand_choice(&q, req.expand) {
                 Some((subs, keys)) => {
+                    let nsubs = subs.len();
                     // expanded probes are boolean questions mechanically: the
-                    // boolean bucket temperature applies
+                    // boolean bucket temperature applies; paged items are real
+                    // choices and take the choice bucket
+                    let b = match req.expand {
+                        Expand::Pages => "choice",
+                        _ => "boolean",
+                    };
                     for (i, sq) in subs.into_iter().enumerate() {
-                        pending.push((format!("{name}\u{1f}{i}"), sq, calib("boolean")));
+                        pending.push((format!("{name}\u{1f}{i}"), sq, calib(b)));
                     }
-                    expanded.push((name, q, keys));
+                    expanded.push((name, q, keys, nsubs));
                 }
                 None => {
                     let c = calib(crate::calibrate::bucket(q.qtype.as_str()));
@@ -1422,12 +1425,20 @@ impl Engine {
             }
         }
 
+        // the state renders once per request — every item and the auto
+        // heuristic share the same text
+        let state_txt = if req.compact_state {
+            prompts::render_state_compact(&req.state)
+        } else {
+            prompts::render_state(&req.state)
+        };
+
         let layout = match req.layout {
             Layout::Auto => {
                 // abstain questions read better after the evidence: the
                 // __abstain__ slot before the state primes abstention
                 // (measured: -5..-16pp on eval/edge across the model set)
-                let state_len = prompts::render_state(&req.state).len();
+                let state_len = state_txt.len();
                 let long_multi = pending.len() > 1 && state_len > LONG_STATE_CHARS;
                 // Steady-state cost: warm question_first re-decodes the state
                 // per question (n×state) while state_first pays it once plus
@@ -1471,10 +1482,39 @@ impl Engine {
             Vec::new()
         };
 
+        // the QUESTIONS catalog for Layout::Catalog — one numbered entry per
+        // item (expanded probes included), built before the per-item prompts
+        let slots_all: Vec<Vec<Slot>> = pending
+            .iter()
+            .map(|(_, q, _)| prompts::slots_for(q))
+            .collect();
+        let cat: Vec<String> = if layout == Layout::Catalog {
+            let mut v = Vec::new();
+            for (i, (name, q, _)) in pending.iter().enumerate() {
+                if i > 0 {
+                    v.push(String::new());
+                }
+                // expanded subs carry the `name\x1fi` internal tag — show the
+                // question name in the catalog, the number already points
+                v.extend(prompts::catalog_entry(
+                    i,
+                    name.split('\u{1f}').next().unwrap(),
+                    q,
+                ));
+            }
+            v
+        } else {
+            Vec::new()
+        };
+
         let mut items = Vec::new();
-        for (name, q, c) in pending {
-            let slots = prompts::slots_for(&q);
-            let msg = prompts::user_message(&req.state, &q, &slots, layout, &preamble);
+        for (idx, ((name, q, c), slots)) in pending.into_iter().zip(slots_all).enumerate() {
+            let msg = if layout == Layout::Catalog {
+                let dname = name.split('\u{1f}').next().unwrap();
+                prompts::catalog_message(&cat, &state_txt, idx, dname, &slots)
+            } else {
+                prompts::user_message(&state_txt, &q, &slots, layout, &preamble)
+            };
             let toks = self.prompt_tokens(&msg)?;
             if toks.len() as i32 > self.n_ctx {
                 bail!(
@@ -1548,13 +1588,29 @@ impl Engine {
                 0
             };
             plen = plen_local;
-            // [head+state] ends where the first question block starts —
-            // the question-independent prefix worth caching cross-request.
-            // s1<=hstart (tiny/absent state) disables the state entry.
+            // The cached-prefix unit ends where the question/state-dependent
+            // part starts: [head+state] for state_first/header, [head+catalog]
+            // for catalog. s1<=hstart (tiny/absent unit) disables the entry.
             let s1 = if items.is_empty() {
                 0
             } else {
-                let s = self.state_prefix_len(&items[0], &req.state, layout, &preamble);
+                let umsg = match layout {
+                    Layout::Catalog => prompts::catalog_message(
+                        &cat,
+                        &state_txt,
+                        0,
+                        items[0].name.split('\u{1f}').next().unwrap(),
+                        &items[0].slots,
+                    ),
+                    _ => prompts::user_message(
+                        &state_txt,
+                        &items[0].q,
+                        &items[0].slots,
+                        layout,
+                        &preamble,
+                    ),
+                };
+                let s = self.cache_prefix_len(&items[0], &umsg, layout);
                 if plen > 0 {
                     s.min(plen)
                 } else {
@@ -1585,19 +1641,35 @@ impl Engine {
             }
         };
 
-        // fold per-option probes back into one answer per expanded choice
-        for (name, q, keys) in &expanded {
-            let mut p_yes = Vec::with_capacity(keys.len());
+        // fold per-option probes / pages back into one answer per expanded
+        // choice
+        for (name, q, keys, nsubs) in &expanded {
             let mut cov = 0.0;
-            for i in 0..keys.len() {
-                let a = answers
-                    .remove(&format!("{name}\u{1f}{i}"))
-                    .unwrap_or_default();
-                p_yes.push(a["probabilities"]["yes"].as_f64().unwrap_or(0.0));
-                cov += a["coverage"].as_f64().unwrap_or(0.0);
-            }
-            let mut merged = decisions::merge_scored(q, keys, &p_yes);
-            merged["coverage"] = json!(r4(cov / keys.len().max(1) as f64));
+            let mut merged = match req.expand {
+                Expand::Pages => {
+                    let mut pages = Vec::with_capacity(*nsubs);
+                    for i in 0..*nsubs {
+                        let a = answers
+                            .remove(&format!("{name}\u{1f}{i}"))
+                            .unwrap_or_default();
+                        cov += a["coverage"].as_f64().unwrap_or(0.0);
+                        pages.push(a);
+                    }
+                    decisions::merge_paged(q, keys, &pages)
+                }
+                _ => {
+                    let mut p_yes = Vec::with_capacity(keys.len());
+                    for i in 0..*nsubs {
+                        let a = answers
+                            .remove(&format!("{name}\u{1f}{i}"))
+                            .unwrap_or_default();
+                        p_yes.push(a["probabilities"]["yes"].as_f64().unwrap_or(0.0));
+                        cov += a["coverage"].as_f64().unwrap_or(0.0);
+                    }
+                    decisions::merge_scored(q, keys, &p_yes)
+                }
+            };
+            merged["coverage"] = json!(r4(cov / (*nsubs).max(1) as f64));
             answers.insert(name.clone(), merged);
         }
 
@@ -1731,11 +1803,15 @@ impl Drop for Engine {
     }
 }
 
-/// A choice with more options than letter slots expands into independent
-/// per-option probes ("is this candidate the answer?", yes/no each), merged
-/// back by decisions::merge_scored. Returns the probe questions and the
-/// option keys in slot order. Score/numeric stay within the letter budget.
-fn expand_choice(q: &Question) -> Option<(Vec<Question>, Vec<String>)> {
+/// A choice with more options than letter slots expands into multiple items.
+/// `probes`: one boolean probe per option ("is this candidate the correct
+/// answer?"), merged by decisions::merge_scored — absolute probabilities.
+/// `pages`: chunks of ≤MAX_SLOTS candidates as real choice questions, merged
+/// by decisions::merge_paged — far fewer items, page-conditional
+/// probabilities, and no abstain (each page must pick). Returns the sub
+/// questions and the option keys in slot order. Score/numeric stay within
+/// the letter budget.
+fn expand_choice(q: &Question, expand: Expand) -> Option<(Vec<Question>, Vec<String>)> {
     if q.qtype != QType::Choice {
         return None;
     }
@@ -1761,28 +1837,58 @@ fn expand_choice(q: &Question) -> Option<(Vec<Question>, Vec<String>)> {
     } else {
         q.instructions.clone()
     };
-    let subs = opts
-        .iter()
-        .map(|(key, desc)| {
-            let cand = if key == desc {
-                key.clone()
-            } else {
-                format!("{key} — {desc}")
-            };
-            Question {
-                qtype: QType::Boolean,
-                instructions: format!(
-                    "{base}\nCandidate: {cand}\nIs this candidate the correct answer?"
-                ),
-                criteria: None,
-                min: None,
-                max: None,
-                step: None,
-                granularity: crate::schema::default_granularity(),
-                allow_abstain: false,
-            }
-        })
-        .collect();
+    let subs = match expand {
+        // the shared stem ends at "Candidate:" so suffix clustering decodes
+        // only the option text + yes/no tail per probe
+        Expand::Probes => opts
+            .iter()
+            .map(|(key, desc)| {
+                let cand = if key == desc {
+                    key.clone()
+                } else {
+                    format!("{key} — {desc}")
+                };
+                Question {
+                    qtype: QType::Boolean,
+                    instructions: format!(
+                        "{base}\nIs this candidate the correct answer?\nCandidate: {cand}"
+                    ),
+                    criteria: None,
+                    min: None,
+                    max: None,
+                    step: None,
+                    granularity: crate::schema::default_granularity(),
+                    allow_abstain: false,
+                }
+            })
+            .collect(),
+        // equal-size pages: within-page probabilities compare across pages,
+        // so a 4-option tail page must not outscore a 26-option page
+        Expand::Pages => {
+            let npages = opts.len().div_ceil(MAX_SLOTS);
+            let size = opts.len().div_ceil(npages);
+            opts.chunks(size)
+                .map(|page| {
+                    let criteria: serde_json::Map<String, Value> = page
+                        .iter()
+                        .map(|(k, d)| (k.clone(), Value::String(d.clone())))
+                        .collect();
+                    Question {
+                        qtype: QType::Choice,
+                        instructions: format!(
+                            "{base}\nThese candidates are a subset — pick the best among them."
+                        ),
+                        criteria: Some(Value::Object(criteria)),
+                        min: None,
+                        max: None,
+                        step: None,
+                        granularity: crate::schema::default_granularity(),
+                        allow_abstain: false,
+                    }
+                })
+                .collect()
+        }
+    };
     Some((subs, opts.into_iter().map(|(k, _)| k).collect()))
 }
 
@@ -1796,6 +1902,7 @@ fn layout_str(l: Layout) -> &'static str {
         Layout::StateFirst => "state_first",
         Layout::QuestionFirst => "question_first",
         Layout::Header => "header",
+        Layout::Catalog => "catalog",
     }
 }
 

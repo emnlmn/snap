@@ -177,6 +177,8 @@ fn local_decide(engine: &mut Engine, state: Value, n: usize, mode: Mode) -> Resu
         temperature: 1.0,
         mode,
         layout: crate::schema::Layout::Auto,
+        expand: Default::default(),
+        compact_state: false,
     };
     engine.decide(&req)
 }
@@ -252,29 +254,42 @@ pub fn run_local(engine: &mut Engine, requests: usize) -> Result<Vec<Value>> {
 pub fn print_bench(rows: &[Value]) {
     println!(
         "{:14} {:>4} {:>8} {:>8} {:>8} {:>7} {:>7}",
-        "scenario", "n", "p50", "p95", "mean", "req/s", "ms/q"
+        "scenario", "n", "p50 ms", "p95 ms", "mean ms", "req/s", "ms/q"
     );
+    println!("{}", "─".repeat(62));
+    let mut checks = Vec::new();
     for r in rows {
         if r.get("p50").is_none() {
-            println!(
-                "{:14} {:>4}  match={}",
-                r["scenario"].as_str().unwrap_or("?"),
-                r["n"],
-                r["match"]
-            );
+            checks.push(r);
             continue;
         }
+        let f = |k: &str| r[k].as_f64().unwrap_or(0.0);
+        let msq = r["ms_per_question"]
+            .as_f64()
+            .map(|v| format!("{v:.1}"))
+            .unwrap_or("-".into());
         println!(
-            "{:14} {:>4} {:>7} {:>7} {:>7} {:>7} {:>7}",
+            "{:14} {:>4} {:>8.1} {:>8.1} {:>8.1} {:>7.2} {:>7}",
             r["scenario"].as_str().unwrap_or("?"),
             r["n"],
-            r["p50"],
-            r["p95"],
-            r["mean"],
-            r["req_s"],
-            r.get("ms_per_question")
-                .map(|v| v.to_string())
-                .unwrap_or("-".into()),
+            f("p50"),
+            f("p95"),
+            f("mean"),
+            f("req_s"),
+            msq,
+        );
+    }
+    if checks.is_empty() {
+        return;
+    }
+    println!();
+    for r in checks {
+        let ok = r["match"].as_bool().unwrap_or(false);
+        println!(
+            "{:14} shared/direct answers {} (n={})",
+            r["scenario"].as_str().unwrap_or("?"),
+            if ok { "match" } else { "MISMATCH" },
+            r["n"],
         );
     }
 }

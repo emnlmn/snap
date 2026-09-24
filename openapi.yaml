@@ -218,7 +218,7 @@ components:
             answers are identical, latency is not).
         layout:
           type: string
-          enum: [auto, state_first, question_first, header]
+          enum: [auto, state_first, question_first, header, catalog]
           default: auto
           description: |
             Prompt layout — where the question sits relative to the state.
@@ -227,11 +227,32 @@ components:
             repeat workloads decode only the state. `state_first` amortizes
             one long document across all questions of the request. `header`
             lists every question before the state, then each on its own —
-            the document is read with all questions in view. `auto` picks
-            question_first only when question heads dominate the state —
-            warm caches then decode less — and falls back to state_first for
-            abstain-enabled questions or states > 2000 chars with several
-            questions.
+            the document is read with all questions in view. `catalog` lists
+            every question (numbered, instructions only) before the state and
+            leaves only a "QUESTION i — name" tail plus OPTIONS per item —
+            the `[head+catalog]` span caches across requests on the same
+            question set, so a stream of states answers in state+~20tok/item.
+            `auto` picks question_first only when question heads dominate
+            the state — warm caches then decode less — and falls back to
+            state_first for abstain-enabled questions or states > 2000 chars
+            with several questions.
+        expand:
+          type: string
+          enum: [probes, pages]
+          default: probes
+          description: |
+            How a choice with more than 26 options expands. `probes` scores
+            each option independently (absolute yes-probability per option).
+            `pages` splits candidates into equal-size pages of ≤26 real
+            choices — far fewer items, but probabilities are page-conditional
+            and abstention is disabled (each page must pick).
+        compact_state:
+          type: boolean
+          default: false
+          description: |
+            Render object states as compact lines ("key: value", csv-style
+            rows for uniform object arrays) instead of JSON — a few percent
+            fewer tokens on heavily structured states.
       additionalProperties: true  # envelope is tolerant of extra SDK keys
 
     Question:
@@ -364,7 +385,7 @@ components:
           type: object
           description: Honest internals — exactly what the engine did.
           properties:
-            layout: {type: string, enum: [state_first, question_first, header], description: The layout actually run (`auto` is resolved).}
+            layout: {type: string, enum: [state_first, question_first, header, catalog], description: The layout actually run (`auto` is resolved).}
             shared_prefix_tokens: {type: integer}
             cached_head_tokens: {type: integer, description: Resident prompt-head tokens skipped entirely.}
             qhead_hits: {type: integer, description: question_first only — questions whose head was already resident.}

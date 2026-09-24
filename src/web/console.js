@@ -28,12 +28,12 @@ const ICON = {
 /* ---------------- examples ---------------- */
 const LESSONS = [
   {
-    tag: "noul", title: "Is a tomato a fruit?", sub: "Botany against the kitchen",
+    tag: "noul", title: "Is this lead hot?", sub: "Two probes on one inbound message",
     req: {
-      state: { item: "tomato" },
+      state: { message: "Hi — we're a 40-person logistics company. Our current vendor's contract ends next month and we've shortlisted you. Can we get a demo this week? Budget is approved." },
       questions: {
-        is_fruit: { type: "noul", instructions: "botanically, is this item a fruit?" },
-        cooked_as_veg: { type: "noul", instructions: "in the kitchen, is it treated as a vegetable?" },
+        sales_ready: { type: "noul", instructions: "is this lead ready for a sales call?" },
+        existing_customer: { type: "noul", instructions: "is this an existing customer?" },
       },
     },
   },
@@ -91,7 +91,7 @@ const CASES = [
           a1: "p95 latency on /checkout up from 300ms to 2.1s since the deploy, still rising",
           a2: "disk on logs-02 at 87%, projected full in ~36h",
           a3: "payment success rate down from 99.1% to 96.8% in the last 20 minutes",
-          a4: "staging login broken since this morning, QA blocked",
+          a4: "nightly analytics export ran 2h late, no downstream impact",
         },
       },
       questions: {
@@ -103,7 +103,7 @@ const CASES = [
           a1: "checkout p95 latency",
           a2: "logs-02 disk filling",
           a3: "payment success rate dropping",
-          a4: "staging login broken" } },
+          a4: "late analytics export" } },
       },
     },
   },
@@ -119,22 +119,23 @@ const CASES = [
           "keys stick after a coffee spill — and wants the €6 shipping fee back too.",
       },
       questions: {
-        in_window: { type: "noul", instructions: "is the request inside the return window?" },
-        item_refundable: { type: "noul", instructions: "is the keyboard refundable under the policy?" },
+        in_window: { type: "noul", instructions: "was the item delivered less than 30 days ago?" },
+        damage_covered: { type: "noul", instructions: "does the written policy cover damage the customer caused?" },
         shipping_back: { type: "noul", instructions: "should the shipping fee be returned?" },
         needs_manager: { type: "noul", instructions: "does this request need a store manager?" },
-        under_warranty: { type: "noul", instructions: "is the keyboard still under manufacturer warranty?", allow_abstain: true },
+        courier: { type: "choice", instructions: "which courier will handle the return shipment?", criteria: {
+          ups: "UPS", fedex: "FedEx", dhl: "DHL" }, allow_abstain: true },
       },
     },
   },
   {
-    title: "Review routing", sub: "sentiment, sarcasm and owning team for one tricky review",
+    title: "Review routing", sub: "sentiment, staff praise and owning team for one mixed review",
     req: {
-      state: { review: "Loved waiting 40 minutes for a cold pizza. To be fair the driver was lovely — even had a treat for my dog." },
+      state: { review: "Waited 40 minutes and the pizza arrived cold. The driver was lovely though — even had a treat for my dog." },
       questions: {
         sentiment: { type: "score", instructions: "overall sentiment of the review", criteria: [
           "very negative", "negative", "mixed", "positive", "very positive"] },
-        sarcasm: { type: "noul", instructions: "is the opening sentence meant sarcastically?" },
+        praises_driver: { type: "noul", instructions: "does the reviewer compliment the delivery driver?" },
         route: { type: "choice", instructions: "which team should own this feedback?", criteria: {
           logistics: "delivery times, drivers, couriers",
           kitchen: "food quality, temperature, preparation",
@@ -542,11 +543,24 @@ function useExample(ex) {
   run();
 }
 
-$("lessons").innerHTML = LESSONS.map((l, k) => `
+// each lesson card carries a dormant specimen of its answer shape — empty
+// tracks at rest; hover/focus inks the demo distribution in
+const GLYPH = {
+  noul:   { v: [0.72, 0.28], w: 0 },
+  choice: { v: [0.10, 0.62, 0.22, 0.06], w: 1, keys: "EGDI" },
+  score:  { v: [0.06, 0.14, 0.3, 0.62, 0.22], w: 3, hist: true },
+};
+$("lessons").innerHTML = LESSONS.map((l, k) => {
+  const g = GLYPH[l.tag];
+  const spec = `<span class="spec ${g.hist ? "hist" : g.keys ? "keys" : "bars"}" aria-hidden="true">${
+    g.v.map((p, j) => `<i${j === g.w ? ' class="w"' : ""} style="--p:${p}"${g.keys ? ` data-k="${g.keys[j]}"` : ""}></i>`).join("")
+  }</span>`;
+  return `
   <button class="lesson" data-k="${k}">
-    <span class="tag">${l.tag}</span>
-    <b>${esc(l.title)}</b><span>${esc(l.sub)}</span>
-  </button>`).join("");
+    <span class="top">${spec}<span class="tag">${l.tag}</span></span>
+    <b>${esc(l.title)}</b><span class="sub">${esc(l.sub)}</span>
+  </button>`;
+}).join("");
 $("cases").innerHTML = CASES.map((c, k) => `
   <button class="case" data-k="${k}"><b>${esc(c.title)}</b><span>${esc(c.sub)}</span></button>`).join("");
 $("lessons").onclick = (e) => { const b = e.target.closest("[data-k]"); if (b) useExample(LESSONS[+b.dataset.k]); };

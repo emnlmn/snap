@@ -190,11 +190,14 @@ code { font: .92em var(--mono); color: var(--soft); }
 .knob input:focus { border-color: var(--accent-edge); }
 .knob input.bad { border-color: color-mix(in srgb, var(--bad) 60%, transparent); color: var(--bad); }
 
-/* ---------- request: two boxes ---------- */
-.builder { display: grid; gap: 16px; padding: 16px var(--gutter) 24px; }
-.box { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); min-width: 0; }
+/* ---------- request: two boxes ----------
+   the builder fills the pane: State sizes to its content (the textarea caps
+   itself at 38vh and scrolls), Questions takes the rest and its tree scrolls
+   inside the card — the column itself never scrolls. */
+.builder { display: grid; grid-template-rows: auto minmax(160px, 1fr); gap: 16px; padding: 16px var(--gutter); height: 100%; }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .box-head {
-  display: flex; align-items: baseline; gap: 10px;
+  display: flex; align-items: baseline; gap: 10px; flex: none;
   padding: 10px 14px; border-bottom: 1px solid var(--line);
 }
 .box-head h3 { font-size: 13px; font-weight: 600; }
@@ -215,7 +218,7 @@ textarea.state {
 textarea.state:focus { box-shadow: inset 0 0 0 1px var(--accent-edge); }
 
 /* ---------- JSON-ish question tree ---------- */
-.tree { padding: 10px 8px 12px; font: 13px/1.5 var(--mono); color: var(--text); }
+.tree { flex: 1; min-height: 0; overflow: auto; padding: 10px 8px 12px; border-radius: 0 0 var(--r) var(--r); font: 13px/1.5 var(--mono); color: var(--text); }
 .ln {
   position: relative; display: block;
   min-height: 28px; padding: 4px 34px 4px calc(var(--d) * 20px + 26px);
@@ -285,16 +288,16 @@ textarea.state:focus { box-shadow: inset 0 0 0 1px var(--accent-edge); }
 .add svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; }
 .add:hover { color: var(--accent); background: var(--accent-wash); }
 
-/* empty questions: pick a primitive */
-.picker { padding: 6px 12px 8px calc(var(--d) * 20px + 26px); display: grid; gap: 2px; max-width: 520px; }
-.picker p { font: 12.5px var(--sans); color: var(--muted); margin: 2px 0 8px; }
-.picker p.ext { margin: 10px 0 4px; font-size: 11.5px; }
+/* empty questions: pick a primitive — one gap drives the rhythm; the
+   extension group gets the same ruled label as the popover's .sep */
+.picker { padding: 6px 12px 8px calc(var(--d) * 20px + 26px); display: grid; gap: 6px; max-width: 520px; }
+.picker p { font: 12.5px var(--sans); color: var(--muted); margin: 2px 0 4px; }
+.picker p.ext { margin: 8px 0 2px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11.5px; }
 .prim {
   display: grid; grid-template-columns: 64px 1fr; gap: 1px 12px; text-align: left;
   padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
   transition: border-color .15s, background .15s;
 }
-.prim + .prim { margin-top: 4px; }
 .prim:hover { border-color: var(--accent-edge); background: color-mix(in srgb, var(--accent) 4%, transparent); }
 .prim b { font: 600 13px var(--mono); color: var(--accent); grid-row: span 2; }
 .prim span { font: 13px var(--sans); color: var(--text); }
@@ -315,7 +318,8 @@ textarea.state:focus { box-shadow: inset 0 0 0 1px var(--accent-edge); }
 
 /* ---------- popover menu ---------- */
 .pop {
-  position: fixed; z-index: 50; min-width: 220px; max-width: 340px;
+  position: fixed; z-index: 50;
+  width: max-content; min-width: 220px; max-width: min(400px, calc(100vw - 24px));
   background: var(--raise); border: 1px solid var(--line-hi); border-radius: 10px;
   padding: 4px;
   box-shadow: 0 12px 32px -8px var(--shadow-lg), 0 2px 6px var(--shadow);
@@ -327,15 +331,21 @@ textarea.state:focus { box-shadow: inset 0 0 0 1px var(--accent-edge); }
   width: 100%; border: 0; background: none; text-align: left;
   padding: 7px 10px; border-radius: 6px;
 }
-.pop button.rich { display: grid; grid-template-columns: auto 1fr; gap: 1px 12px; }
+/* rich rows carry three beats — name leads, hint explains, example proves;
+   extra row-gap and padding keep the beats distinct from the next item */
+.pop button.rich {
+  display: grid; grid-template-columns: 64px 1fr; align-items: baseline;
+  gap: 3px 12px; padding-block: 9px;
+}
 .pop button b { font: 500 13px var(--mono); color: var(--text); }
 .pop button span { font-size: 12.5px; color: var(--muted); }
 .pop button.rich span { color: var(--soft); }
 .pop button i { grid-column: 2; font: italic 12px var(--sans); color: var(--muted); }
 .pop button:hover, .pop button:focus-visible { background: var(--hover); outline: none; }
+.pop button:focus-visible { box-shadow: inset 0 0 0 1.5px var(--accent-edge); }
 .pop button.cur b { color: var(--accent); }
 .pop .sep {
-  margin: 4px 10px 2px; padding-top: 8px; border-top: 1px solid var(--line);
+  margin: 6px 10px 2px; padding-top: 9px; border-top: 1px solid var(--line);
   font-size: 11.5px; color: var(--muted);
 }
 
@@ -362,13 +372,66 @@ textarea.state:focus { box-shadow: inset 0 0 0 1px var(--accent-edge); }
 .lessons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .lesson {
   position: relative; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px;
-  min-height: 104px; padding: 14px 16px; text-align: left;
+  min-height: 128px; padding: 14px 16px; text-align: left;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
   transition: border-color .15s, background .15s;
 }
-.lesson .tag { position: absolute; top: 12px; right: 12px; }
+/* header row: specimen readout on the left, primitive tag on the right —
+   both sit on the same baseline; the free space below splits readout from
+   caption. */
+.lesson .top { display: flex; align-items: flex-end; justify-content: space-between; min-height: 26px; margin-bottom: auto; }
+.lesson .tag { margin: 0; }
 .lesson b { font-size: 14.5px; font-weight: 600; line-height: 1.3; }
-.lesson span:not(.tag) { font-size: 12.5px; color: var(--muted); }
+.lesson .sub { font-size: 12.5px; color: var(--muted); }
+
+/* dormant specimen of the answer shape — empty tracks at rest, ink on hover */
+.lesson .spec { display: block; width: 118px; }
+.spec.bars { display: grid; gap: 5px; }
+.spec.bars i { position: relative; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.spec.bars i::before {
+  content: ""; position: absolute; inset: 0; border-radius: 2px;
+  background: var(--line-hi);
+  transform: scaleX(0); transform-origin: left;
+  transition: transform .55s var(--ease);
+}
+.spec.bars i.w::before { background: var(--accent); }
+/* choice reads as keys, not bars — the option initials as keycaps */
+.spec.keys { display: flex; gap: 5px; }
+.spec.keys i {
+  position: relative; flex: 1; height: 24px; overflow: hidden; font-style: normal;
+  border: 1px solid var(--line); border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color .35s;
+}
+.spec.keys i::before {
+  content: ""; position: absolute; inset: 0;
+  background: var(--line-hi); transform: scaleY(0); transform-origin: bottom;
+  transition: transform .55s var(--ease);
+}
+.spec.keys i::after {
+  content: attr(data-k); position: relative;
+  font: 600 8px/1 var(--mono); color: var(--muted);
+  transition: color .35s;
+}
+.spec.keys i.w::before { background: var(--accent); }
+.spec.keys i.w::after { color: var(--accent); }
+.spec.hist { display: flex; align-items: flex-end; gap: 4px; height: 26px; border-bottom: 1px solid var(--line-hi); }
+.spec.hist i {
+  flex: 1; height: 100%; border-radius: 2px 2px 0 0;
+  background: var(--line-hi);
+  transform: scaleY(.07); transform-origin: bottom;
+  transition: transform .55s var(--ease);
+}
+.spec.hist i.w { background: var(--accent); }
+.lesson:hover .spec.bars i::before, .lesson:focus-visible .spec.bars i::before { transform: scaleX(var(--p)); }
+.lesson:hover .spec.hist i, .lesson:focus-visible .spec.hist i { transform: scaleY(var(--p)); }
+.lesson:hover .spec.keys i::before, .lesson:focus-visible .spec.keys i::before { transform: scaleY(var(--p)); }
+.lesson:hover .spec.keys i.w, .lesson:focus-visible .spec.keys i.w { border-color: var(--accent); }
+.lesson:hover .spec.keys i.w::after, .lesson:focus-visible .spec.keys i.w::after { color: var(--accent-ink); }
+.spec.bars i:nth-child(2)::before, .spec.hist i:nth-child(2), .spec.keys i:nth-child(2)::before { transition-delay: 40ms; }
+.spec.bars i:nth-child(3)::before, .spec.hist i:nth-child(3), .spec.keys i:nth-child(3)::before { transition-delay: 80ms; }
+.spec.bars i:nth-child(4)::before, .spec.hist i:nth-child(4), .spec.keys i:nth-child(4)::before { transition-delay: 120ms; }
+.spec.hist i:nth-child(5) { transition-delay: 160ms; }
 .cases { border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .case {
   display: flex; align-items: baseline; gap: 12px; width: 100%;
@@ -458,8 +521,18 @@ textarea.state:focus { box-shadow: inset 0 0 0 1px var(--accent-edge); }
 /* ---------- narrower screens ---------- */
 @media (max-width: 1180px) {
   .lessons { grid-template-columns: 1fr; }
-  .lesson { min-height: 0; padding: 12px 14px; flex-direction: row; align-items: baseline; justify-content: flex-start; gap: 10px; }
-  .lesson .tag { position: static; order: -1; min-width: 56px; text-align: center; }
+  .lesson {
+    display: grid; min-height: 0; padding: 12px 14px;
+    grid-template-columns: 56px minmax(0, 1fr) 76px; grid-template-rows: auto auto;
+    grid-template-areas: "tag b spec" "tag sub spec";
+    column-gap: 12px; row-gap: 1px; align-items: center;
+  }
+  .lesson .top { display: contents; }
+  .lesson .tag { grid-area: tag; justify-self: center; }
+  .lesson b { grid-area: b; }
+  .lesson .sub { grid-area: sub; }
+  .lesson .spec { grid-area: spec; width: auto; }
+  .spec.keys { gap: 3px; }
   .case { flex-direction: column; gap: 0; }
 }
 @media (max-width: 900px) {
@@ -469,6 +542,7 @@ textarea.state:focus { box-shadow: inset 0 0 0 1px var(--accent-edge); }
   .split { grid-template-columns: 1fr; }
   .pane + .pane { border-left: 0; border-top: 1px solid var(--line); }
   .pane-body { overflow: visible; }
+  .builder { height: auto; }
   .pane-foot { position: sticky; bottom: 0; background: var(--bg); z-index: 5; }
   .run kbd { display: none; }
   .box-head .hint { display: none; }

@@ -122,12 +122,6 @@ h1 {
 .btn.ghost:hover { border-color: var(--faint); background: var(--raise); color: var(--text); }
 .micro { margin-top: 20px; font-size: 12.5px; color: var(--muted); }
 .micro code { font-size: 12px; color: var(--soft); }
-.chips { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 6px; }
-.chip {
-  padding: 4px 11px; border: 1px solid var(--line-hi); border-radius: 999px;
-  background: var(--surface);
-  font: 11.5px var(--mono); color: var(--soft); white-space: nowrap;
-}
 
 /* hero one-liner */
 .cmd {
@@ -161,16 +155,14 @@ h1 {
   border-radius: 14px;
   overflow: hidden;
   display: flex; flex-direction: column;
-  min-height: 676px;
   min-width: 0;
 }
 .demo-head {
-  display: flex; align-items: center; gap: 10px;
-  padding: 11px 16px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 12px 16px; border-bottom: 1px solid var(--line);
   font: 12px var(--mono); color: var(--muted);
 }
-.demo-head .ep { color: var(--soft); }
-.demo-head .case { color: var(--accent-deep); }
+.demo-head .case { font-size: 13.5px; font-weight: 650; color: var(--text); }
 .demo-head .model { margin-left: auto; color: var(--faint); }
 .demo-state {
   padding: 12px 16px; border-bottom: 1px solid var(--line);
@@ -395,16 +387,9 @@ footer .links a:hover { color: var(--text); }
     <div>
       <h1>Typed decisions from unstructured state.</h1>
       <p class="tag">one forward pass · zero generated text</p>
-      <p class="lede">Give it a state, ask your questions: get back a yes/no, a class, a score or
-        a number, each with its probabilities. A decision your code can use as-is. No parsing,
-        no retries, nothing leaves the machine.</p>
-      <div class="chips">
-        <span class="chip">100% local</span>
-        <span class="chip">0 output tokens</span>
-        <span class="chip">Jev-compatible API</span>
-        <span class="chip">open weights · GGUF</span>
-        <span class="chip">MIT</span>
-      </div>
+      <p class="lede">You send a state and a batch of questions. Back comes a yes/no, a class, a
+        score or a number for each — with the full probability map. The model never generates
+        text, so there is nothing to parse on your side.</p>
       <div class="cta">
         <a class="btn primary" href="https://github.com/emnlmn/snap/releases">Download the binary</a>
         <a class="btn ghost" href="https://github.com/emnlmn/snap">View source</a>
@@ -419,9 +404,8 @@ footer .links a:hover { color: var(--text); }
     <div>
       <div class="demo" role="region" aria-label="Recorded snap responses: typed answers with probability distributions">
         <div class="demo-head">
-          <span class="ep">POST /v1/systemone</span>
           <span class="case" id="case-name">ticket triage</span>
-          <span class="model">qwen3.8-4b · shared</span>
+          <span class="model">minicpm5-2b</span>
         </div>
         <div class="demo-state"><b>"state"</b>: {
   "ticket": "charged twice, furious, wants a chargeback."
@@ -448,7 +432,7 @@ footer .links a:hover { color: var(--text); }
         </div>
 
         <div class="demo-foot">
-          <span><span class="ms" id="ms">0</span> ms · <span id="nq">3</span> questions, one state prefix</span>
+          <span><span class="ms" id="ms">0</span> ms/q · <span id="nq">3</span> questions, shared prefix</span>
           <span class="dots" role="group" aria-label="Recorded cases">
             <button class="dot on" data-i="0" title="ticket triage" aria-label="case: ticket triage"></button>
             <button class="dot" data-i="1" title="on-call triage" aria-label="case: on-call triage"></button>
@@ -467,10 +451,9 @@ footer .links a:hover { color: var(--text); }
 <section>
   <div class="wrap">
     <h2>SNAP never lets it talk.</h2>
-    <p class="sub">Somewhere in your stack there's a prompt asking for JSON, a parser that mostly
-      works, a retry loop for when it doesn't, and a token bill for thousands of generated words
-      you immediately throw away. All of it exists for one reason: the only way to interrogate a
-      chat model is to let it talk.</p>
+    <p class="sub">Ask a chat model for strict JSON and you inherit the rest: a parser that
+      mostly works, a retry loop for when it doesn't, and an invoice for prose you throw away
+      on the next line. All of it exists because text is the only handle the model gives you.</p>
     <div class="pipe" aria-label="Pipeline comparison">
       <div class="dead"><s>prompt <span class="arrow">→</span> generate prose <span class="arrow">→</span> parse JSON <span class="arrow">→</span> validate <span class="arrow">→</span> retry <span class="arrow">→</span> bill</s></div>
       <div class="live">prompt <span class="arrow">→</span> <span class="hl">one decode <span class="arrow">→</span> distribution</span></div>
@@ -481,11 +464,9 @@ footer .links a:hover { color: var(--text); }
 <section id="how">
   <div class="wrap">
     <h2>Logits in, distributions out.</h2>
-    <p class="sub">The output surface is a fixed alphabet of letters. Structured by construction:
-      there is nothing downstream to parse, validate, or repair. All questions in a request share
-      the same state prefix, evaluated once; on full-attention models the question suffixes decode
-      in a single batched call. With <code>layout: question_first</code> the question head itself
-      stays resident in KV across requests — repeat workloads decode only the state.</p>
+    <p class="sub">The output surface is a fixed alphabet of letters — nothing downstream to
+      parse, validate, or repair. All questions in a request share the same state prefix,
+      evaluated once; the question suffixes decode in one batched call.</p>
 
     <div class="steps">
       <div class="step">
@@ -518,7 +499,7 @@ footer .links a:hover { color: var(--text); }
 
 <section id="numbers">
   <div class="wrap">
-    <h2>Measured, not promised.</h2>
+    <h2>Numbers.</h2>
     <p class="sub">Apple Silicon, Metal, in-process, p50. Reproduce with
       <code>snap bench</code> and <code>snap evaluate eval/*.jsonl</code>.</p>
 
@@ -528,24 +509,32 @@ footer .links a:hover { color: var(--text); }
         <div class="tbl-wrap"><table>
           <thead><tr><th>scenario</th><th>minicpm5-2b</th><th>spark-4b</th><th class="snapcol">qwen3.8-4b</th></tr></thead>
           <tbody>
-            <tr><td>single question</td><td class="m">50 ms</td><td class="m">87 ms</td><td class="m snapcol">87 ms</td></tr>
-            <tr><td>4 questions, shared</td><td class="m">36 ms/q</td><td class="m">60 ms/q</td><td class="m snapcol">97 ms/q</td></tr>
-            <tr><td>8 questions, shared</td><td class="m">31 ms/q</td><td class="m">55 ms/q</td><td class="m snapcol">93 ms/q</td></tr>
-            <tr><td>8 KB state, 1 question</td><td class="m">1392 ms</td><td class="m">2778 ms</td><td class="m snapcol">2429 ms</td></tr>
+            <tr><td>single question</td><td class="m">136 ms</td><td class="m">272 ms</td><td class="m snapcol">284 ms</td></tr>
+            <tr><td>4 questions, shared</td><td class="m">454 ms · 114 ms/q</td><td class="m">816 ms · 204 ms/q</td><td class="m snapcol">992 ms · 249 ms/q</td></tr>
+            <tr><td>8 questions, shared</td><td class="m">803 ms · 100 ms/q</td><td class="m">1760 ms · 217 ms/q</td><td class="m snapcol">1914 ms · 248 ms/q</td></tr>
+            <tr><td>8 questions, direct</td><td class="m">1008 ms · 126 ms/q</td><td class="m">2135 ms · 271 ms/q</td><td class="m snapcol">2450 ms · 305 ms/q</td></tr>
+            <tr><td>8 KB state, 1 question</td><td class="m">1245 ms</td><td class="m">2818 ms</td><td class="m snapcol">2427 ms</td></tr>
           </tbody>
         </table></div>
+        <p class="note">minicpm and spark decode question suffixes batched over parallel KV
+          sequences; qwen's hybrid KV falls back to sequential suffixes, still prefix-cached.
+          A startup probe picks the path — nothing to configure.</p>
       </div>
       <div>
-        <p class="tbl-cap">Same MiniCPM-2B weights: snap vs Ollama</p>
+        <p class="tbl-cap">Same MiniCPM-2B GGUF, same machine · snap vs Ollama, cold prompts</p>
         <div class="tbl-wrap"><table>
           <thead><tr><th>workload</th><th>Ollama</th><th class="snapcol">snap</th><th></th></tr></thead>
           <tbody>
-            <tr><td>1 question</td><td class="m">193 ms</td><td class="m snapcol">50 ms</td><td class="delta">-74%</td></tr>
-            <tr><td>4 questions</td><td class="m">788 ms</td><td class="m snapcol">146 ms</td><td class="delta">-81%</td></tr>
-            <tr><td>8 questions</td><td class="m">1884 ms</td><td class="m snapcol">246 ms</td><td class="delta">-87%</td></tr>
-            <tr><td>~8k-token state</td><td class="m na">rejected</td><td class="m snapcol">1392 ms</td><td class="na">n/a</td></tr>
+            <tr><td>1 question</td><td class="m">193 ms</td><td class="m snapcol">136 ms</td><td class="delta">−30%</td></tr>
+            <tr><td>4 questions, one request each</td><td class="m">788 ms</td><td class="m snapcol">454 ms</td><td class="delta">−42%</td></tr>
+            <tr><td>8 questions, one request each</td><td class="m">1884 ms</td><td class="m snapcol">803 ms</td><td class="delta">−57%</td></tr>
+            <tr><td>4 questions, combined prompt</td><td class="m">559 ms</td><td class="m snapcol">454 ms</td><td class="delta">−19%</td></tr>
+            <tr><td>8 questions, combined prompt</td><td class="m">962 ms</td><td class="m snapcol">803 ms</td><td class="delta">−17%</td></tr>
+            <tr><td>~8k-token state</td><td class="m na">rejected (ctx)</td><td class="m snapcol">1245 ms</td><td class="na">n/a</td></tr>
           </tbody>
         </table></div>
+        <p class="note">Combined prompt is Ollama's best case for N questions — and it answers
+          <code>"A,C,B"</code> as text to parse, no probabilities.</p>
       </div>
     </div>
 
@@ -559,7 +548,7 @@ footer .links a:hover { color: var(--text); }
           <tr><td>minicpm5-2b Q4_K_M</td><td class="m">67.3%</td><td class="m">57.9%</td><td class="m">~135</td></tr>
         </tbody>
       </table></div>
-      <p class="note">Raw probabilities are honest but uncalibrated: <code>snap calibrate</code> fits
+      <p class="note">Raw probabilities are uncalibrated: <code>snap calibrate</code> fits
         one temperature per question type on your labeled cases, bound to the model and prompt
         version, with ECE printed before and after.</p>
     </div>
@@ -586,8 +575,8 @@ footer .links a:hover { color: var(--text); }
     </div>
     <div>
       <h2>Drop-in Jev.</h2>
-      <p>The wire format is Jev: point an existing client at a local
-        <code>snap serve</code> and it works. Same request, same response shape.</p>
+      <p>snap speaks Jev's wire format. If a client already talks to Jev, point it at a
+        local <code>snap serve</code> and it keeps working unchanged.</p>
       <p>Snap extensions are optional fields a Jev client can ignore; defaults preserve Jev
         semantics. Answers carry extras (<code>status</code>, <code>confidence</code>, full
         <code>probabilities</code>, <code>coverage</code>) on top of the Jev shape.</p>
@@ -595,7 +584,6 @@ footer .links a:hover { color: var(--text); }
         <b>"type": "numeric"</b> → distribution over {min, max, granularity}<br>
         <b>allow_abstain</b> → adds an __abstain__ slot, status "abstained"<br>
         <b>"mode"</b> → "shared" (prefix amortized) or "direct"<br>
-        <b>"layout"</b> → "auto" | state_first | question_first | header<br>
         <b>coverage</b> → per-answer: mass on the allowed letters pre-renorm
       </div>
       <p class="disclaimer">snap is an independent implementation. Jev itself is a hosted
@@ -607,25 +595,21 @@ footer .links a:hover { color: var(--text); }
 <section id="compare">
   <div class="wrap">
     <h2>Where snap sits.</h2>
-    <p class="sub">Beside the hosted original and <a href="https://github.com/TheoLeeCJ/SemIf">SemIf</a>,
-      the open research scorer. No sugar-coating.</p>
+    <p class="sub">The two natural comparisons: Jev, the hosted original, and
+      <a href="https://github.com/TheoLeeCJ/SemIf">SemIf</a>, the open research scorer.</p>
     <div class="tbl-wrap cmp"><table>
       <thead><tr><th></th><th class="snapcol">snap</th><th>Jev</th><th>SemIf</th></tr></thead>
       <tbody>
         <tr><td>runs</td><td class="snapcol">local · one Rust binary</td><td>hosted service</td><td>local · Python · WebGPU demo</td></tr>
-        <tr><td>backends</td><td class="snapcol">Metal · CUDA · Vulkan · CPU</td><td class="na">n/a</td><td>CUDA · MLX · llama.cpp</td></tr>
         <tr><td>open weights</td><td class="y snapcol">✓ GGUF</td><td class="n">✗</td><td class="y">✓ Qwen</td></tr>
         <tr><td>Jev-style HTTP API</td><td class="y snapcol">✓</td><td>the original</td><td class="n">✗ CLI</td></tr>
         <tr><td>numeric primitive</td><td class="y snapcol">✓</td><td class="n">✗</td><td class="n">✗</td></tr>
-        <tr><td>options per question</td><td class="m snapcol">256</td><td class="m">255</td><td class="m">16</td></tr>
         <tr><td>calibrated probabilities</td><td class="snapcol"><code>snap calibrate</code></td><td>claimed</td><td>per-workload T</td></tr>
-        <tr><td>input context</td><td class="m snapcol">model max · --ctx</td><td class="m">32k</td><td class="m">262k</td></tr>
         <tr><td><a href="https://evals.typesafe.ai">TypeSafe public eval</a></td><td class="m snapcol">66% · 2.6B model</td><td class="m">~88%</td><td class="na">n/a</td></tr>
       </tbody>
     </table></div>
-    <p class="note">Jev column from its public description; SemIf column from its repo. snap's
-      context is the loaded model's own, 8192 tokens by default. The eval row is agreement with
-      the published consensus on the 373 public decisions — reproduce with
+    <p class="note">Jev column from its public description; SemIf from its repo. The eval row is
+      agreement with the published consensus on the 373 public decisions — reproduce with
       <code>eval/typesafe_public.py</code>; Jev's ~88% is its reported number.</p>
   </div>
 </section>
@@ -646,7 +630,7 @@ footer .links a:hover { color: var(--text); }
 <span class="c"># first run pulls the GGUF (~1.5-4 GB), then fully offline</span></pre>
     </div>
     <div class="steps-side">
-      <h2>Runs where your data lives.</h2>
+      <h2>Everything stays on the box.</h2>
       <p>No API key, no telemetry, no third party reading your customers' tickets. Weights are a
         GGUF on disk, downloaded once from HuggingFace.</p>
       <p>Nothing to jailbreak: the model cannot emit a payload because it cannot emit text.</p>
@@ -675,12 +659,12 @@ footer .links a:hover { color: var(--text); }
 </footer>
 
 <script>
-// Recorded on this machine: snap -p <case>.json --model qwen3.8-4b (shared prefix).
+// Recorded on this machine: snap -p <case>.json --model minicpm5-2b (shared prefix).
 const CASES = [
   {
     name: 'ticket triage',
     state: '{\n  "ticket": "charged twice, furious, wants a chargeback."\n}',
-    ms: 510,
+    msq: 113,
     qs: [
       { n: 'route',  t: 'choice', w: 'billing', wt: 'billing',     bars: [['billing', .99], ['tech', .01], ['account', 0]] },
       { n: 'urgent', t: 'noul',   w: 'true',    wt: 'true',        bars: [['true', .96], ['false', .04]] },
@@ -690,7 +674,7 @@ const CASES = [
   {
     name: 'on-call triage',
     state: '{\n  "ctx": "fri 18:40 · payments deploy 18:05",\n  "alerts": {\n    "a1": "checkout p95 300ms → 2.1s",\n    "a2": "disk 87%, full in ~36h",\n    "a3": "pay success 99.1 → 96.8%",\n    "a4": "staging login down"\n  }\n}',
-    ms: 723,
+    msq: 131,
     qs: [
       { n: 'sev_a1', t: 'score',  w: 'sev1', wt: 'sev1 · 0.74', bars: [['sev3', .16], ['sev2', .19], ['sev1', .65]] },
       { n: 'sev_a3', t: 'score',  w: 'sev1', wt: 'sev1 · 0.81', bars: [['sev3', .09], ['sev2', .20], ['sev1', .71]] },
@@ -700,7 +684,7 @@ const CASES = [
   {
     name: 'CV screen',
     state: '{\n  "resume": "8y Python · AWS · led 5 · no mobile"\n}',
-    ms: 543,
+    msq: 106,
     qs: [
       { n: 'led_team',  t: 'noul',   w: 'true',    wt: 'true',         bars: [['true', .99], ['false', .01]] },
       { n: 'best_role', t: 'choice', w: 'backend', wt: 'backend',      bars: [['backend', .99], ['frontend', 0], ['mobile', 0]] },
@@ -762,7 +746,7 @@ function render(i, animate) {
   });
   nqEl.textContent = c.qs.length;
   dots.forEach((d, di) => d.classList.toggle('on', di === i));
-  fill(c.ms, animate);
+  fill(c.msq, animate);
 }
 
 function next() { render((cur + 1) % CASES.length, true); }

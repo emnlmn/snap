@@ -99,7 +99,9 @@ them and defaults preserve Jev semantics:
 | question `"type": "numeric"` | `{min, max, granularity}` — distribution over a numeric range |
 | question `allow_abstain` | default `false`; `true` adds an `__abstain__` slot (status `abstained`) |
 | request `mode` | `shared` (default, prefix amortized) or `direct` |
-| request `layout` | `auto` (default), `state_first`, `question_first`, `header` |
+| request `layout` | `auto` (default), `state_first`, `question_first`, `header`, `catalog` |
+| request `expand` | `probes` (default) or `pages` — how >26-option choices expand |
+| request `compact_state` | default `false`; `true` renders object states as compact lines/csv rows |
 
 `layout` controls where the question sits relative to the state.
 `question_first` makes the question head cacheable across requests and
@@ -111,17 +113,25 @@ case where warm caches win (qf re-decodes the state per question, sf
 decodes it once). It falls back to `state_first` for states > 2000 chars
 with several questions, whenever any question has `allow_abstain` (an
 abstain slot read before the evidence primes abstention), or when the
-state is bigger than the heads. The resolved layout is in `x_snap`.
+state is bigger than the heads. `catalog` lists every question (numbered,
+instructions only) before the state, then each item is just a
+`QUESTION i — name` pointer plus its OPTIONS — the `[head+catalog]` span
+caches across requests on the same question set, so a stream of different
+states decodes only the state once plus a ~20-token tail per question.
+The resolved layout is in `x_snap`.
 
 Answers carry extras on top of the Jev shape — `status`, `confidence`,
 full `probabilities`, and typed fields (`boolean`, `level`, `value`) —
 which Jev clients simply ignore.
 
 `choice` is not bounded by the alphabet: past 26 options (256 max) the
-question expands into independent per-option probes — *is this candidate
-the answer?* — batched in waves over the shared prefix. The yes-masses
-normalize into the returned distribution; with `allow_abstain`, no
-candidate reaching 0.5 means the question abstains.
+question expands. `expand: probes` (default) scores each option with an
+independent probe — *is this candidate the correct answer?* — batched in
+waves over the shared prefix, then yes-masses normalize into the returned
+distribution; with `allow_abstain`, no candidate reaching 0.5 abstains.
+`expand: pages` instead splits candidates into equal-size pages of ≤26
+real choices — far fewer decode items, but page-conditional probabilities
+and no abstention.
 
 ## Local AI — security by construction
 

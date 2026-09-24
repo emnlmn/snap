@@ -76,6 +76,8 @@ pub(crate) fn build_req(
         layout: layout
             .or_else(|| serde_json::from_value(case["layout"].clone()).ok())
             .unwrap_or(crate::schema::Layout::Auto),
+        expand: serde_json::from_value(case["expand"].clone()).unwrap_or_default(),
+        compact_state: case["compact_state"].as_bool().unwrap_or(false),
     })
 }
 
@@ -442,10 +444,16 @@ pub fn evaluate_url(
             crate::schema::Layout::StateFirst => "state_first",
             crate::schema::Layout::QuestionFirst => "question_first",
             crate::schema::Layout::Header => "header",
+            crate::schema::Layout::Catalog => "catalog",
+        };
+        let expand_str = match req.expand {
+            crate::schema::Expand::Probes => "probes",
+            crate::schema::Expand::Pages => "pages",
         };
         let payload = json!({
             "state": req.state, "questions": req.questions,
             "temperature": req.temperature, "mode": "shared", "layout": layout_str,
+            "expand": expand_str, "compact_state": req.compact_state,
         });
         let t0 = Instant::now();
         let out: Value = ureq::post(&format!("{url}/v1/systemone"))
