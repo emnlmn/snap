@@ -656,6 +656,9 @@ function showErr(title, detail) {
 
 /* ---------------- result ---------------- */
 const pct = (p) => `${Math.round(p * 100)}%`;
+let lastDist = null; // name -> {key: p} — feeds the run-to-run tween and the ± deltas
+
+const SPECIAL = { __abstain__: "abstain", __below__: "below", __above__: "above" };
 
 function renderResult(req, body, ms) {
   $("empty").hidden = true;
@@ -663,48 +666,81 @@ function renderResult(req, body, ms) {
   renderRan();
 
   const x = body.x_snap || {};
-  const stat = (v, unit, label, cls = "") =>
-    `<div class="stat ${cls}"><b>${esc(v ?? "—")}${unit ? `<small>${unit}</small>` : ""}</b><span>${label}</span></div>`;
+  const st = (label, v, unit, title, cls = "") =>
+    `<span class="st ${cls}"${title ? ` title="${esc(title)}"` : ""}><em>${esc(label)}</em><b>${esc(v ?? "—")}${unit ? `<small>${unit}</small>` : ""}</b></span>`;
   const qh = x.qhead_hits != null ? `${x.qhead_hits}/${(x.qhead_hits ?? 0) + (x.qhead_misses ?? 0)}` : null;
   $("stats").innerHTML =
-    stat(x.total_ms, "ms", "total", "lead") +
-    stat(x.prefill_ms, "ms", "prefill") +
-    stat(body.usage?.input_tokens, "tok", "decoded") +
-    (x.shared_prefix_tokens > 0 ? stat(x.shared_prefix_tokens, "tok", "shared prefix") : "") +
-    stat(x.cached_head_tokens, "tok", "cached head") +
-    (qh ? stat(qh, "", "qhead hits") : "") +
-    stat(x.decoded_items, "", `items · ${x.suffix_decode ?? "—"}`) +
-    stat(x.rewind, "", "rewind");
+    st("total", x.total_ms, "ms", "total engine time", "lead") +
+    st("prefill", x.prefill_ms, "ms", "shared-prefix prefill") +
+    st("decoded", body.usage?.input_tokens, "", "tokens actually decoded") +
+    (x.shared_prefix_tokens > 0 ? st("shared", x.shared_prefix_tokens, "", "shared prefix tokens") : "") +
+    st("cached", x.cached_head_tokens, "", "cached head tokens") +
+    (qh ? st("qhead", qh, "", "question-head cache hits") : "") +
+    st("items", `${x.decoded_items ?? "—"}${x.suffix_decode ? ` · ${x.suffix_decode}` : ""}`, "", "question items · suffix decode path") +
+    st("rewind", x.rewind, "", "KV rewind strategy");
   $("stats").hidden = false;
 
+  const prev = lastDist || {};
+  const dist = {};
   $("answers").innerHTML = Object.entries(req.questions || {}).map(([name, spec]) => {
     const a = body.answers?.[name];
     if (!a) return "";
     const v = answerView(a, spec);
-    const abst = a.status === "abstained";
+    const status = a.status === "abstained" ? "abstained"
+      : a.status === "contested" ? "contested"
+      : a.status === "out_of_bounds" ? "out of bounds" : "";
+    const rows = (dist[name] = {});
     return `
-      <article class="ans ${abst ? "abst" : ""}">
+      <article class="ans ${a.status === "abstained" ? "abst" : ""}">
         <header>
           <div class="who">
-            <h3>${esc(name)}</h3>
+            <h3>${esc(name)}<span class="tag">${esc(a.type)}</span></h3>
             ${spec.instructions ? `<p>${esc(spec.instructions)}</p>` : ""}
           </div>
           <div class="verdict">
             <b>${esc(v.headline)}</b>
-            <span>${abst ? "abstained · " : ""}${v.sub ? `${esc(v.sub)} · ` : ""}confidence ${pct(a.confidence ?? 0)}</span>
+            <span>${status ? `<i class="flag">${status}</i> · ` : ""}${v.sub ? `${esc(v.sub)} · ` : ""}confidence ${pct(a.confidence ?? 0)}</span>
           </div>
-          <span class="tag">${esc(a.type)}</span>
         </header>
         <div class="dist">
-          ${v.rows.map(([k, p, win, desc]) => `
+          ${v.rows.map(([k, p, win, desc]) => {
+            rows[k] = p;
+            const old = prev[name]?.[k];
+            const d = old == null ? 0 : Math.round((p - old) * 100);
+            const lbl = SPECIAL[k] || k;
+            return `
             <div class="bar ${win ? "win" : ""}">
-              <span class="lbl" title="${esc(desc ? `${k} — ${desc}` : k)}">${esc(k)}${desc && desc !== k ? `<em>${esc(desc)}</em>` : ""}</span>
-              <span class="track"><i style="--p:${p.toFixed(4)}"></i></span>
-              <span class="val">${pct(p)}</span>
-            </div>`).join("")}
+              <span class="lbl" title="${esc(desc ? `${k} — ${desc}` : k)}">${esc(lbl)}${desc && desc !== k ? `<em>${esc(desc)}</em>` : ""}</span>
+              <span class="track" role="meter" aria-label="${esc(lbl)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(p * 100)}"><i data-f="${old ?? 0}" data-t="${p.toFixed(4)}" style="transform:scaleX(${old ?? 0})"></i></span>
+              <span class="val"><b class="v" data-f="${old ?? 0}" data-t="${p.toFixed(4)}">${pct(old ?? 0)}</b>${d ? `<i class="d">${d > 0 ? "+" : "−"}${Math.abs(d)}</i>` : ""}</span>
+            </div>`;
+          }).join("")}
+          <div class="axis" aria-hidden="true"><i>0</i><i>50</i><i>100</i></div>
         </div>
       </article>`;
   }).join("");
+  lastDist = dist;
+  tweenDist();
+}
+
+// one eased pass drives every fill and its readout together — ink and digits
+// move in lock-step from the previous run's values to the new ones. first run
+// tweens from zero; re-runs tween from the last distribution.
+function tweenDist() {
+  const els = $("answers").querySelectorAll("[data-t]");
+  const apply = (e) => els.forEach((el) => {
+    const f = +el.dataset.f, t = +el.dataset.t;
+    const v = f + (t - f) * e;
+    if (el.classList.contains("v")) el.textContent = pct(v);
+    else el.style.transform = `scaleX(${v})`;
+  });
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return apply(1);
+  const D = 520, t0 = performance.now();
+  (function step(now) {
+    const k = Math.min(1, (now - t0) / D);
+    apply(1 - (1 - k) ** 4);
+    if (k < 1) requestAnimationFrame(step);
+  })(t0);
 }
 
 function answerView(a, spec) {
@@ -720,10 +756,11 @@ function answerView(a, spec) {
     return { headline: a.choice ?? "—", rows: probs.map(([k, p]) => [k, p, k === a.choice, crit[k]]) };
   }
   if (a.type === "score") {
-    return { headline: `Level ${a.level} of ${probs.length - 1}`, sub: `score ${(a.score ?? 0).toFixed(2)}`,
+    return { headline: top || "—", sub: `level ${(a.level ?? 0) + 1} of ${probs.length} · score ${(a.score ?? 0).toFixed(2)}`,
       rows: probs.map(([k, p]) => [k, p, k === top]) };
   }
-  return { headline: `${a.value ?? "—"}`, rows: probs.map(([k, p]) => [k, p, k === top]) };
+  return { headline: a.value == null ? "—" : +(+a.value).toFixed(1),
+    rows: probs.map(([k, p]) => [k, p, k === top]) };
 }
 
 function renderRan() {
@@ -807,3 +844,4 @@ async function health() {
 loadRequest(CASES[0].req);
 health();
 setInterval(health, 5000);
+if (location.hash === "#run") run();

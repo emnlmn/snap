@@ -340,16 +340,19 @@ textarea.state:focus { box-shadow: inset 0 0 0 1px var(--accent-edge); }
 }
 
 /* ---------- response: stats ---------- */
+/* the run's internals as a one-line instrument readout */
 .stats {
-  display: flex; flex-wrap: wrap; gap: 6px 28px;
-  padding: 12px var(--gutter); flex: none;
+  display: flex; flex-wrap: nowrap; gap: 0 20px; overflow-x: auto;
+  padding: 10px var(--gutter); flex: none;
   border-bottom: 1px solid var(--line);
+  transition: opacity .2s;
 }
-.stat { display: flex; flex-direction: column; }
-.stat b { font: 500 15px var(--mono); font-variant-numeric: tabular-nums; color: var(--text); }
-.stat b small { font-size: 11.5px; color: var(--muted); font-weight: 400; margin-left: 3px; }
-.stat span { font-size: 11.5px; color: var(--muted); }
-.stat.lead b { color: var(--accent); }
+.st { font: 12px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; flex: none; }
+.st em { font-style: normal; font-size: 10px; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin-right: 5px; }
+.st b { font-weight: 500; color: var(--text); }
+.st b small { font-size: 10px; font-weight: 400; color: var(--faint); margin-left: 2px; }
+.st.lead b { color: var(--accent); font-weight: 600; }
+.running .stats { opacity: .45; }
 
 /* ---------- response: start screen ---------- */
 .start { padding: 36px var(--gutter) 40px; max-width: 760px; }
@@ -388,34 +391,56 @@ textarea.state:focus { box-shadow: inset 0 0 0 1px var(--accent-edge); }
 @keyframes ans-in { from { opacity: 0; transform: translateY(4px); } }
 .running .ans { opacity: .45; transition: opacity .2s; }
 
-.ans header { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px 20px; align-items: start; margin-bottom: 14px; }
+.ans header { display: grid; grid-template-columns: minmax(0, 1fr) fit-content(62%); gap: 4px 24px; align-items: start; margin-bottom: 15px; }
 .who h3 { font: 600 14px var(--mono); color: var(--text); }
+.who h3 .tag { display: inline-block; margin: 0 0 0 10px; font-size: 10.5px; letter-spacing: .04em; vertical-align: 1px; }
 .who p { margin-top: 3px; font-size: 13px; color: var(--muted); font-style: italic; max-width: 60ch; }
 .verdict { text-align: right; }
-.verdict b { display: block; font-size: 15px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
-.verdict span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.verdict b { display: block; font-size: 19px; font-weight: 650; letter-spacing: -.015em; color: var(--text); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.verdict span { font: 11.5px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.verdict .flag { font-style: normal; color: var(--num); }
 .tag {
   font: 11.5px var(--mono); color: var(--muted);
   border: 1px solid var(--line-hi); border-radius: 5px; padding: 1px 7px; margin-top: 2px;
 }
 .ans.abst .verdict b { color: var(--num); }
 
-.dist { display: grid; gap: 6px; }
-.bar { display: grid; grid-template-columns: minmax(80px, 38%) minmax(60px, 1fr) 44px; gap: 14px; align-items: center; }
+/* each distribution is drawn on one ruled scale: quarter ticks sit under
+   the ink, a 0/50/100 axis closes it. .bar is contents — the grid lives on
+   .dist so the axis can share the track column. */
+.dist {
+  display: grid; align-items: center;
+  grid-template-columns: minmax(80px, 38%) minmax(60px, 1fr) 64px;
+  column-gap: 14px; row-gap: 6px;
+}
+.bar { display: contents; }
 .bar .lbl { font: 12.5px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar .lbl em { font: italic 12px var(--sans); color: var(--muted); opacity: .75; margin-left: 8px; }
-.bar .track { position: relative; height: 6px; border-radius: 3px; background: var(--raise); overflow: hidden; }
+.bar .track {
+  position: relative; height: 6px; border-radius: 3px; overflow: hidden;
+  background:
+    linear-gradient(90deg, transparent calc(25% - .5px), var(--line-hi) calc(25% - .5px) calc(25% + .5px), transparent calc(25% + .5px)),
+    linear-gradient(90deg, transparent calc(50% - .5px), var(--line-hi) calc(50% - .5px) calc(50% + .5px), transparent calc(50% + .5px)),
+    linear-gradient(90deg, transparent calc(75% - .5px), var(--line-hi) calc(75% - .5px) calc(75% + .5px), transparent calc(75% + .5px)),
+    var(--raise);
+}
 .bar .track i {
   position: absolute; inset: 0; border-radius: 3px;
-  background: var(--line-hi);
-  transform-origin: left; transform: scaleX(var(--p));
-  animation: grow .5s var(--ease) both;
+  background: var(--line-hi); transform-origin: left;
 }
-@keyframes grow { from { transform: scaleX(0); } }
-.bar .val { font: 12.5px var(--mono); color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.bar .val { font: 12.5px var(--mono); color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.val .v { font-weight: 400; }
+.val .d { font-size: 10px; font-style: normal; color: var(--muted); margin-left: 5px; }
 .bar.win .lbl, .bar.win .val { color: var(--text); }
+.bar.win .val .d { color: var(--faint); }
 .bar.win .track i { background: var(--accent); }
 .ans.abst .bar.win .track i { background: var(--num); }
+.axis {
+  grid-column: 2; display: flex; justify-content: space-between;
+  padding-top: 2px; font: 9.5px var(--mono);
+  color: color-mix(in srgb, var(--muted) 70%, transparent); font-variant-numeric: tabular-nums;
+}
+.axis i { font-style: normal; }
 
 .err {
   margin: 20px var(--gutter); padding: 14px 16px; border-radius: var(--r);
@@ -447,9 +472,10 @@ textarea.state:focus { box-shadow: inset 0 0 0 1px var(--accent-edge); }
   .pane-foot { position: sticky; bottom: 0; background: var(--bg); z-index: 5; }
   .run kbd { display: none; }
   .box-head .hint { display: none; }
-  .ans header { grid-template-columns: minmax(0, 1fr) auto; }
+  .ans header { grid-template-columns: 1fr; gap: 6px; }
   .ans header .tag { display: none; }
-  .bar { grid-template-columns: minmax(70px, 34%) 1fr 40px; gap: 10px; }
+  .verdict { text-align: left; }
+  .dist { grid-template-columns: minmax(70px, 34%) minmax(60px, 1fr) 56px; column-gap: 10px; }
   .bar .lbl em { display: none; }
 }
 @media (max-width: 520px) {
