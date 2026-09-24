@@ -10,6 +10,13 @@
   <sub>local · deterministic · drop-in Jev compatible</sub>
 </p>
 
+<p align="center">
+  <a href="https://github.com/emnlmn/snap/actions/workflows/ci.yml"><img src="https://github.com/emnlmn/snap/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
+  <a href="https://github.com/emnlmn/snap/releases/latest"><img src="https://img.shields.io/github/v/release/emnlmn/snap" alt="release"/></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux-lightgrey" alt="platforms: macOS · Linux"/>
+  <a href="https://opensource.org/license/mit"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT"/></a>
+</p>
+
 ---
 
 Your LLM pipeline doesn't need to *write* anything. It needs to *decide*.
@@ -30,16 +37,23 @@ question. No prose, no parsing, no retries, no hallucinated JSON keys.
 
 ```jsonc
 // in
-{ "state": "ticket, CRM record, sensor dump — anything",
+{
+  "state": "ticket, CRM record, sensor dump — anything",
   "questions": {
     "route":  {"type": "choice",  "criteria": {"billing": "…", "tech": "…"}},
     "urgent": {"type": "boolean", "instructions": "SLA breach likely?"},
-    "impact": {"type": "score",   "criteria": ["low", "mid", "high"]} } }
+    "impact": {"type": "score",   "criteria": ["low", "mid", "high"]}
+  }
+}
+
 // out — one distribution per question
-{ "answers": {
-    "route":  {"choice": "billing", "probabilities": {"billing": 0.87, …}},
+{
+  "answers": {
+    "route":  {"choice": "billing", "probabilities": {"billing": 0.87, "tech": 0.13}},
     "urgent": {"boolean": true,  "confidence": 0.94},
-    "impact": {"level": 2, "score": 0.81} } }
+    "impact": {"level": 2, "score": 0.81}
+  }
+}
 ```
 
 ## Why it bites
@@ -211,15 +225,39 @@ resembles production traffic.
 
 ## Quickstart
 
+Prebuilt binaries on
+[GitHub Releases](https://github.com/emnlmn/snap/releases):
+
+macOS (Apple Silicon):
+
+```bash
+mkdir -p ~/snap && curl -L https://github.com/emnlmn/snap/releases/latest/download/snap-macos-arm64.tar.gz | tar xz -C ~/snap
+```
+
+Linux x86_64:
+
+```bash
+mkdir -p ~/snap && curl -L https://github.com/emnlmn/snap/releases/latest/download/snap-linux-x86_64.tar.gz | tar xz -C ~/snap
+```
+
+`snap` and the `lib*.so*` files must stay in the same directory
+(`$ORIGIN` rpath) — that's why it installs to a folder, not a bin dir.
+`~/snap/snap` runs as-is; `ln -sf ~/snap/snap ~/.local/bin/snap` puts
+it on PATH. Other assets: `linux-x86_64-v3` (single-file AVX2),
+`linux-x86_64-musl` (fully static), `linux-aarch64`,
+`linux-x86_64-vulkan`. macOS isn't notarized — a browser-quarantined
+tarball may need `xattr -d com.apple.quarantine ~/snap/snap`. First
+inference pulls the model GGUF (~1.5 GB), then offline.
+
+Or build from source — llama.cpp is vendored and compiled at first
+build (~2 min), Metal on by default on Apple Silicon:
+
 ```bash
 make setup    # rustup + cmake/clang check
 make build    # → ./target/release/snap
 make test     # unit tests + functional smoke (pulls minicpm, ~1.5 GB)
 make lint     # cargo fmt --check + clippy -D warnings
 ```
-
-llama.cpp is vendored and compiled at first build (~2 min); Metal is on
-by default on Apple Silicon.
 
 ### Build variants
 

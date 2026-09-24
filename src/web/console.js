@@ -82,6 +82,82 @@ const CASES = [
     },
   },
   {
+    title: "On-call triage", sub: "four alerts against one severity rubric, then which fire first",
+    req: {
+      state: {
+        context: "Friday 18:40. A payments deploy went out at 18:05. One engineer on call.",
+        severity_rubric: "sev1 = users blocked or losing money now; sev2 = degraded, will get worse; sev3 = noise, no user impact",
+        alerts: {
+          a1: "p95 latency on /checkout up from 300ms to 2.1s since the deploy, still rising",
+          a2: "disk on logs-02 at 87%, projected full in ~36h",
+          a3: "payment success rate down from 99.1% to 96.8% in the last 20 minutes",
+          a4: "staging login broken since this morning, QA blocked",
+        },
+      },
+      questions: {
+        sev_a1: { type: "score", instructions: "severity of alert a1", criteria: ["sev3", "sev2", "sev1"] },
+        sev_a2: { type: "score", instructions: "severity of alert a2", criteria: ["sev3", "sev2", "sev1"] },
+        sev_a3: { type: "score", instructions: "severity of alert a3", criteria: ["sev3", "sev2", "sev1"] },
+        sev_a4: { type: "score", instructions: "severity of alert a4", criteria: ["sev3", "sev2", "sev1"] },
+        first: { type: "choice", instructions: "which alert should the on-call handle first?", criteria: {
+          a1: "checkout p95 latency",
+          a2: "logs-02 disk filling",
+          a3: "payment success rate dropping",
+          a4: "staging login broken" } },
+      },
+    },
+  },
+  {
+    title: "Policy check", sub: "four probes against a written refund policy, one may abstain",
+    req: {
+      state: {
+        policy: "Refunds within 30 days of delivery, unused items in original packaging. " +
+          "Final-sale items (gift cards, perishables, personalized goods) are never refundable. " +
+          "Opened electronics are refundable only if defective. Shipping fees are never returned. " +
+          "Anything the policy doesn't cover needs a store manager.",
+        request: "Customer wants a refund for a wireless keyboard delivered 12 days ago — " +
+          "keys stick after a coffee spill — and wants the €6 shipping fee back too.",
+      },
+      questions: {
+        in_window: { type: "noul", instructions: "is the request inside the return window?" },
+        item_refundable: { type: "noul", instructions: "is the keyboard refundable under the policy?" },
+        shipping_back: { type: "noul", instructions: "should the shipping fee be returned?" },
+        needs_manager: { type: "noul", instructions: "does this request need a store manager?" },
+        under_warranty: { type: "noul", instructions: "is the keyboard still under manufacturer warranty?", allow_abstain: true },
+      },
+    },
+  },
+  {
+    title: "Review routing", sub: "sentiment, sarcasm and owning team for one tricky review",
+    req: {
+      state: { review: "Loved waiting 40 minutes for a cold pizza. To be fair the driver was lovely — even had a treat for my dog." },
+      questions: {
+        sentiment: { type: "score", instructions: "overall sentiment of the review", criteria: [
+          "very negative", "negative", "mixed", "positive", "very positive"] },
+        sarcasm: { type: "noul", instructions: "is the opening sentence meant sarcastically?" },
+        route: { type: "choice", instructions: "which team should own this feedback?", criteria: {
+          logistics: "delivery times, drivers, couriers",
+          kitchen: "food quality, temperature, preparation",
+          support: "refunds, complaints, service recovery" } },
+      },
+    },
+  },
+  {
+    title: "CV screen", sub: "seniority, lead experience and best-fit role from one résumé",
+    req: {
+      state: { resume: "8 years of Python (Django, FastAPI), PostgreSQL, Kafka. Led a team of 5 at a fintech. AWS. No mobile experience." },
+      questions: {
+        led_team: { type: "noul", instructions: "has the candidate led a team?" },
+        best_role: { type: "choice", instructions: "which role fits the candidate best?", criteria: {
+          backend: "server-side services, APIs, data pipelines",
+          frontend: "web UI, client-side applications",
+          mobile: "iOS and Android apps" } },
+        seniority: { type: "score", instructions: "seniority level of the candidate", criteria: [
+          "junior", "mid-level", "senior"] },
+      },
+    },
+  },
+  {
     title: "Effort estimate", sub: "a numeric answer in minutes, plus a risk flag",
     req: {
       state: { task: "export a 40k-row CSV without timing out the worker" },
@@ -90,15 +166,6 @@ const CASES = [
           instructions: "estimate the engineering effort, in minutes" },
         risky: { type: "noul", instructions: "is this likely to blow the estimate?" },
       },
-    },
-  },
-  {
-    title: "Vegan check", sub: "six yes / no probes batched in a single pass",
-    req: {
-      state: { objective: "eat only vegan food" },
-      questions: Object.fromEntries(
-        ["banana", "broccoli", "roast chicken", "cheese", "carrot", "salami"].map((f) =>
-          [f.replace(" ", "_"), { type: "noul", instructions: `is '${f}' vegan food?` }])),
     },
   },
 ];
