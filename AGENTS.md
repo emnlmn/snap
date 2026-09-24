@@ -77,5 +77,8 @@ make serve        # build + run the HTTP server (MODEL=minicpm5-2b default)
 
 - `src/web/` assets are served via `include_str!` — they're compiled into the
   binary; no runtime file serving.
+- `snap serve` registers a pidfile (`$SNAP_RUN_DIR` > `$XDG_RUNTIME_DIR/snap`
+  > `~/.snap/run`) — `snap ps`/`snap stop` read it. Kill paths live in
+  `instances.rs`; never signal pid 0 (unix: whole process group).
 - `.serena/` and `.impeccable/` are local tooling dirs (gitignored).
 - `openapi.yaml` documents the HTTP surface — keep it in sync with server.rs.

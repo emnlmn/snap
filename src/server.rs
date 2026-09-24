@@ -151,6 +151,21 @@ async fn pg_logo() -> impl IntoResponse {
         include_bytes!("web/logo.png").as_slice(),
     )
 }
+/// SIGTERM (`snap stop`) or SIGINT — drain in-flight requests, then exit.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = term.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = tokio::signal::ctrl_c().await;
+}
+
 pub async fn serve(
     engine: Engine,
     model: &str,
@@ -185,9 +200,13 @@ pub async fn serve(
     let listener = tokio::net::TcpListener::bind((host, port))
         .await
         .with_context(|| format!("cannot listen on {host}:{port} — already running?"))?;
+    let port = listener.local_addr().map(|a| a.port()).unwrap_or(port);
+    crate::instances::bound_port(port);
     eprintln!("snap serving on http://{host}:{port}");
     eprintln!("  api         POST /v1/systemone");
     eprintln!("  playground  http://{host}:{port}/playground");
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
     Ok(())
 }

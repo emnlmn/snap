@@ -1311,6 +1311,7 @@ dependencies = [
  "cc",
  "clap",
  "hf-hub",
+ "libc",
  "llama-cpp-sys-2",
  "serde",
  "serde_json",
@@ -1318,6 +1319,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ureq 3.4.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

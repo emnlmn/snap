@@ -318,6 +318,8 @@ snap models                                 # known shortcuts
 snap -p '{"state":"…","questions":{"urgent":{"type":"noul"}}}'   # one-shot, claude-style
 snap -p request.json                        # same thing, from a file (stdin works too)
 snap serve --model qwen3.8-4b --port 8018   # HTTP server
+snap ps                                   # running servers (pid, model, uptime, state)
+snap stop                                 # stop the one server; --all / --port / --pid for more
 snap evaluate eval/core.jsonl               # accuracy + brier/ece + consistency
 snap calibrate eval/*.jsonl -o cal.json     # fit temperatures -> calibration file
 snap bench --requests 20                    # latency/throughput
@@ -347,6 +349,12 @@ llama.cpp's own default is 4, which starves prefill on a bigger box.
 | `GET /v1/models` | served model id |
 | `GET /healthz` | readiness — answers only after engine warm-up |
 | `GET /playground` | built-in console, embedded in the binary |
+
+`snap serve` registers a pidfile so other terminals can see it: `snap ps`
+lists every running server (including `starting` while the model loads
+and strays answering on :8018), `snap stop` shuts one down — bare `stop`
+when there's exactly one, `--port`/`--pid`/`--all` otherwise. SIGTERM
+drains in-flight requests; `--force` is SIGKILL.
 
 ## Playground
 
