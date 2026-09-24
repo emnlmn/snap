@@ -36,6 +36,7 @@
   --ink-text: #e6e7e4;
   --ink-soft: #a7aaa3;
   --ink-line: #2b2e2a;
+  --bar-dim: #aeb3a4;
   --accent-wash: color-mix(in srgb, var(--accent) 9%, transparent);
   --accent-edge: color-mix(in srgb, var(--accent) 45%, transparent);
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, sans-serif;
@@ -121,6 +122,37 @@ h1 {
 .btn.ghost:hover { border-color: var(--faint); background: var(--raise); color: var(--text); }
 .micro { margin-top: 20px; font-size: 12.5px; color: var(--muted); }
 .micro code { font-size: 12px; color: var(--soft); }
+.chips { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  padding: 4px 11px; border: 1px solid var(--line-hi); border-radius: 999px;
+  background: var(--surface);
+  font: 11.5px var(--mono); color: var(--soft); white-space: nowrap;
+}
+
+/* hero one-liner */
+.cmd {
+  margin-top: 18px;
+  display: flex; align-items: center; gap: 4px;
+  max-width: 34rem;
+  background: var(--ink); color: var(--ink-text);
+  border-radius: var(--r);
+  padding: 9px 6px 9px 14px;
+}
+.cmd code {
+  flex: 1; min-width: 0;
+  font: 12px/1.8 var(--mono);
+  white-space: pre; overflow-x: auto;
+  scrollbar-width: none;
+}
+.cmd code::-webkit-scrollbar { display: none; }
+.cmd .p { color: #8fd4a8; user-select: none; }
+.cmd-copy {
+  flex: none;
+  border: 0; background: none; border-radius: 6px; padding: 4px 10px;
+  font: 11.5px var(--mono); color: var(--ink-soft); cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.cmd-copy:hover { background: rgba(255,255,255,.08); color: var(--ink-text); }
 
 /* ---------- demo card ---------- */
 .demo {
@@ -128,6 +160,8 @@ h1 {
   border: 1px solid var(--line);
   border-radius: 14px;
   overflow: hidden;
+  display: flex; flex-direction: column;
+  min-height: 540px;
 }
 .demo-head {
   display: flex; align-items: center; gap: 10px;
@@ -135,6 +169,7 @@ h1 {
   font: 12px var(--mono); color: var(--muted);
 }
 .demo-head .ep { color: var(--soft); }
+.demo-head .case { color: var(--accent-deep); }
 .demo-head .model { margin-left: auto; color: var(--faint); }
 .demo-state {
   padding: 12px 16px; border-bottom: 1px solid var(--line);
@@ -151,21 +186,30 @@ h1 {
 .bar { display: grid; grid-template-columns: 64px 1fr 44px; align-items: center; gap: 10px; padding: 3px 0; }
 .bar .lbl { font: 12px var(--mono); color: var(--muted); text-align: right; }
 .bar.win .lbl { color: var(--text); font-weight: 600; }
-.track { height: 7px; background: var(--raise); border-radius: 4px; overflow: hidden; }
+.track { height: 8px; background: var(--raise); border-radius: 4px; overflow: hidden; }
 .fill {
   height: 100%; width: 0;
-  background: var(--line-hi); border-radius: 4px;
-  transition: width .8s var(--ease);
+  background: var(--bar-dim); border-radius: 4px;
+  transition: width .7s var(--ease);
 }
 .win .fill { background: var(--accent); }
 .pct { font: 12px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
 .win .pct { color: var(--accent-deep); font-weight: 600; }
 .demo-foot {
   display: flex; align-items: center; gap: 10px;
+  margin-top: auto;
   padding: 10px 16px; border-top: 1px solid var(--line);
   font: 12px var(--mono); color: var(--muted);
 }
 .demo-foot .ms { color: var(--text); font-variant-numeric: tabular-nums; }
+.dots { display: flex; gap: 7px; align-items: center; }
+.dot {
+  width: 7px; height: 7px; padding: 0; border: 0; border-radius: 50%;
+  background: var(--line-hi); cursor: pointer;
+  transition: background .2s, transform .2s var(--ease);
+}
+.dot:hover { transform: scale(1.25); }
+.dot.on { background: var(--accent); }
 .replay {
   margin-left: auto;
   display: inline-flex; align-items: center; gap: 6px;
@@ -237,17 +281,28 @@ td.m { font-family: var(--mono); font-size: 12.5px; }
 td.snapcol, th.snapcol { color: var(--text); font-weight: 600; }
 td.delta { color: var(--accent-deep); font-weight: 600; }
 td.na { color: var(--faint); }
+td.y { color: var(--accent-deep); font-weight: 600; }
+td.n { color: var(--faint); }
+.cmp { margin-top: 30px; }
+.cmp td, .cmp th { padding-right: 18px; }
 .acc { margin-top: 40px; }
 .acc .tbl-cap { margin-bottom: 10px; }
 
 /* jev */
-.jev { display: grid; grid-template-columns: .9fr 1.1fr; gap: 48px; align-items: start; }
+.jev { display: grid; grid-template-columns: 1.15fr .85fr; gap: 48px; align-items: start; }
 .jev-endpoint {
   background: var(--ink); color: var(--ink-text);
-  border-radius: 14px; padding: 22px 24px;
-  font: 14px/1.9 var(--mono);
+  border-radius: 14px; padding: 20px 22px;
+  font: 12.8px/1.7 var(--mono);
+  overflow-x: auto;
+}
+.jev-endpoint pre { margin: 0; white-space: pre; }
+.jev-endpoint pre + pre {
+  margin-top: 14px; padding-top: 14px;
+  border-top: 1px solid var(--ink-line);
 }
 .jev-endpoint .m { color: #8fd4a8; font-weight: 600; }
+.jev-endpoint .s { color: #d9b37c; }
 .jev-endpoint .dim { color: var(--ink-soft); }
 .jev h2 { margin-bottom: 14px; }
 .jev p { color: var(--soft); font-size: 14.5px; }
@@ -320,6 +375,7 @@ footer .links a:hover { color: var(--text); }
       <a href="#how">How</a>
       <a href="#numbers">Numbers</a>
       <a href="#jev">Jev</a>
+      <a href="#compare">Compare</a>
       <a href="#install">Install</a>
     </nav>
     <a class="gh" href="https://github.com/emnlmn/snap" aria-label="snap on GitHub">
@@ -339,50 +395,67 @@ footer .links a:hover { color: var(--text); }
       <p class="lede">snap compiles every question to a letter alphabet (A through Z, one slot per
         option), reads the logits at a single position, and softmaxes them into a probability
         distribution. The jaw snaps shut on the answer. No prose, no parsing, no retries.</p>
+      <div class="chips">
+        <span class="chip">100% local</span>
+        <span class="chip">0 output tokens</span>
+        <span class="chip">Jev-compatible API</span>
+        <span class="chip">open weights · GGUF</span>
+        <span class="chip">MIT</span>
+      </div>
       <div class="cta">
         <a class="btn primary" href="https://github.com/emnlmn/snap/releases">Download the binary</a>
         <a class="btn ghost" href="https://github.com/emnlmn/snap">View source</a>
       </div>
-      <p class="micro">macOS · Linux · single static Rust binary · MIT · not affiliated with <a href="https://typesafe.ai">typesafe.ai</a></p>
+      <div class="cmd">
+        <code id="herocmd"><span class="p">$</span> mkdir -p ~/snap &amp;&amp; curl -sL https://github.com/emnlmn/snap/releases/latest/download/<span id="asset">snap-macos-arm64.tar.gz</span> | tar xz -C ~/snap &amp;&amp; ~/snap/snap serve</code>
+        <button class="cmd-copy" id="copy-hero">copy</button>
+      </div>
+      <p class="micro">macOS arm64 · Linux x86_64 · one Rust binary, llama.cpp inside · no API key, no telemetry</p>
     </div>
 
     <div>
-      <div class="demo" role="img" aria-label="Example snap response: three typed answers with probability distributions">
+      <div class="demo" role="region" aria-label="Recorded snap responses: typed answers with probability distributions">
         <div class="demo-head">
           <span class="ep">POST /v1/systemone</span>
+          <span class="case" id="case-name">ticket triage</span>
           <span class="model">qwen3.8-4b · shared</span>
         </div>
-        <div class="demo-state"><b>state</b> = "Customer: charged twice, furious, threatening chargeback…"</div>
+        <div class="demo-state"><b>state</b> = "Customer: charged twice, furious, threatening chargeback..."</div>
 
         <div class="q">
           <div class="q-head"><span class="q-name">route</span><span class="q-type">choice</span><span class="q-winner">billing</span></div>
-          <div class="bar win"><span class="lbl">billing</span><span class="track"><span class="fill" data-p=".87"></span></span><span class="pct">.87</span></div>
-          <div class="bar"><span class="lbl">tech</span><span class="track"><span class="fill" data-p=".09"></span></span><span class="pct">.09</span></div>
-          <div class="bar"><span class="lbl">account</span><span class="track"><span class="fill" data-p=".04"></span></span><span class="pct">.04</span></div>
+          <div class="bar win"><span class="lbl">billing</span><span class="track"><span class="fill" data-p=".99"></span></span><span class="pct">.99</span></div>
+          <div class="bar"><span class="lbl">tech</span><span class="track"><span class="fill" data-p=".01"></span></span><span class="pct">.01</span></div>
+          <div class="bar"><span class="lbl">account</span><span class="track"><span class="fill" data-p="0"></span></span><span class="pct">.00</span></div>
         </div>
 
         <div class="q">
           <div class="q-head"><span class="q-name">urgent</span><span class="q-type">noul</span><span class="q-winner">true</span></div>
-          <div class="bar win"><span class="lbl">true</span><span class="track"><span class="fill" data-p=".94"></span></span><span class="pct">.94</span></div>
-          <div class="bar"><span class="lbl">false</span><span class="track"><span class="fill" data-p=".06"></span></span><span class="pct">.06</span></div>
+          <div class="bar win"><span class="lbl">true</span><span class="track"><span class="fill" data-p=".96"></span></span><span class="pct">.96</span></div>
+          <div class="bar"><span class="lbl">false</span><span class="track"><span class="fill" data-p=".04"></span></span><span class="pct">.04</span></div>
         </div>
 
         <div class="q">
-          <div class="q-head"><span class="q-name">impact</span><span class="q-type">score</span><span class="q-winner">high · 0.81</span></div>
-          <div class="bar"><span class="lbl">low</span><span class="track"><span class="fill" data-p=".05"></span></span><span class="pct">.05</span></div>
-          <div class="bar"><span class="lbl">mid</span><span class="track"><span class="fill" data-p=".14"></span></span><span class="pct">.14</span></div>
-          <div class="bar win"><span class="lbl">high</span><span class="track"><span class="fill" data-p=".81"></span></span><span class="pct">.81</span></div>
+          <div class="q-head"><span class="q-name">impact</span><span class="q-type">score</span><span class="q-winner">high · 0.92</span></div>
+          <div class="bar"><span class="lbl">low</span><span class="track"><span class="fill" data-p=".04"></span></span><span class="pct">.04</span></div>
+          <div class="bar"><span class="lbl">mid</span><span class="track"><span class="fill" data-p=".09"></span></span><span class="pct">.09</span></div>
+          <div class="bar win"><span class="lbl">high</span><span class="track"><span class="fill" data-p=".87"></span></span><span class="pct">.87</span></div>
         </div>
 
         <div class="demo-foot">
-          <span><span class="ms" id="ms">0</span> ms · 3 questions, one state prefix</span>
+          <span><span class="ms" id="ms">0</span> ms · <span id="nq">3</span> questions, one state prefix</span>
+          <span class="dots" role="group" aria-label="Recorded cases">
+            <button class="dot on" data-i="0" title="ticket triage" aria-label="case: ticket triage"></button>
+            <button class="dot" data-i="1" title="on-call triage" aria-label="case: on-call triage"></button>
+            <button class="dot" data-i="2" title="CV screen" aria-label="case: CV screen"></button>
+          </span>
           <button class="replay" id="replay">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5a5.5 5.5 0 1 1-5.3 4M2.7 2.8v3.7h3.7"/></svg>
             replay
           </button>
         </div>
       </div>
-      <p class="note">Recorded output. Deterministic: replay returns the same distribution.</p>
+      <p class="note">Recorded live from qwen3.8-4b, one pass. Deterministic: same input, same distribution.</p>
     </div>
   </div>
 </section>
@@ -462,10 +535,10 @@ footer .links a:hover { color: var(--text); }
         <div class="tbl-wrap"><table>
           <thead><tr><th>workload</th><th>Ollama</th><th class="snapcol">snap</th><th></th></tr></thead>
           <tbody>
-            <tr><td>1 question</td><td class="m">193 ms</td><td class="m snapcol">136 ms</td><td class="delta">−30%</td></tr>
-            <tr><td>4 questions</td><td class="m">788 ms</td><td class="m snapcol">454 ms</td><td class="delta">−42%</td></tr>
-            <tr><td>8 questions</td><td class="m">1884 ms</td><td class="m snapcol">803 ms</td><td class="delta">−57%</td></tr>
-            <tr><td>~8k-token state</td><td class="m na">rejected</td><td class="m snapcol">1245 ms</td><td class="na">—</td></tr>
+            <tr><td>1 question</td><td class="m">193 ms</td><td class="m snapcol">136 ms</td><td class="delta">-30%</td></tr>
+            <tr><td>4 questions</td><td class="m">788 ms</td><td class="m snapcol">454 ms</td><td class="delta">-42%</td></tr>
+            <tr><td>8 questions</td><td class="m">1884 ms</td><td class="m snapcol">803 ms</td><td class="delta">-57%</td></tr>
+            <tr><td>~8k-token state</td><td class="m na">rejected</td><td class="m snapcol">1245 ms</td><td class="na">n/a</td></tr>
           </tbody>
         </table></div>
       </div>
@@ -490,16 +563,26 @@ footer .links a:hover { color: var(--text); }
 
 <section id="jev">
   <div class="wrap jev">
-    <div class="jev-endpoint" aria-label="API endpoint">
-      <span class="m">POST</span> /v1/systemone<br>
-      <span class="dim"># noul · choice · score · numeric<br>
-      # abstain · mode shared|direct<br>
-      # one surface, no parallel API</span>
+    <div class="jev-endpoint" aria-label="Jev-compatible request and response">
+<pre><span class="m">POST</span> /v1/systemone
+{ <span class="s">"state"</span>: <span class="s">"My payouts have been failing for 3 days."</span>,
+  <span class="s">"questions"</span>: {
+    <span class="s">"urgent"</span>: { <span class="s">"type"</span>: <span class="s">"noul"</span>, <span class="s">"instructions"</span>: <span class="s">"SLA breach likely?"</span> },
+    <span class="s">"team"</span>:   { <span class="s">"type"</span>: <span class="s">"choice"</span>,
+                  <span class="s">"criteria"</span>: { <span class="s">"billing"</span>: <span class="s">"payments, refunds"</span>,
+                                <span class="s">"technical"</span>: <span class="s">"bugs, outages"</span> } } } }</pre>
+<pre><span class="m">200 OK</span> <span class="dim">· 0 output tokens</span>
+{ <span class="s">"answers"</span>: {
+    <span class="s">"urgent"</span>: { <span class="s">"type"</span>: <span class="s">"noul"</span>, <span class="s">"noul"</span>: 0.94, <span class="s">"boolean"</span>: <span class="m">true</span> },
+    <span class="s">"team"</span>:   { <span class="s">"type"</span>: <span class="s">"choice"</span>, <span class="s">"choice"</span>: <span class="s">"billing"</span>,
+                  <span class="s">"probabilities"</span>: { <span class="s">"billing"</span>: 0.87, <span class="s">"technical"</span>: 0.13 } } },
+  <span class="s">"model"</span>: <span class="s">"snap-qwen3.8-4b-q4_k_m"</span>,
+  <span class="s">"usage"</span>: { <span class="s">"input_tokens"</span>: 212 } }</pre>
     </div>
     <div>
       <h2>Drop-in Jev.</h2>
-      <p>The wire format is TypeSafe's Jev: point an existing client at a local
-        <code>snap serve</code> and it works: same request, same response shape.</p>
+      <p>The wire format is Jev: point an existing client at a local
+        <code>snap serve</code> and it works. Same request, same response shape.</p>
       <p>Snap extensions are optional fields a Jev client can ignore; defaults preserve Jev
         semantics. Answers carry extras (<code>status</code>, <code>confidence</code>, full
         <code>probabilities</code>) on top of the Jev shape.</p>
@@ -508,9 +591,32 @@ footer .links a:hover { color: var(--text); }
         <b>allow_abstain</b> → adds an __abstain__ slot, status "abstained"<br>
         <b>"mode"</b> → "shared" (prefix amortized) or "direct"
       </div>
-      <p class="disclaimer">snap is an independent implementation, not affiliated with
-        <a href="https://typesafe.ai">TypeSafe AI</a>. Jev itself is a hosted model in early access.</p>
+      <p class="disclaimer">snap is an independent implementation. Jev itself is a hosted
+        model in early access. Shape of the response shown; values illustrative.</p>
     </div>
+  </div>
+</section>
+
+<section id="compare">
+  <div class="wrap">
+    <h2>Where snap sits.</h2>
+    <p class="sub">Beside the hosted original and <a href="https://github.com/TheoLeeCJ/SemIf">SemIf</a>,
+      the open research scorer. No sugar-coating.</p>
+    <div class="tbl-wrap cmp"><table>
+      <thead><tr><th></th><th class="snapcol">snap</th><th>Jev</th><th>SemIf</th></tr></thead>
+      <tbody>
+        <tr><td>runs</td><td class="snapcol">local · one Rust binary</td><td>hosted service</td><td>local · Python · WebGPU demo</td></tr>
+        <tr><td>backends</td><td class="snapcol">Metal · CUDA · Vulkan · CPU</td><td class="na">n/a</td><td>CUDA · MLX · llama.cpp</td></tr>
+        <tr><td>open weights</td><td class="y snapcol">✓ GGUF</td><td class="n">✗</td><td class="y">✓ Qwen</td></tr>
+        <tr><td>Jev-style HTTP API</td><td class="y snapcol">✓</td><td>the original</td><td class="n">✗ CLI</td></tr>
+        <tr><td>numeric primitive</td><td class="y snapcol">✓</td><td class="n">✗</td><td class="n">✗</td></tr>
+        <tr><td>options per question</td><td class="m snapcol">256</td><td class="m">255</td><td class="m">16</td></tr>
+        <tr><td>calibrated probabilities</td><td class="snapcol"><code>snap calibrate</code></td><td>claimed</td><td>per-workload T</td></tr>
+        <tr><td>input context</td><td class="m snapcol">model max · --ctx</td><td class="m">32k</td><td class="m">262k</td></tr>
+      </tbody>
+    </table></div>
+    <p class="note">Jev column from its public description; SemIf column from its repo. snap's
+      context is the loaded model's own, 8192 tokens by default.</p>
   </div>
 </section>
 
@@ -527,7 +633,7 @@ footer .links a:hover { color: var(--text); }
 <span class="p">$</span> tar xzf snap-*.tar.gz
 <span class="p">$</span> ./snap serve --model qwen3.8-4b
 <span class="c"># → http://localhost:8018/playground</span>
-<span class="c"># first run pulls the GGUF (~1.5–4 GB), then fully offline</span></pre>
+<span class="c"># first run pulls the GGUF (~1.5-4 GB), then fully offline</span></pre>
     </div>
     <div class="steps-side">
       <h2>Runs where your data lives.</h2>
@@ -553,50 +659,137 @@ footer .links a:hover { color: var(--text); }
       <a href="https://github.com/emnlmn/snap">GitHub</a>
       <a href="https://github.com/emnlmn/snap/releases">Releases</a>
       <a href="https://github.com/emnlmn/snap/blob/main/README.md">README</a>
-      <a href="https://typesafe.ai">typesafe.ai</a>
+      <a href="https://github.com/TheoLeeCJ/SemIf">SemIf</a>
     </nav>
   </div>
 </footer>
 
 <script>
-const TARGET_MS = 284;
-const fills = [...document.querySelectorAll('.fill')];
+// Recorded on this machine: snap -p <case>.json --model qwen3.8-4b (shared prefix).
+const CASES = [
+  {
+    name: 'ticket triage',
+    state: '"Customer: charged twice, furious, threatening chargeback..."',
+    ms: 510,
+    qs: [
+      { n: 'route',  t: 'choice', w: 'billing', wt: 'billing',     bars: [['billing', .99], ['tech', .01], ['account', 0]] },
+      { n: 'urgent', t: 'noul',   w: 'true',    wt: 'true',        bars: [['true', .96], ['false', .04]] },
+      { n: 'impact', t: 'score',  w: 'high',    wt: 'high · 0.92', bars: [['low', .04], ['mid', .09], ['high', .87]] },
+    ],
+  },
+  {
+    name: 'on-call triage',
+    state: '{context: "Fri 18:40, payments deploy 18:05", alerts: {a1: "checkout p95 2.1s rising", a2: "disk 87%", a3: "pay success 96.8%", a4: "staging down"}}',
+    ms: 723,
+    qs: [
+      { n: 'sev_a1', t: 'score',  w: 'sev1', wt: 'sev1 · 0.74', bars: [['sev3', .16], ['sev2', .19], ['sev1', .65]] },
+      { n: 'sev_a3', t: 'score',  w: 'sev1', wt: 'sev1 · 0.81', bars: [['sev3', .09], ['sev2', .20], ['sev1', .71]] },
+      { n: 'first',  t: 'choice', w: 'a1',   wt: 'a1',          bars: [['a1', .82], ['a2', .03], ['a3', .14], ['a4', 0]] },
+    ],
+  },
+  {
+    name: 'CV screen',
+    state: '{resume: "8y Python (Django, FastAPI), Kafka, AWS. Led a team of 5. No mobile."}',
+    ms: 543,
+    qs: [
+      { n: 'led_team',  t: 'noul',   w: 'true',    wt: 'true',         bars: [['true', .99], ['false', .01]] },
+      { n: 'best_role', t: 'choice', w: 'backend', wt: 'backend',      bars: [['backend', .99], ['frontend', 0], ['mobile', 0]] },
+      { n: 'seniority', t: 'score',  w: 'senior',  wt: 'senior · 0.92', bars: [['junior', .03], ['mid-level', .11], ['senior', .86]] },
+    ],
+  },
+];
+
+const demo = document.querySelector('.demo');
+const stateEl = demo.querySelector('.demo-state');
+const foot = demo.querySelector('.demo-foot');
+const caseEl = document.getElementById('case-name');
+const nqEl = document.getElementById('nq');
+const dots = [...document.querySelectorAll('.dot')];
 const msEl = document.getElementById('ms');
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-let raf;
+let cur = 0, raf, timer;
 
-function run() {
+const fmt = p => p.toFixed(2).replace(/^0/, '');
+
+function fill(target, animate) {
   cancelAnimationFrame(raf);
-  fills.forEach(f => { f.style.transition = 'none'; f.style.width = '0'; });
-  void document.querySelector('.demo').offsetWidth; // reflow
-  if (reduced) {
+  const fills = [...demo.querySelectorAll('.fill')];
+  if (!animate || reduced) {
     fills.forEach(f => f.style.width = (f.dataset.p * 100) + '%');
-    msEl.textContent = TARGET_MS;
+    msEl.textContent = target;
     return;
   }
-  const t0 = performance.now();
-  const dur = 700;
+  fills.forEach(f => { f.style.transition = 'none'; f.style.width = '0'; });
+  void demo.offsetWidth; // reflow
+  const t0 = performance.now(), dur = 700;
   fills.forEach((f, i) => {
     f.style.transition = `width ${dur}ms cubic-bezier(.16,1,.3,1) ${i * 55}ms`;
     f.style.width = (f.dataset.p * 100) + '%';
   });
   const tick = now => {
     const k = Math.min(1, (now - t0) / dur);
-    msEl.textContent = Math.round(TARGET_MS * (1 - Math.pow(1 - k, 3)));
+    msEl.textContent = Math.round(target * (1 - Math.pow(1 - k, 3)));
     if (k < 1) raf = requestAnimationFrame(tick);
   };
   raf = requestAnimationFrame(tick);
 }
 
-document.getElementById('replay').addEventListener('click', run);
+function render(i, animate) {
+  cur = i;
+  const c = CASES[i];
+  caseEl.textContent = c.name;
+  stateEl.innerHTML = `<b>state</b> = ${c.state}`;
+  demo.querySelectorAll('.q').forEach(q => q.remove());
+  c.qs.forEach(q => {
+    const el = document.createElement('div');
+    el.className = 'q';
+    el.innerHTML =
+      `<div class="q-head"><span class="q-name">${q.n}</span><span class="q-type">${q.t}</span><span class="q-winner">${q.wt}</span></div>` +
+      q.bars.map(([l, p]) =>
+        `<div class="bar${l === q.w ? ' win' : ''}"><span class="lbl">${l}</span><span class="track"><span class="fill" data-p="${p}"></span></span><span class="pct">${fmt(p)}</span></div>`
+      ).join('');
+    demo.insertBefore(el, foot);
+  });
+  nqEl.textContent = c.qs.length;
+  dots.forEach((d, di) => d.classList.toggle('on', di === i));
+  fill(c.ms, animate);
+}
+
+function next() { render((cur + 1) % CASES.length, true); }
+function startAuto() { if (!reduced && !timer) timer = setInterval(next, 5200); }
+function stopAuto() { clearInterval(timer); timer = null; }
+
+demo.addEventListener('mouseenter', stopAuto);
+demo.addEventListener('mouseleave', startAuto);
+demo.addEventListener('focusin', stopAuto);
+demo.addEventListener('focusout', startAuto);
+
+dots.forEach(d => d.addEventListener('click', () => {
+  render(+d.dataset.i, true);
+  stopAuto(); startAuto();
+}));
+document.getElementById('replay').addEventListener('click', () => render(cur, true));
 
 // first run when the demo scrolls into view
 const io = new IntersectionObserver((es) => {
-  if (es.some(e => e.isIntersecting)) { run(); io.disconnect(); }
+  if (es.some(e => e.isIntersecting)) { render(0, true); startAuto(); io.disconnect(); }
 }, { threshold: .4 });
-io.observe(document.querySelector('.demo'));
+io.observe(demo);
 
-// copy install commands
+// platform-aware install one-liner
+const plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+const asset = /linux/i.test(plat) ? 'snap-linux-x86_64.tar.gz'
+  : /win/i.test(plat) ? 'snap-windows-x86_64.tar.gz'
+  : 'snap-macos-arm64.tar.gz';
+document.getElementById('asset').textContent = asset;
+const oneline = `mkdir -p ~/snap && curl -sL https://github.com/emnlmn/snap/releases/latest/download/${asset} | tar xz -C ~/snap && ~/snap/snap serve`;
+document.getElementById('copy-hero').addEventListener('click', async (e) => {
+  try { await navigator.clipboard.writeText(oneline); e.target.textContent = 'copied'; }
+  catch { e.target.textContent = 'select + ⌘C'; }
+  setTimeout(() => e.target.textContent = 'copy', 1600);
+});
+
+// copy install commands (install section)
 document.getElementById('copy').addEventListener('click', async (e) => {
   const clean = "curl -LO https://github.com/emnlmn/snap/releases/latest/download/snap-macos-arm64.tar.gz\ntar xzf snap-*.tar.gz\n./snap serve --model qwen3.8-4b";
   try { await navigator.clipboard.writeText(clean); e.target.textContent = 'copied'; }
