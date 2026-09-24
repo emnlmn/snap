@@ -203,11 +203,13 @@ struct QSnaps {
 }
 
 impl QSnaps {
-    fn get(&mut self, head: &[i32]) -> Option<Vec<u8>> {
+    /// Borrow, not clone — a snapshot is a full KV+state image (tens of MB on
+    /// hybrid archs), so cloning per hit was real per-request work.
+    fn get(&mut self, head: &[i32]) -> Option<&Vec<u8>> {
         self.tick += 1;
         let e = self.by_head.get_mut(head)?;
         e.1 = self.tick;
-        Some(e.0.clone())
+        Some(&e.0)
     }
 
     fn insert(&mut self, head: Vec<i32>, state: Vec<u8>) {
@@ -240,6 +242,7 @@ pub struct Engine {
     n_vocab: usize,
     n_ctx: i32,
     n_batch: i32,
+    n_threads: i32,
     pub model_id: String,
     /// Fitted per-type temperatures (`snap calibrate`); None = T 1.0 everywhere.
     pub calibration: Option<crate::calibrate::Calibration>,
@@ -287,7 +290,7 @@ fn common_prefix_len(seqs: &[&[i32]]) -> usize {
 }
 
 impl Engine {
-    pub fn new(model_path: &str, n_ctx: i32, n_batch: i32) -> Result<Self> {
+    pub fn new(model_path: &str, n_ctx: i32, n_batch: i32, n_threads: i32) -> Result<Self> {
         let t0 = std::time::Instant::now();
         let file = std::path::Path::new(model_path)
             .file_name()
@@ -324,8 +327,17 @@ impl Engine {
             bail!("common_chat_templates_init failed (unsupported chat template?)");
         }
 
-        let ctx =
-            llamac::new_ctx(&model, n_ctx, n_batch, n_batch, 1, false).context("main context")?;
+        // 0 = auto: llama.cpp's own default is 4 threads, which starves
+        // prefill on CPU-only builds (most release targets).
+        let n_threads = if n_threads <= 0 {
+            std::thread::available_parallelism()
+                .map(|n| n.get() as i32)
+                .unwrap_or(4)
+        } else {
+            n_threads
+        };
+        let ctx = llamac::new_ctx(&model, n_ctx, n_batch, n_batch, 1, false, n_threads)
+            .context("main context")?;
         let n_vocab = llamac::n_vocab(&model) as usize;
 
         let mut eng = Engine {
@@ -342,6 +354,7 @@ impl Engine {
             n_vocab,
             n_ctx,
             n_batch,
+            n_threads,
             model_id,
             calibration: None,
         };
@@ -354,7 +367,7 @@ impl Engine {
             unsafe {
                 llamac::batch_decode(
                     eng.ctx,
-                    &[(0, &eng.head_tokens, 0)],
+                    &[llamac::Dec::one(&eng.head_tokens, 0)],
                     n_batch as usize,
                     n_vocab,
                 )?
@@ -374,19 +387,26 @@ impl Engine {
     /// seq 0 keeps the resident prompt head, question suffixes are decoded in
     /// one batched call on seqs 1..k. Any failure -> sequential fallback.
     fn init_mctx(&mut self, n_ctx: i32, n_batch: i32) {
-        let ctx =
-            match llamac::new_ctx(&self.model, n_ctx, n_batch, n_batch, llamac::MAX_SEQS, true) {
-                Ok(c) => c.0,
-                Err(e) => {
-                    eprintln!("snap: multi-seq ctx init failed: {e}");
-                    return;
-                }
-            };
+        let ctx = match llamac::new_ctx(
+            &self.model,
+            n_ctx,
+            n_batch,
+            n_batch,
+            llamac::MAX_SEQS,
+            true,
+            self.n_threads,
+        ) {
+            Ok(c) => c.0,
+            Err(e) => {
+                eprintln!("snap: multi-seq ctx init failed: {e}");
+                return;
+            }
+        };
         let ok = unsafe {
             // head resident on seq 0 + probe a shared-seq decode on seq 1
             match llamac::batch_decode(
                 ctx,
-                &[(0, &self.head_tokens, 0)],
+                &[llamac::Dec::one(&self.head_tokens, 0)],
                 self.n_batch as usize,
                 self.n_vocab,
             ) {
@@ -395,7 +415,12 @@ impl Engine {
                     let last = &self.head_tokens[self.head_tokens.len() - 1..];
                     let r = llamac::batch_decode(
                         ctx,
-                        &[(1, last, self.head_tokens.len() as i32)],
+                        &[llamac::Dec::new(
+                            &[1],
+                            last,
+                            self.head_tokens.len() as i32,
+                            true,
+                        )],
                         self.n_batch as usize,
                         self.n_vocab,
                     );
@@ -416,6 +441,42 @@ impl Engine {
         } else {
             llamac::free_ctx(ctx);
         }
+    }
+
+    /// Compile the backend's hot pipelines before the first real request:
+    /// a multi-question shared-prefix call exercises the merged multi-seq
+    /// decode (or the snapshot path on hybrid archs), a single-question call
+    /// the seq0 ctx. State_first uses scratch seqs only, so nothing leaks
+    /// into the qhead caches.
+    pub fn warmup(&mut self) -> Result<()> {
+        let mut questions = Map::new();
+        questions.insert(
+            "urgent".into(),
+            json!({"type": "boolean", "instructions": "Is the order urgent?", "allow_abstain": false}),
+        );
+        questions.insert(
+            "item".into(),
+            json!({"type": "choice", "instructions": "Pick the first item.", "criteria": {"c0": "latte", "c1": "pane"}, "allow_abstain": false}),
+        );
+        let req = DecideRequest {
+            model: None,
+            state: json!({"order": "warmup", "items": ["latte", "pane", "pasta"], "note": "Synthetic ticket used to warm the inference pipelines at startup."}),
+            questions,
+            temperature: 1.0,
+            mode: Mode::Shared,
+            layout: Layout::StateFirst,
+        };
+        self.decide(&req)?;
+        let mut one = Map::new();
+        one.insert(
+            "vip".into(),
+            json!({"type": "boolean", "instructions": "Is the customer premium?", "allow_abstain": false}),
+        );
+        self.decide(&DecideRequest {
+            questions: one,
+            ..req
+        })?;
+        Ok(())
     }
 
     /// Load a calibration file produced by `snap calibrate`; refuses files
@@ -447,7 +508,7 @@ impl Engine {
             llamac::mem_clear(self.ctx);
             llamac::batch_decode(
                 self.ctx,
-                &[(0, &toks, 0)],
+                &[llamac::Dec::one(&toks, 0)],
                 self.n_batch as usize,
                 self.n_vocab,
             )
@@ -457,7 +518,7 @@ impl Engine {
                     let tail = &toks[toks.len() - 1..];
                     llamac::batch_decode(
                         self.ctx,
-                        &[(0, tail, n - 1)],
+                        &[llamac::Dec::one(tail, n - 1)],
                         self.n_batch as usize,
                         self.n_vocab,
                     )
@@ -566,7 +627,7 @@ impl Engine {
         } else if (pos as usize) < end {
             llamac::batch_decode(
                 ctx,
-                &[(0, &self.head_tokens[pos as usize..end], pos)],
+                &[llamac::Dec::one(&self.head_tokens[pos as usize..end], pos)],
                 self.n_batch as usize,
                 self.n_vocab,
             )?;
@@ -587,6 +648,10 @@ impl Engine {
 
     /// Multi-sequence decode on the batched context. Suffixes run on seqs
     /// 1..=MAX_SEQS-1 in waves — expanded choice probes can exceed one wave.
+    /// The shared prefix is decoded inside the same call as the first wave's
+    /// suffixes (tagged to every live seq, plus seq0 so later waves can still
+    /// mem_cp it) — one decode call, one backend sync. Scratch seqs come from
+    /// the qhead cache's allocator, so cached heads survive this path.
     fn decide_batched(
         &mut self,
         items: &[Item],
@@ -596,60 +661,82 @@ impl Engine {
     ) -> Result<(Map<String, Value>, Instant)> {
         let ctx = self.mctx.context("no mctx")?;
         let start = if plen > 0 { plen } else { hstart };
+        unsafe { self.align_seq0(ctx, hstart)? };
         // An item whose whole prompt is the shared prefix has no suffix to
         // decode: its answer row is the one the prefix decode itself emits.
         let mut prefix_row = None;
-        unsafe {
-            // this path owns every seq for its own suffixes — wiping them
-            // destroys the qfirst head cache, so drop its map too
-            for seq in 1..llamac::MAX_SEQS {
-                llamac::mem_rm(ctx, seq, -1, -1);
-            }
-            self.qseqs.clear();
-            self.align_seq0(ctx, hstart)?;
-            if plen > hstart {
-                prefix_row = llamac::batch_decode(
-                    ctx,
-                    &[(0, &items[0].toks[hstart..plen], hstart as i32)],
-                    self.n_batch as usize,
-                    self.n_vocab,
-                )?
-                .into_iter()
-                .next();
-            }
-        }
-        let t_prefill = Instant::now();
+        let mut t_prefill = Instant::now();
         let wave = (llamac::MAX_SEQS - 1) as usize;
-        // each live seq allocates its suffix cells; seq0 holds `start`
+        // each live seq allocates its suffix cells; seq0's span, the resident
+        // head and cached qheads all share the n_ctx cell pool
         let costs: Vec<usize> = items.iter().map(|it| it.toks.len() - start).collect();
-        let budget = (self.n_ctx - start as i32 - KV_SLACK).max(0) as usize;
         let mut rows_all: Vec<Option<Vec<f32>>> = vec![None; items.len()];
         let mut lo = 0;
         while lo < items.len() {
-            let hi = wave_end(&costs, lo, wave, budget)?;
+            let held = start.max(self.head_tokens.len()) + self.qseqs.cells + KV_SLACK as usize;
+            let hi = wave_end(&costs, lo, wave, (self.n_ctx as usize).saturating_sub(held))?;
             let chunk = &items[lo..hi];
             let live: Vec<usize> = (0..chunk.len())
                 .filter(|&i| chunk[i].toks.len() > start)
                 .collect();
-            let seqs: Vec<(i32, &[i32], i32)> = live
-                .iter()
-                .enumerate()
-                .map(|(s, &i)| (s as i32 + 1, &chunk[i].toks[start..], start as i32))
-                .collect();
+            let mut used = HashSet::new();
+            let mut seqs: Vec<i32> = Vec::with_capacity(live.len());
+            for _ in &live {
+                let s = self
+                    .qseqs
+                    .alloc(&used)
+                    .context("question heads exceed seq capacity")?;
+                used.insert(s);
+                seqs.push(s);
+            }
+            // wave 0 carries the shared prefix tagged to seq0 + every live
+            // seq; later waves mem_cp [0,start) from seq0 instead
+            let mut prefix_seqs: Vec<i32> = Vec::new();
+            if lo == 0 && plen > hstart {
+                prefix_seqs.push(0);
+                prefix_seqs.extend_from_slice(&seqs);
+            }
+            let mut groups: Vec<llamac::Dec> = Vec::with_capacity(seqs.len() + 1);
+            if !prefix_seqs.is_empty() {
+                groups.push(llamac::Dec::new(
+                    &prefix_seqs,
+                    &items[0].toks[hstart..plen],
+                    hstart as i32,
+                    true,
+                ));
+            }
+            for (k, &i) in live.iter().enumerate() {
+                groups.push(llamac::Dec::new(
+                    &seqs[k..k + 1],
+                    &chunk[i].toks[start..],
+                    start as i32,
+                    true,
+                ));
+            }
             unsafe {
-                for s in 0..live.len() {
-                    llamac::mem_cp(ctx, 0, s as i32 + 1, 0, start as i32);
+                for &s in &seqs {
+                    llamac::mem_rm(ctx, s, -1, -1);
+                    let base = if lo == 0 { hstart } else { start } as i32;
+                    if base > 0 {
+                        llamac::mem_cp(ctx, 0, s, 0, base);
+                    }
                 }
-                if !seqs.is_empty() {
-                    let rows =
-                        llamac::batch_decode(ctx, &seqs, self.n_batch as usize, self.n_vocab)?;
-                    for i in 1..=live.len() as i32 {
-                        llamac::mem_rm(ctx, i, -1, -1);
+                if !groups.is_empty() {
+                    let mut rows =
+                        llamac::batch_decode(ctx, &groups, self.n_batch as usize, self.n_vocab)?;
+                    if !prefix_seqs.is_empty() {
+                        prefix_row = Some(rows.remove(0));
                     }
                     for (&i, row) in live.iter().zip(rows) {
                         rows_all[lo + i] = Some(row);
                     }
                 }
+                for &s in &seqs {
+                    llamac::mem_rm(ctx, s, -1, -1);
+                }
+            }
+            if lo == 0 {
+                t_prefill = Instant::now();
             }
             for (i, it) in chunk.iter().enumerate() {
                 if it.toks.len() == start {
@@ -731,9 +818,12 @@ impl Engine {
     }
 
     /// One wave of question_first items: assign each a seq (cache hit, fresh
-    /// install, or clone of a same-head sibling), decode installs then
-    /// suffixes in one batched call each, trim every seq back to its head.
-    /// Any error leaves untrimmed/partial seqs — the caller must reset_mctx.
+    /// install, or clone of a same-head sibling), then decode installs and
+    /// suffixes in ONE batched call — a sibling install tags its tokens with
+    /// every dup seq (shared cells, no copy) and a cached sibling's head is
+    /// cloned before the decode since its cells already exist. Trim every
+    /// seq back to its head. Any error leaves untrimmed/partial seqs — the
+    /// caller must reset_mctx.
     fn qfirst_wave(
         &mut self,
         ctx: *mut sys::llama_context,
@@ -744,36 +834,39 @@ impl Engine {
     ) -> Result<()> {
         let mut used: HashSet<i32> = HashSet::new();
         let mut assign: Vec<i32> = Vec::with_capacity(chunk.len());
-        let mut installs: Vec<(i32, &[i32], i32)> = Vec::new();
-        // (src, dst, end): a duplicated head can only be copied after its
-        // source seq is materialized — i.e. after the installs decode below
-        let mut copies: Vec<(i32, i32, i32)> = Vec::new();
+        // (head tokens beyond the base, seqs) — dup seqs join the group's
+        // shared cells instead of decoding a second copy
+        let mut installs: Vec<(&[i32], Vec<i32>)> = Vec::new();
+        let mut scratch: HashSet<i32> = HashSet::new(); // dup seqs — wiped whole below
         for it in chunk {
             let split = it.split.max(hstart);
             let head = &it.toks[..split];
-            let mut dup = None;
-            match self.qseqs.get(head) {
-                // a hit only if no sibling this wave already owns the seq —
-                // identical questions would otherwise decode two suffixes
-                // onto one seq
+            // a hit only if no sibling this wave already owns the seq —
+            // identical questions would otherwise decode two suffixes onto
+            // one seq; a used seq is a dup source, not a hit
+            let mut dup_src = None;
+            let hit = match self.qseqs.get(head) {
                 Some(s) if !used.contains(&s) => {
                     // and only if the seq actually holds this head — residue
                     // of an aborted decode is a miss, not a hit
                     if unsafe { llamac::mem_seq_pos_max(ctx, s) } == split as i32 - 1 {
-                        stat.hits += 1;
-                        used.insert(s);
-                        assign.push(s);
-                        continue;
+                        Some(s)
+                    } else {
+                        self.qseqs.remove(head);
+                        unsafe { llamac::mem_rm(ctx, s, -1, -1) };
+                        None
                     }
-                    self.qseqs.remove(head);
-                    unsafe { llamac::mem_rm(ctx, s, -1, -1) };
                 }
-                other => dup = other.filter(|_| split > hstart),
-            }
-            if dup.is_some() {
-                stat.hits += 1; // head exists; just cloned to a scratch seq
-            } else {
-                stat.misses += 1;
+                other => {
+                    dup_src = other;
+                    None
+                }
+            };
+            if let Some(s) = hit {
+                stat.hits += 1;
+                used.insert(s);
+                assign.push(s);
+                continue;
             }
             let s = self
                 .qseqs
@@ -781,53 +874,86 @@ impl Engine {
                 .context("question heads exceed seq capacity")?;
             unsafe {
                 llamac::mem_rm(ctx, s, -1, -1);
-                match dup {
-                    Some(src) => copies.push((src, s, split as i32)),
-                    None => {
+                // a fresh sibling's head only exists after the decode — join
+                // its install group so the cells are shared at write time;
+                // a cached sibling's cells exist now, so plain copy works
+                let install = if split > hstart {
+                    installs
+                        .iter()
+                        .position(|(t, _)| **t == it.toks[hstart..split])
+                } else {
+                    None
+                };
+                match install {
+                    Some(gi) => {
+                        installs[gi].1.push(s);
                         if hstart > 0 {
                             llamac::mem_cp(ctx, 0, s, 0, hstart as i32);
                         }
-                        if split > hstart {
-                            installs.push((s, &it.toks[hstart..split], hstart as i32));
-                            stat.decoded += split - hstart;
-                            self.qseqs.insert(head.to_vec(), s, split - hstart);
-                        }
+                        stat.hits += 1;
+                        scratch.insert(s);
                     }
+                    None => match dup_src.filter(|_| split > hstart) {
+                        Some(src) => {
+                            llamac::mem_cp(ctx, src, s, 0, split as i32);
+                            stat.hits += 1;
+                            scratch.insert(s);
+                        }
+                        None => {
+                            stat.misses += 1;
+                            if hstart > 0 {
+                                llamac::mem_cp(ctx, 0, s, 0, hstart as i32);
+                            }
+                            if split > hstart {
+                                installs.push((&it.toks[hstart..split], vec![s]));
+                                stat.decoded += split - hstart;
+                                self.qseqs.insert(head.to_vec(), s, split - hstart);
+                            }
+                        }
+                    },
                 }
             }
             used.insert(s);
             assign.push(s);
         }
+        let mut groups: Vec<llamac::Dec> = Vec::with_capacity(installs.len() + chunk.len());
+        // installs first so a chunk split never orders a suffix before its head
+        for (head_rest, seqs) in &installs {
+            groups.push(llamac::Dec::new(
+                seqs.as_slice(),
+                head_rest,
+                hstart as i32,
+                false,
+            ));
+        }
+        for (i, it) in chunk.iter().enumerate() {
+            let split = it.split.max(hstart);
+            groups.push(llamac::Dec::new(
+                std::slice::from_ref(&assign[i]),
+                &it.toks[split..],
+                split as i32,
+                true,
+            ));
+        }
         unsafe {
-            if !installs.is_empty() {
-                llamac::batch_decode(ctx, &installs, self.n_batch as usize, self.n_vocab)?;
-            }
-            for &(src, dst, end) in &copies {
-                llamac::mem_cp(ctx, src, dst, 0, end);
-            }
-            let suffixes: Vec<(i32, &[i32], i32)> = chunk
-                .iter()
-                .zip(&assign)
-                .map(|(it, &s)| {
-                    (
-                        s,
-                        &it.toks[it.split.max(hstart)..],
-                        it.split.max(hstart) as i32,
-                    )
-                })
-                .collect();
-            if !suffixes.is_empty() {
+            if !groups.is_empty() {
                 for (i, row) in
-                    llamac::batch_decode(ctx, &suffixes, self.n_batch as usize, self.n_vocab)?
+                    llamac::batch_decode(ctx, &groups, self.n_batch as usize, self.n_vocab)?
                         .into_iter()
                         .enumerate()
                 {
                     rows[i] = Some(row);
                 }
             }
-            // trim every seq back to its question head — the cache entry
+            // trim every seq back to its question head — the cache entry;
+            // scratch (dup) seqs are wiped whole, their head cells stay alive
+            // on the primary's tags
             for (it, &s) in chunk.iter().zip(&assign) {
-                llamac::mem_rm(ctx, s, it.split.max(hstart) as i32, -1);
+                if scratch.contains(&s) {
+                    llamac::mem_rm(ctx, s, -1, -1);
+                } else {
+                    llamac::mem_rm(ctx, s, it.split.max(hstart) as i32, -1);
+                }
                 stat.decoded += it.toks.len() - it.split.max(hstart);
             }
             // keep the head cache within its share of the pool so later
@@ -854,7 +980,7 @@ impl Engine {
             unsafe {
                 if let Some(snap) = self.qsnaps.get(head) {
                     hits += 1;
-                    llamac::state_load(self.ctx, &snap);
+                    llamac::state_load(self.ctx, snap);
                 } else {
                     misses += 1;
                     // reset ctx to head-only, decode the question head, snapshot
@@ -865,7 +991,7 @@ impl Engine {
                     if it.toks.len() > hstart && split > hstart {
                         llamac::batch_decode(
                             self.ctx,
-                            &[(0, &it.toks[hstart..split], hstart as i32)],
+                            &[llamac::Dec::one(&it.toks[hstart..split], hstart as i32)],
                             self.n_batch as usize,
                             self.n_vocab,
                         )?;
@@ -876,7 +1002,7 @@ impl Engine {
                 }
                 let row = llamac::batch_decode(
                     self.ctx,
-                    &[(0, &it.toks[split..], split as i32)],
+                    &[llamac::Dec::one(&it.toks[split..], split as i32)],
                     self.n_batch as usize,
                     self.n_vocab,
                 )?
@@ -1151,7 +1277,10 @@ impl Engine {
             if plen > hstart {
                 prefix_row = llamac::batch_decode(
                     self.ctx,
-                    &[(0, &items[0].toks[hstart..plen], hstart as i32)],
+                    &[llamac::Dec::one(
+                        &items[0].toks[hstart..plen],
+                        hstart as i32,
+                    )],
                     self.n_batch as usize,
                     self.n_vocab,
                 )?
@@ -1159,28 +1288,36 @@ impl Engine {
                 .next();
             }
         }
-        let state = if self.can_rewind {
+        let start = if plen > 0 { plen } else { hstart };
+        // the snapshot only pays off when a second suffixed item must restore
+        // the state — a lone suffix runs right on top of the prefill
+        let suffixed = items.iter().filter(|it| it.toks.len() > start).count();
+        let state = if self.can_rewind || suffixed < 2 {
             None
         } else {
             Some(unsafe { llamac::state_save(self.ctx) })
         };
+        // ctx still holds the saved/prefilled state — the first suffixed item
+        // needs no restore; only a decode dirties it
+        let mut fresh = true;
         *t_prefill = Instant::now();
 
         let mut out = Map::new();
         for it in items {
-            let start = if plen > 0 { plen } else { hstart };
             // whole prompt inside the shared prefix: reuse its logit row
             let row = if it.toks.len() == start {
                 prefix_row.clone().context("missing shared-prefix logits")?
             } else {
                 unsafe {
                     match &state {
-                        None => llamac::mem_rm(self.ctx, 0, start as i32, -1),
-                        Some(st) => llamac::state_load(self.ctx, st),
+                        Some(st) if !fresh => llamac::state_load(self.ctx, st),
+                        _ if self.can_rewind => llamac::mem_rm(self.ctx, 0, start as i32, -1),
+                        _ => {}
                     }
+                    fresh = false;
                     llamac::batch_decode(
                         self.ctx,
-                        &[(0, &it.toks[start..], start as i32)],
+                        &[llamac::Dec::one(&it.toks[start..], start as i32)],
                         self.n_batch as usize,
                         self.n_vocab,
                     )?
