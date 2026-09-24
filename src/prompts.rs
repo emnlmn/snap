@@ -111,7 +111,7 @@ pub(crate) fn value_text(v: &Value) -> String {
 }
 
 /// The QUESTION + OPTIONS block shared by every layout.
-fn question_block(q: &Question, slots: &[Slot]) -> Vec<String> {
+pub fn question_block(q: &Question, slots: &[Slot]) -> Vec<String> {
     let mut lines = vec!["QUESTION".to_string()];
     if !q.instructions.is_empty() {
         lines.push(q.instructions.clone());

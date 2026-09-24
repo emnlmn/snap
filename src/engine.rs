@@ -51,6 +51,10 @@ const QCACHE_CELL_DIV: i32 = 2;
 /// Slack under n_ctx when sizing waves — guards against cell-accounting
 /// subtleties (shared cells, rounding); deliberately small.
 const KV_SLACK: i32 = 32;
+/// Free cells a state-entry install must still leave in the shared pool
+const MIN_WAVE_ROOM: usize = 256;
+/// Extra shared span (past the global prefix) worth one tagged cluster decode
+const MIN_SUB_PREFIX: usize = 8;
 /// Seq capacity of the multi-seq ctx on hybrid/recurrent archs: each seq
 /// costs a full recurrent-state row (~55 MB on qwen35), so 65 seqs would
 /// pin ~4 GB. 17 keeps it near 1 GB — waves cover anything larger.
@@ -116,11 +120,14 @@ struct QSeqs {
     cells: usize,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct QEnt {
     seq: i32,
     tick: u64,
     cells: usize,
+    /// logits at the entry's last token — only prefix (state-span) entries
+    /// carry one; it answers items whose whole prompt is the prefix itself
+    row: Option<Vec<f32>>,
 }
 
 impl QSeqs {
@@ -137,6 +144,12 @@ impl QSeqs {
         self.by_head.get(head).map(|e| e.seq)
     }
 
+    /// The logits row stored on a prefix entry — answers items ending
+    /// exactly at the entry's tail without a decode
+    fn row_of(&self, head: &[i32]) -> Option<Vec<f32>> {
+        self.by_head.get(head).and_then(|e| e.row.clone())
+    }
+
     /// A seq that is free or whose head can be evicted (not `used` this wave).
     /// `nseq` is the ctx's seq capacity — smaller than MAX_SEQS on hybrid.
     fn alloc(&mut self, nseq: i32, used: &HashSet<i32>) -> Option<i32> {
@@ -151,15 +164,19 @@ impl QSeqs {
             .iter()
             .filter(|(_, e)| !used.contains(&e.seq))
             .min_by_key(|(_, e)| e.tick)
-            .map(|(k, e)| (k.clone(), *e));
-        victim.map(|(k, e)| {
+            .map(|(k, e)| (k.clone(), (e.seq, e.cells)));
+        victim.map(|(k, (seq, cells))| {
             self.by_head.remove(&k);
-            self.cells -= e.cells;
-            e.seq
+            self.cells -= cells;
+            seq
         })
     }
 
     fn insert(&mut self, head: Vec<i32>, seq: i32, cells: usize) {
+        self.insert_row(head, seq, cells, None);
+    }
+
+    fn insert_row(&mut self, head: Vec<i32>, seq: i32, cells: usize, row: Option<Vec<f32>>) {
         if let Some(old) = self.by_head.get(&head) {
             self.cells -= old.cells;
         }
@@ -170,6 +187,7 @@ impl QSeqs {
                 seq,
                 tick: self.tick,
                 cells,
+                row,
             },
         );
     }
@@ -189,11 +207,13 @@ impl QSeqs {
                 .iter()
                 .filter(|(_, e)| !used.contains(&e.seq))
                 .min_by_key(|(_, e)| e.tick)
-                .map(|(k, e)| (k.clone(), *e));
-            let Some((k, e)) = victim else { break };
+                .map(|(k, e)| (k.clone(), (e.seq, e.cells)));
+            let Some((k, (seq, cells))) = victim else {
+                break;
+            };
             self.by_head.remove(&k);
-            self.cells -= e.cells;
-            llamac::mem_rm(ctx, e.seq, -1, -1);
+            self.cells -= cells;
+            llamac::mem_rm(ctx, seq, -1, -1);
         }
     }
 
@@ -643,6 +663,27 @@ impl Engine {
         Ok(common_prefix_len(&[toks, ptoks.as_slice()]).min(toks.len().saturating_sub(1)))
     }
 
+    /// Token index where the first question block starts — the `[head+state]`
+    /// span before it is question-independent, so it's the unit worth caching
+    /// across requests on the same state (any question set). Probes the real
+    /// prompt with the same user message truncated at the question block, so
+    /// the boundary is measured in-context.
+    fn state_prefix_len(
+        &self,
+        it: &Item,
+        state: &Value,
+        layout: Layout,
+        preamble: &[String],
+    ) -> usize {
+        let qb = prompts::question_block(&it.q, &it.slots).join("\n");
+        let umsg = prompts::user_message(state, &it.q, &it.slots, layout, preamble);
+        let Some(pos) = umsg.rfind(&qb) else { return 0 };
+        let Ok(probe) = self.prompt_tokens(&umsg[..pos]) else {
+            return 0;
+        };
+        common_prefix_len(&[&it.toks, &probe])
+    }
+
     /// seq0's invariant: it only ever holds a prefix of `head_tokens`
     /// (request tokens live on scratch seqs — holder and work seqs — so seq0
     /// should never drift). Align it to exactly `[0, end)`: a drifted seq0 is
@@ -694,36 +735,92 @@ impl Engine {
         items: &[Item],
         hstart: usize,
         plen: usize,
+        s1: usize,
         temperature: f64,
-    ) -> Result<(Map<String, Value>, Instant)> {
+    ) -> Result<(Map<String, Value>, Instant, bool)> {
         let ctx = self.mctx.context("no mctx")?;
-        let start = if plen > 0 { plen } else { hstart };
         unsafe { self.align_seq0(ctx, hstart)? };
+        // The [0,s1) span (head + state) is question-independent — it lives
+        // as a qseqs cache entry, so a later request on the same state (any
+        // question set) seeds holder + work seqs by copy instead of decoding
+        // the state again. On a miss the span is installed inside wave 0's
+        // own decode: the same tokens are simply also tagged to the entry seq.
+        let mut state_seq: Option<i32> = None;
+        if s1 > hstart {
+            match self.qseqs.get(&items[0].toks[..s1]) {
+                // only trust the seq if it holds exactly this span — residue
+                // of an aborted decode is a miss, not a hit
+                Some(c) if unsafe { llamac::mem_seq_pos_max(ctx, c) } == s1 as i32 - 1 => {
+                    state_seq = Some(c);
+                }
+                Some(c) => {
+                    self.qseqs.remove(&items[0].toks[..s1]);
+                    unsafe { llamac::mem_rm(ctx, c, -1, -1) };
+                }
+                None => {}
+            }
+        }
+        // on a miss, reserve a seq for the state entry upfront — it rides
+        // wave 0's decode. A state entry duplicates [hstart,s1) permanently,
+        // so only install when the extra span still leaves wave room in the
+        // shared n_ctx pool; oversized states just run uncached.
+        let mut pending_entry = if state_seq.is_none() && s1 > hstart {
+            let need = plen.max(s1).max(hstart)
+                + self.qseqs.cells
+                + KV_SLACK as usize
+                + (s1 - hstart)
+                + MIN_WAVE_ROOM;
+            if need < self.n_ctx as usize {
+                self.qseqs.alloc(self.mseqs, &HashSet::new())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let entry_seq = state_seq.or(pending_entry);
+        // how deep copies seed each seq on wave 0; the suffix start per item
+        let seeded = if state_seq.is_some() { s1 } else { hstart };
+        let start = if plen > 0 {
+            plen
+        } else if entry_seq.is_some() {
+            s1
+        } else {
+            hstart
+        };
         // An item whose whole prompt is the shared prefix has no suffix to
-        // decode: its answer row is the one the prefix decode itself emits.
-        let mut prefix_row = None;
+        // decode: its answer row is the one the prefix decode itself emits —
+        // or, on a full hit, the row stored on the state entry.
+        let mut prefix_row = if state_seq.is_some() && start == s1 {
+            self.qseqs.row_of(&items[0].toks[..s1])
+        } else {
+            None
+        };
         let mut t_prefill = Instant::now();
-        // seq0 and the holder are reserved; a wave fits the rest
-        let wave = (self.mseqs - 2).max(1) as usize;
+        // seq0, the holder and a live state-entry seq are all reserved —
+        // the entry sits in by_head but is pinned for the whole request
+        let wave = (self.mseqs - 2 - i32::from(entry_seq.is_some())).max(1) as usize;
         // each live seq allocates its suffix cells; the holder's span, the
-        // resident head and cached qheads all share the n_ctx cell pool
+        // resident head and cached entries all share the n_ctx cell pool
         let costs: Vec<usize> = items.iter().map(|it| it.toks.len() - start).collect();
         let mut rows_all: Vec<Option<Vec<f32>>> = vec![None; items.len()];
         let mut lo = 0;
         let mut holder: Option<i32> = None;
         while lo < items.len() {
-            let held = start.max(self.head_tokens.len()) + self.qseqs.cells + KV_SLACK as usize;
+            let mut held = start.max(self.head_tokens.len()) + self.qseqs.cells + KV_SLACK as usize;
+            if lo == 0 && pending_entry.is_some() {
+                held += s1 - hstart; // the entry's cells materialize this wave
+            }
             let hi = wave_end(&costs, lo, wave, (self.n_ctx as usize).saturating_sub(held))?;
             let chunk = &items[lo..hi];
             let live: Vec<usize> = (0..chunk.len())
                 .filter(|&i| chunk[i].toks.len() > start)
                 .collect();
             let mut used = HashSet::new();
-            // the holder is scratch — not registered as a head — so only
-            // `used` keeps later waves' allocs from cannibalizing it
-            if let Some(h) = holder {
-                used.insert(h);
-            }
+            // the holder and the state entry are scratch/cached seqs the
+            // wave's allocs must not cannibalize
+            used.extend(holder);
+            used.extend(entry_seq);
             let mut seqs: Vec<i32> = Vec::with_capacity(live.len());
             for _ in &live {
                 let s = self
@@ -747,49 +844,185 @@ impl Engine {
                 used.insert(h);
                 holder = Some(h);
             }
-            // seq-id lists backing the Dec groups must outlive the decode
-            let mut prefix_seqs: Vec<i32> = Vec::new();
-            let mut groups: Vec<llamac::Dec> = Vec::with_capacity(seqs.len() + 1);
-            // the prefix decodes once, on wave 0 — later waves clone it
-            // off the holder
+            // seq-id lists backing the Dec groups must outlive the decode —
+            // collect them first so groups can borrow into span_seqs
+            let mut span_seqs: Vec<Vec<i32>> = Vec::new();
+            // wave 0, miss: install the state span — tagged to the entry seq
+            // plus everyone who needs it (holder+works in shared mode, works
+            // in direct mode). Its last-token row is kept on the entry.
+            let mut install_ix = None;
+            if let (0, Some(e)) = (lo, pending_entry) {
+                let mut ss = vec![e];
+                if plen > hstart {
+                    if let Some(h) = holder {
+                        ss.push(h);
+                    }
+                }
+                ss.extend_from_slice(&seqs);
+                install_ix = Some(span_seqs.len());
+                span_seqs.push(ss);
+            }
+            // wave 0, shared: the prefix span past whatever copies/install
+            // already covered — just the question boilerplate when the state
+            // span was a cache hit or got installed in the same batch
+            let pfx_from = if install_ix.is_some() { s1 } else { seeded };
+            let mut prefix_ix = None;
             if let (0, Some(h)) = (lo, holder) {
-                prefix_seqs.push(h);
-                prefix_seqs.extend_from_slice(&seqs);
+                if plen > pfx_from {
+                    let mut ps = vec![h];
+                    ps.extend_from_slice(&seqs);
+                    prefix_ix = Some(span_seqs.len());
+                    span_seqs.push(ps);
+                }
+            }
+            // cluster live items by shared sub-prefix past `start`: same-
+            // template questions (questionnaire families, option probes)
+            // share more than the global plen — their shared span decodes
+            // once, tagged to every seq in the cluster. row_dst records, in
+            // emission order, which items consume each emitted row.
+            let mut order: Vec<usize> = (0..live.len()).collect();
+            order.sort_by(|&a, &b| chunk[live[a]].toks[start..].cmp(&chunk[live[b]].toks[start..]));
+            struct Cluster {
+                seqs: Vec<i32>,
+                share: usize,
+                rep: usize,
+                ends: Vec<usize>,
+                rem: Vec<(usize, usize)>,
+            }
+            let mut clusters: Vec<Cluster> = Vec::new();
+            let mut singles: Vec<(usize, usize)> = Vec::new();
+            let mut o = 0;
+            while o < order.len() {
+                let first = live[order[o]];
+                let mut e = o + 1;
+                while e < order.len()
+                    && common_prefix_len(&[&chunk[first].toks, &chunk[live[order[e]]].toks])
+                        > start + MIN_SUB_PREFIX
+                {
+                    e += 1;
+                }
+                let share = if e - o > 1 {
+                    common_prefix_len(&[&chunk[first].toks, &chunk[live[order[e - 1]]].toks])
+                } else {
+                    start
+                };
+                if share > start {
+                    clusters.push(Cluster {
+                        seqs: order[o..e].iter().map(|&k| seqs[k]).collect(),
+                        share,
+                        rep: first,
+                        ends: order[o..e]
+                            .iter()
+                            .filter(|&&k| chunk[live[k]].toks.len() == share)
+                            .map(|&k| live[k])
+                            .collect(),
+                        rem: order[o..e]
+                            .iter()
+                            .filter(|&&k| chunk[live[k]].toks.len() > share)
+                            .map(|&k| (k, live[k]))
+                            .collect(),
+                    });
+                } else {
+                    singles.extend(order[o..e].iter().map(|&k| (k, live[k])));
+                }
+                o = e;
+            }
+            let mut groups: Vec<llamac::Dec> = Vec::with_capacity(span_seqs.len() + seqs.len());
+            if let Some(ix) = install_ix {
                 groups.push(llamac::Dec::new(
-                    &prefix_seqs,
-                    &items[0].toks[hstart..plen],
+                    &span_seqs[ix],
+                    &items[0].toks[hstart..s1],
                     hstart as i32,
                     true,
                 ));
             }
-            for (k, &i) in live.iter().enumerate() {
+            if let Some(ix) = prefix_ix {
+                groups.push(llamac::Dec::new(
+                    &span_seqs[ix],
+                    &items[0].toks[pfx_from..plen],
+                    pfx_from as i32,
+                    true,
+                ));
+            }
+            let mut row_dst: Vec<Vec<usize>> = Vec::new();
+            for c in &clusters {
+                groups.push(llamac::Dec::new(
+                    &c.seqs,
+                    &chunk[c.rep].toks[start..c.share],
+                    start as i32,
+                    !c.ends.is_empty(),
+                ));
+                if !c.ends.is_empty() {
+                    row_dst.push(c.ends.clone());
+                }
+                for &(k, i) in &c.rem {
+                    groups.push(llamac::Dec::new(
+                        &seqs[k..k + 1],
+                        &chunk[i].toks[c.share..],
+                        c.share as i32,
+                        true,
+                    ));
+                    row_dst.push(vec![i]);
+                }
+            }
+            for &(k, i) in &singles {
                 groups.push(llamac::Dec::new(
                     &seqs[k..k + 1],
                     &chunk[i].toks[start..],
                     start as i32,
                     true,
                 ));
+                row_dst.push(vec![i]);
             }
             unsafe {
-                // seed each live seq: wave 0 gets the head off seq0 (the
-                // holder too — it's seeded once, then later waves clone
-                // head+prefix off it)
+                // seed each live seq: wave 0 copies [0,seeded) — off the
+                // state entry on a hit, else the head off seq0; later waves
+                // copy [0,start) off the holder (shared) or the state entry
+                // (direct). The holder itself is seeded once, on wave 0.
                 for &s in seqs.iter().chain(&holder.filter(|_| lo == 0)) {
                     llamac::mem_rm(ctx, s, -1, -1);
-                    let base = if lo == 0 { hstart } else { start };
+                    let (src, base) = if lo == 0 {
+                        (state_seq.unwrap_or(0), seeded)
+                    } else {
+                        (holder.or(entry_seq).unwrap_or(0), start)
+                    };
                     if base > 0 {
-                        let src = if lo == 0 { 0 } else { holder.unwrap_or(0) };
                         llamac::mem_cp(ctx, src, s, 0, base as i32);
+                    }
+                }
+                if let (0, Some(e)) = (lo, pending_entry) {
+                    llamac::mem_rm(ctx, e, -1, -1);
+                    if hstart > 0 {
+                        llamac::mem_cp(ctx, 0, e, 0, hstart as i32);
                     }
                 }
                 if !groups.is_empty() {
                     let mut rows =
                         llamac::batch_decode(ctx, &groups, self.n_batch as usize, self.n_vocab)?;
-                    if lo == 0 && holder.is_some() {
+                    let mut entry_row = None;
+                    if install_ix.is_some() {
+                        entry_row = Some(rows.remove(0));
+                    }
+                    if prefix_ix.is_some() {
                         prefix_row = Some(rows.remove(0));
                     }
-                    for (&i, row) in live.iter().zip(rows) {
-                        rows_all[lo + i] = Some(row);
+                    // degenerate items ending at the state span take its row
+                    if start == s1 && prefix_row.is_none() {
+                        prefix_row = entry_row.clone();
+                    }
+                    for (dst, row) in row_dst.iter().zip(rows) {
+                        for &i in dst {
+                            rows_all[lo + i] = Some(row.clone());
+                        }
+                    }
+                    if let Some(e) = pending_entry {
+                        self.qseqs.insert_row(
+                            items[0].toks[..s1].to_vec(),
+                            e,
+                            s1 - hstart,
+                            entry_row,
+                        );
+                        pending_entry = None;
                     }
                 }
                 for &s in &seqs {
@@ -810,6 +1043,18 @@ impl Engine {
         if let Some(h) = holder {
             unsafe { llamac::mem_rm(ctx, h, -1, -1) };
         }
+        // a still-pending entry (wave 0 never decoded) is scratch — wipe it
+        if let Some(e) = pending_entry {
+            unsafe { llamac::mem_rm(ctx, e, -1, -1) };
+        }
+        // state entries count against the cache's cell share — trim LRU
+        unsafe {
+            self.qseqs.trim_to(
+                ctx,
+                (self.n_ctx / QCACHE_CELL_DIV).max(1) as usize,
+                &HashSet::new(),
+            );
+        }
         let mut answers = Map::new();
         for (it, row) in items.iter().zip(rows_all) {
             let row = row.context("item produced no logits")?;
@@ -818,7 +1063,7 @@ impl Engine {
             ans["coverage"] = json!(r4(self.coverage(&row, it.slots.len())));
             answers.insert(it.name.clone(), ans);
         }
-        Ok((answers, t_prefill))
+        Ok((answers, t_prefill, state_seq.is_some()))
     }
 
     /// question_first on the multi-seq ctx: every item's head lives on its own
@@ -1268,6 +1513,7 @@ impl Engine {
         let mut hits = 0usize;
         let mut misses = 0usize;
         let mut suffix_mode = "sequential";
+        let mut state_hit = false;
         let mut t_prefill = t0;
         let mut plen = 0usize;
         let mut decoded_tokens = 0usize;
@@ -1302,12 +1548,26 @@ impl Engine {
                 0
             };
             plen = plen_local;
+            // [head+state] ends where the first question block starts —
+            // the question-independent prefix worth caching cross-request.
+            // s1<=hstart (tiny/absent state) disables the state entry.
+            let s1 = if items.is_empty() {
+                0
+            } else {
+                let s = self.state_prefix_len(&items[0], &req.state, layout, &preamble);
+                if plen > 0 {
+                    s.min(plen)
+                } else {
+                    s
+                }
+            };
             let mut answers: Option<Map<String, Value>> = None;
             if self.mctx.is_some() {
-                match self.decide_batched(&items, hstart, plen, req.temperature) {
-                    Ok((a, tp)) => {
+                match self.decide_batched(&items, hstart, plen, s1, req.temperature) {
+                    Ok((a, tp, sh)) => {
                         answers = Some(a);
                         t_prefill = tp;
+                        state_hit = sh;
                         suffix_mode = "batched";
                     }
                     // wipe poisoned seqs before the sequential fallback
@@ -1356,6 +1616,8 @@ impl Engine {
         if layout == Layout::QuestionFirst {
             x.insert("qhead_hits".into(), json!(hits));
             x.insert("qhead_misses".into(), json!(misses));
+        } else {
+            x.insert("state_hit".into(), json!(state_hit));
         }
         x.insert(
             "rewind".into(),
