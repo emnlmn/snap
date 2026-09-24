@@ -26,6 +26,7 @@ struct AppState {
     /// serializes model swaps — only one load at a time
     switch: Mutex<()>,
     n_ctx: i32,
+    n_threads: i32,
     started: Instant,
 }
 
@@ -75,6 +76,7 @@ async fn switch_model(
     }
     let s2 = s.clone();
     let n_ctx = s.n_ctx;
+    let n_threads = s.n_threads;
     let name2 = name.clone();
     let model_id = tokio::task::spawn_blocking(move || -> Result<String> {
         let _serial = s2.switch.lock().unwrap();
@@ -82,7 +84,10 @@ async fn switch_model(
             return Ok(s2.slot.lock().unwrap().engine.model_id.clone());
         }
         let path = crate::models::resolve(&name2)?;
-        let eng = Engine::new(path.to_string_lossy().as_ref(), n_ctx, 1024)?;
+        let mut eng = Engine::new(path.to_string_lossy().as_ref(), n_ctx, 1024, n_threads)?;
+        if let Err(e) = eng.warmup() {
+            eprintln!("snap: warmup failed: {e}");
+        }
         let model_id = eng.model_id.clone();
         let mut slot = s2.slot.lock().unwrap();
         slot.engine = eng;
@@ -146,7 +151,14 @@ async fn pg_logo() -> impl IntoResponse {
         include_bytes!("web/logo.png").as_slice(),
     )
 }
-pub async fn serve(engine: Engine, model: &str, n_ctx: i32, host: &str, port: u16) -> Result<()> {
+pub async fn serve(
+    engine: Engine,
+    model: &str,
+    n_ctx: i32,
+    n_threads: i32,
+    host: &str,
+    port: u16,
+) -> Result<()> {
     let state = Arc::new(AppState {
         slot: Mutex::new(Slot {
             engine,
@@ -154,6 +166,7 @@ pub async fn serve(engine: Engine, model: &str, n_ctx: i32, host: &str, port: u1
         }),
         switch: Mutex::new(()),
         n_ctx,
+        n_threads,
         started: Instant::now(),
     });
     let app = Router::new()

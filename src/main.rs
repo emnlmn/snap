@@ -45,6 +45,9 @@ struct ModelArgs {
     /// calibration file from `snap calibrate`
     #[arg(long)]
     calibration: Option<String>,
+    /// decode threads (0 = all available cores; llama.cpp's own default is 4)
+    #[arg(long, default_value_t = 0)]
+    threads: i32,
     /// engine + llama.cpp internals on stderr
     #[arg(long)]
     debug: bool,
@@ -147,7 +150,7 @@ fn read_request(spec: Option<&str>) -> Result<String> {
 
 fn decide_request(m: &ModelArgs, req: api::SystemoneRequest) -> Result<()> {
     let path = models::resolve(&m.model)?;
-    let mut eng = engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024)?;
+    let mut eng = engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
     if let Some(c) = &m.calibration {
         eng.load_calibration(c)?;
     }
@@ -202,6 +205,7 @@ fn main() -> Result<()> {
     }
     if cli.m.model != models::DEFAULT_MODEL
         || cli.m.ctx != 8192
+        || cli.m.threads != 0
         || cli.m.debug
         || cli.m.calibration.is_some()
     {
@@ -227,7 +231,8 @@ fn main() -> Result<()> {
                 anyhow::bail!("calibrate needs at least one eval/*.jsonl file");
             }
             let path = models::resolve(&m.model)?;
-            let mut eng = engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024)?;
+            let mut eng =
+                engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
             let mut cases = Vec::new();
             for f in files {
                 cases.extend(evaluate::load_cases(f)?);
@@ -265,7 +270,8 @@ fn main() -> Result<()> {
                 evaluate::evaluate_url(url, &cases, *limit, *no_abstain, !*no_perturb, *layout)?
             } else {
                 let path = models::resolve(&m.model)?;
-                let mut eng = engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024)?;
+                let mut eng =
+                    engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
                 if let Some(c) = &m.calibration {
                     eng.load_calibration(c)?;
                 }
@@ -288,7 +294,8 @@ fn main() -> Result<()> {
                 bench::run_http(url, *requests, *concurrency)?
             } else {
                 let path = models::resolve(&m.model)?;
-                let mut eng = engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024)?;
+                let mut eng =
+                    engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
                 if let Some(c) = &m.calibration {
                     eng.load_calibration(c)?;
                 }
@@ -309,14 +316,20 @@ fn main() -> Result<()> {
         Cmd::Serve { m, host, port } => {
             init_logs(m.debug);
             let path = models::resolve(&m.model)?;
-            let mut eng = engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024)?;
+            let mut eng =
+                engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
             if let Some(c) = &m.calibration {
                 eng.load_calibration(c)?;
+            }
+            // warm the backend pipelines before the port opens — the first
+            // real request shouldn't pay shader-compile + buffer setup
+            if let Err(e) = eng.warmup() {
+                eprintln!("snap: warmup failed: {e}");
             }
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?;
-            rt.block_on(server::serve(eng, &m.model, m.ctx, host, *port))?;
+            rt.block_on(server::serve(eng, &m.model, m.ctx, m.threads, host, *port))?;
         }
     }
     Ok(())

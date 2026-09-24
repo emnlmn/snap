@@ -80,6 +80,7 @@ pub fn load_model(path: &str) -> Result<Model> {
     Ok(Model(m))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn new_ctx(
     model: &Model,
     n_ctx: i32,
@@ -87,6 +88,7 @@ pub fn new_ctx(
     n_ubatch: i32,
     n_seq_max: i32,
     kv_unified: bool,
+    n_threads: i32,
 ) -> Result<Ctx> {
     let mut p = unsafe { sys::llama_context_default_params() };
     p.n_ctx = n_ctx as u32;
@@ -94,6 +96,8 @@ pub fn new_ctx(
     p.n_ubatch = n_ubatch as u32;
     p.n_seq_max = n_seq_max as u32;
     p.n_outputs_max = n_seq_max as u32; // default would reserve n_batch vocab rows
+    p.n_threads = n_threads;
+    p.n_threads_batch = n_threads;
     p.flash_attn_type = sys::LLAMA_FLASH_ATTN_TYPE_ENABLED;
     p.swa_full = true;
     p.kv_unified = kv_unified;
@@ -172,40 +176,71 @@ pub fn meta_val(model: &Model, key: &str) -> Option<String> {
     }
 }
 
-/// Decode (seq_id, tokens, pos0) groups, chunked to `n_batch` tokens per
-/// `llama_decode`. Logits are requested on the last token of each group and
-/// returned as one row per group (in order).
+/// One decode group: `toks` at consecutive positions from `pos0`, tagged with
+/// every seq in `seqs` (multi-seq tagging = shared-prefix fan-out without a
+/// memory_seq_cp). `logits` asks for the vocab row at the last token.
+pub struct Dec<'a> {
+    pub seqs: &'a [i32],
+    pub toks: &'a [i32],
+    pub pos0: i32,
+    pub logits: bool,
+}
+
+impl<'a> Dec<'a> {
+    /// The common case: a group on seq 0 emitting logits.
+    pub fn one(toks: &'a [i32], pos0: i32) -> Self {
+        Dec {
+            seqs: &[0],
+            toks,
+            pos0,
+            logits: true,
+        }
+    }
+
+    pub fn new(seqs: &'a [i32], toks: &'a [i32], pos0: i32, logits: bool) -> Self {
+        Dec {
+            seqs,
+            toks,
+            pos0,
+            logits,
+        }
+    }
+}
+
+/// Decode groups, chunked to `n_batch` tokens per `llama_decode`. Returns one
+/// logits row per group with `logits: true`, in group order.
 ///
 /// # Safety
 /// `ctx` must be a live context whose `n_seq_max` covers every seq used here.
-/// Positions must be consecutive per sequence w.r.t. what the KV already holds.
+/// Positions must be consecutive per sequence w.r.t. what the KV already holds
+/// (multi-seq tokens keep every tagged seq contiguous).
 pub unsafe fn batch_decode(
     ctx: *mut sys::llama_context,
-    seqs: &[(i32, &[i32], i32)],
+    groups: &[Dec],
     n_batch: usize,
     n_vocab: usize,
 ) -> Result<Vec<Vec<f32>>> {
-    // flatten: (seq, token, pos, last-token-of-its-group, group index)
-    struct Ent {
-        seq: i32,
+    // flatten: (seqs, token, pos, last-token-of-its-group, group index)
+    struct Ent<'a> {
+        seqs: &'a [i32],
         tok: i32,
         pos: i32,
         last: bool,
         grp: usize,
     }
     let mut flat: Vec<Ent> = Vec::new();
-    for (gi, (seq, toks, pos0)) in seqs.iter().enumerate() {
-        for (j, &t) in toks.iter().enumerate() {
+    for (gi, g) in groups.iter().enumerate() {
+        for (j, &t) in g.toks.iter().enumerate() {
             flat.push(Ent {
-                seq: *seq,
+                seqs: g.seqs,
                 tok: t,
-                pos: pos0 + j as i32,
-                last: j + 1 == toks.len(),
+                pos: g.pos0 + j as i32,
+                last: g.logits && j + 1 == g.toks.len(),
                 grp: gi,
             });
         }
     }
-    let mut rows: Vec<Option<Vec<f32>>> = vec![None; seqs.len()];
+    let mut rows: Vec<Option<Vec<f32>>> = vec![None; groups.len()];
     for chunk in flat.chunks(n_batch.max(1)) {
         let mut batch = sys::llama_batch_init(chunk.len() as i32, 0, MAX_SEQS);
         if batch.token.is_null() {
@@ -214,8 +249,10 @@ pub unsafe fn batch_decode(
         for (i, e) in chunk.iter().enumerate() {
             *batch.token.add(i) = e.tok;
             *batch.pos.add(i) = e.pos;
-            *batch.n_seq_id.add(i) = 1;
-            *(*batch.seq_id.add(i)).add(0) = e.seq;
+            *batch.n_seq_id.add(i) = e.seqs.len() as i32;
+            for (k, &s) in e.seqs.iter().enumerate() {
+                *(*batch.seq_id.add(i)).add(k) = s;
+            }
             *batch.logits.add(i) = e.last as i8;
         }
         batch.n_tokens = chunk.len() as i32;
@@ -233,7 +270,9 @@ pub unsafe fn batch_decode(
         }
     }
     rows.into_iter()
-        .map(|r| r.ok_or_else(|| anyhow::anyhow!("group produced no logits")))
+        .zip(groups)
+        .filter(|(_, g)| g.logits)
+        .map(|(r, _)| r.ok_or_else(|| anyhow::anyhow!("group produced no logits")))
         .collect()
 }
 

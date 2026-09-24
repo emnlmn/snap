@@ -335,6 +335,10 @@ rejected 422 (never truncated), so raise it only when your states need
 it: `snap serve --ctx 32768`. Deliberately not "model max": spark
 advertises 1M tokens, which would be ~140 GB of reservation.
 
+`--threads` (default 0 = all available cores) sets llama.cpp's decode
+threads — relevant on CPU-only builds; on GPU backends it barely matters.
+llama.cpp's own default is 4, which starves prefill on a bigger box.
+
 ## HTTP
 
 | endpoint | purpose |
