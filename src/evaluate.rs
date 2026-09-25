@@ -6,6 +6,7 @@
 //!
 //! One question per case, keyed "q".
 
+use std::io::IsTerminal;
 use std::path::Path;
 use std::time::Instant;
 
@@ -369,6 +370,69 @@ fn report(
     })
 }
 
+/// Decodes a case stands for: itself + declared variants + auto probes.
+fn case_units(case: &Value, perturb: bool) -> usize {
+    1 + case["variants"].as_array().map(|v| v.len()).unwrap_or(0)
+        + if perturb {
+            auto_variants(case).len()
+        } else {
+            0
+        }
+}
+
+/// Live progress line on stderr, TTY only — pipes and CI stay quiet.
+struct Progress {
+    total: usize,
+    done: usize,
+    t0: Instant,
+    last: Instant,
+    tty: bool,
+}
+
+impl Progress {
+    fn new(cases: &[Value], perturb: bool) -> Self {
+        Self {
+            total: cases.iter().map(|c| case_units(c, perturb)).sum(),
+            done: 0,
+            t0: Instant::now(),
+            last: Instant::now(),
+            tty: std::io::stderr().is_terminal(),
+        }
+    }
+
+    /// `id` = case currently in flight; shown until the next tick.
+    fn tick(&mut self, id: &str) {
+        self.done += 1;
+        if !self.tty || (self.done < self.total && self.last.elapsed().as_millis() < 60) {
+            return;
+        }
+        self.last = Instant::now();
+        let el = self.t0.elapsed().as_secs_f64();
+        let eta = if self.done > 0 {
+            el * (self.total - self.done) as f64 / self.done as f64
+        } else {
+            0.0
+        };
+        const W: usize = 26;
+        let fill = self.done * W / self.total.max(1);
+        let bar: String = "█".repeat(fill) + &"░".repeat(W - fill);
+        eprint!(
+            "\r\x1b[Keval {bar} {:>3}%  {}/{}  {:>4.0}s · ~{:.0}s left  {id}",
+            self.done * 100 / self.total.max(1),
+            self.done,
+            self.total,
+            el,
+            eta,
+        );
+    }
+
+    fn finish(self) {
+        if self.tty {
+            eprintln!();
+        }
+    }
+}
+
 pub fn evaluate(
     engine: &mut Engine,
     cases: &[Value],
@@ -378,10 +442,12 @@ pub fn evaluate(
     layout: Option<crate::schema::Layout>,
 ) -> Result<Value> {
     let n = limit.unwrap_or(cases.len()).min(cases.len());
+    let mut prog = Progress::new(&cases[..n], perturb);
     let mut rows = Vec::new();
     let mut dist = Vec::new();
     let mut cons: Vec<(&'static str, bool, f64)> = Vec::new();
     for case in &cases[..n] {
+        let cid = case["id"].as_str().unwrap_or("?");
         if no_abstain
             && case
                 .get("requires_abstain")
@@ -392,10 +458,12 @@ pub fn evaluate(
                 json!({"id": case["id"], "type": case["question"]["type"], "ok": Value::Null,
                 "confidence": Value::Null, "ms": 0.0, "answer": {"skipped": "requires_abstain"}}),
             );
+            prog.tick(cid);
             continue;
         }
         let req = build_req(case, no_abstain, layout)?;
         let out = engine.decide(&req)?;
+        prog.tick(cid);
         let ans = out["answers"]["q"].clone();
         let expect = case.get("expect").cloned().unwrap_or(json!({}));
         let ok = judge(&ans, &expect);
@@ -404,6 +472,7 @@ pub fn evaluate(
             for var in vars {
                 let vreq = build_req(&merged_case(case, var), no_abstain, layout)?;
                 let vans = engine.decide(&vreq)?["answers"]["q"].clone();
+                prog.tick(cid);
                 cons.push(("declared", pick(&ans) == pick(&vans), drift(&ans, &vans)));
             }
         }
@@ -411,6 +480,7 @@ pub fn evaluate(
             for (kind, var) in auto_variants(case) {
                 let vreq = build_req(&merged_case(case, &var), no_abstain, layout)?;
                 let vans = engine.decide(&vreq)?["answers"]["q"].clone();
+                prog.tick(cid);
                 cons.push((kind, pick(&ans) == pick(&vans), drift(&ans, &vans)));
             }
         }
@@ -423,6 +493,7 @@ pub fn evaluate(
             "answer": answer_brief(&ans),
         }));
     }
+    prog.finish();
     Ok(report(&engine.model_id, rows, dist, cons))
 }
 
@@ -436,6 +507,7 @@ pub fn evaluate_url(
 ) -> Result<Value> {
     let url = url.trim_end_matches('/');
     let n = limit.unwrap_or(cases.len()).min(cases.len());
+    let mut prog = Progress::new(&cases[..n], perturb);
     let mut rows = Vec::new();
     let mut dist = Vec::new();
     let mut cons: Vec<(&'static str, bool, f64)> = Vec::new();
@@ -465,6 +537,7 @@ pub fn evaluate_url(
         Ok((out, t0.elapsed().as_secs_f64() * 1000.0))
     };
     for case in &cases[..n] {
+        let cid = case["id"].as_str().unwrap_or("?");
         if no_abstain
             && case
                 .get("requires_abstain")
@@ -475,10 +548,12 @@ pub fn evaluate_url(
                 json!({"id": case["id"], "type": case["question"]["type"], "ok": Value::Null,
                 "confidence": Value::Null, "ms": 0.0, "answer": {"skipped": "requires_abstain"}}),
             );
+            prog.tick(cid);
             continue;
         }
         let req = build_req(case, no_abstain, layout)?;
         let (out, ms) = post(&req)?;
+        prog.tick(cid);
         let ans = out["answers"]["q"].clone();
         let expect = case.get("expect").cloned().unwrap_or(json!({}));
         let ok = judge(&ans, &expect);
@@ -488,6 +563,7 @@ pub fn evaluate_url(
                 let vreq = build_req(&merged_case(case, var), no_abstain, layout)?;
                 let (vout, _) = post(&vreq)?;
                 let vans = &vout["answers"]["q"];
+                prog.tick(cid);
                 cons.push(("declared", pick(&ans) == pick(vans), drift(&ans, vans)));
             }
         }
@@ -496,6 +572,7 @@ pub fn evaluate_url(
                 let vreq = build_req(&merged_case(case, &var), no_abstain, layout)?;
                 let (vout, _) = post(&vreq)?;
                 let vans = &vout["answers"]["q"];
+                prog.tick(cid);
                 cons.push((kind, pick(&ans) == pick(vans), drift(&ans, vans)));
             }
         }
@@ -504,6 +581,7 @@ pub fn evaluate_url(
             "confidence": ans.get("confidence"), "ms": ms, "answer": answer_brief(&ans),
         }));
     }
+    prog.finish();
     Ok(report(url, rows, dist, cons))
 }
 
@@ -553,13 +631,19 @@ pub fn print_report(rep: &Value) {
     if let Some(f) = rep["failures"].as_array() {
         if !f.is_empty() {
             println!("failures:");
+            let w = f
+                .iter()
+                .filter_map(|x| x["id"].as_str().map(str::len))
+                .max()
+                .unwrap_or(4);
             for x in f {
                 println!(
-                    "  {:14} {:8} -> {} (conf {})",
+                    "  {:w$} {:8} -> {} (conf {})",
                     x["id"].as_str().unwrap_or("?"),
                     x["type"].as_str().unwrap_or("?"),
                     x["answer"],
-                    x["confidence"]
+                    x["confidence"],
+                    w = w
                 );
             }
         }
