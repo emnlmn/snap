@@ -36,10 +36,10 @@ paths:
       tags: [decisions]
       summary: Answer a set of typed questions about a state
       description: |
-        All questions share the same `state`. With `mode: shared` (default) the
-        common prompt prefix is evaluated once; every question suffix decodes in
-        a single batched call on full-attention models (automatic sequential
-        fallback otherwise — see `x_snap` in the response).
+        All questions share the same `state`. With `mode: shared` (default)
+        every prompt is decoded as one shared-prefix trie in batched calls:
+        text common to several questions is evaluated once, on every
+        architecture (hybrid/recurrent included) — see `x_snap` in the response.
 
         `questions` is a map of caller-chosen names to question objects; each
         name maps to one answer in the response. Question objects are strictly
@@ -124,11 +124,14 @@ paths:
                 usage: {input_tokens: 184}
                 x_snap:
                   layout: state_first
-                  shared_prefix_tokens: 96
+                  decoded_items: 3
+                  prompt_tokens: 402
                   cached_head_tokens: 31
-                  rewind: kv
-                  suffix_decode: batched
-                  prefill_ms: 41.2
+                  shared_prefix_tokens: 96
+                  cache_hits: 0
+                  cache_misses: 3
+                  waves: 1
+                  decode_ms: 98.2
                   total_ms: 103.7
         '400':
           description: Malformed JSON body.
@@ -213,9 +216,10 @@ components:
           enum: [shared, direct]
           default: shared
           description: |
-            `shared` amortizes the common state prefix across questions.
-            `direct` decodes each question independently (verification/reference;
-            answers are identical, latency is not).
+            `shared` decodes text common to several questions once and reuses
+            cached spans across requests. `direct` decodes every question on its
+            own off the template head, sharing and caching nothing — the
+            reference path (answers agree up to float noise; latency does not).
         layout:
           type: string
           enum: [auto, state_first, question_first, header, catalog]
@@ -223,8 +227,8 @@ components:
           description: |
             Prompt layout — where the question sits relative to the state.
             `question_first` puts QUESTION+OPTIONS before STATE: heads stay
-            resident across requests (LRU over seqs or state snapshots), so
-            repeat workloads decode only the state. `state_first` amortizes
+            cached across requests (LRU over KV sequences), so repeat
+            workloads decode only the state. `state_first` amortizes
             one long document across all questions of the request. `header`
             lists every question before the state, then each on its own —
             the document is read with all questions in view. `catalog` lists
@@ -380,21 +384,21 @@ components:
         usage:
           type: object
           properties:
-            input_tokens: {type: integer, description: Shared prefix once + every decoded suffix (expansion probes included). Nothing is ever generated, so there is no output side.}
+            input_tokens: {type: integer, description: "Tokens actually decoded by this request — shared text once, cached spans not at all (expansion probes included). Nothing is ever generated, so there is no output side."}
         x_snap:
           type: object
           description: Honest internals — exactly what the engine did.
           properties:
             layout: {type: string, enum: [state_first, question_first, header, catalog], description: The layout actually run (`auto` is resolved).}
-            shared_prefix_tokens: {type: integer}
-            cached_head_tokens: {type: integer, description: Resident prompt-head tokens skipped entirely.}
-            qhead_hits: {type: integer, description: question_first only — questions whose head was already resident.}
-            qhead_misses: {type: integer, description: question_first only — questions whose head had to be decoded.}
-            rewind: {type: string, enum: [kv, snapshot], description: How context state is restored between questions.}
-            suffix_decode: {type: string, enum: [batched, sequential], description: Whether question suffixes ran in one batched decode.}
-            decoded_items: {type: integer, description: Units actually decoded — grows past the question count when a large choice expands into per-option probes.}
-            prefill_ms: {type: number}
-            total_ms: {type: number}
+            decoded_items: {type: integer, description: "Units actually decoded — grows past the question count when a large choice expands into per-option probes."}
+            prompt_tokens: {type: integer, description: "Prompt tokens across all items — what decoding each one from scratch would cost; compare with usage.input_tokens."}
+            cached_head_tokens: {type: integer, description: "Resident template-head tokens every item skipped."}
+            shared_prefix_tokens: {type: integer, description: "Prefix common to every item of the request (0 with one item or in direct mode)."}
+            cache_hits: {type: integer, description: "Items that forked off a span cached by an earlier request ([head+state], [head+question] or [head+catalog], per layout)."}
+            cache_misses: {type: integer, description: "Items whose cacheable span had to be decoded (and was then cached)."}
+            waves: {type: integer, description: "Batched decode rounds — more than one when the items outgrow the context's sequences or KV cells."}
+            decode_ms: {type: number, description: "Time inside batched decode calls."}
+            total_ms: {type: number, description: "Total engine time, prompt compilation included."}
 
     Answer:
       oneOf:

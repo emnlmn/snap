@@ -1,7 +1,9 @@
 //! Thin unsafe wrappers over llama-cpp-sys-2 for exactly what snap needs:
-//! model load, tokenize, batched decode, per-sequence memory ops, state
-//! snapshots. The safe llama-cpp-2 crate keeps the raw pointers private, so
-//! we drive the C API directly (mirrors the Python ctypes approach).
+//! model load, tokenize, chat templates, batched multi-seq decode, whole-seq
+//! memory ops. `Llama` is the production `kv::Backend`; everything above it
+//! runs unchanged against the simulated backend in `kv::sim`, which is how
+//! the KV orchestration is tested without a model. The safe llama-cpp-2
+//! crate keeps the raw pointers private, so we drive the C API directly.
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::Mutex;
@@ -9,18 +11,29 @@ use std::sync::Mutex;
 use anyhow::{bail, Result};
 use llama_cpp_sys_2 as sys;
 
-pub const MAX_SEQS: i32 = 65; // seq 0 owns the shared prefix; questions run on seqs 1..64
+use crate::kv::{Backend, Dec, DecodeError};
 
-pub struct Model(pub *mut sys::llama_model);
-pub struct Ctx(pub *mut sys::llama_context);
+/// Seq capacity: seq 0 keeps the resident prompt head, the rest hold cache
+/// entries and per-item work seqs.
+pub const MAX_SEQS: i32 = 65;
+/// Seq capacity on hybrid/recurrent archs: every seq pins a full
+/// recurrent-state row (~50 MiB on qwen35), so 65 would be ~3.3 GB.
+pub const HYBRID_SEQS: i32 = 17;
 
-unsafe impl Send for Model {}
-unsafe impl Send for Ctx {}
-unsafe impl Sync for Model {}
-unsafe impl Sync for Ctx {}
-
-pub fn backend_init() {
-    unsafe { sys::llama_backend_init() }
+extern "C" {
+    fn snap_chat_templates_init(
+        model: *mut sys::llama_model,
+        tmpl_override: *const c_char,
+        bos_override: *const c_char,
+        eos_override: *const c_char,
+    ) -> *mut c_void;
+    fn snap_chat_apply(
+        tmpls: *mut c_void,
+        system: *const c_char,
+        user: *const c_char,
+    ) -> *mut c_char;
+    fn snap_chat_templates_free(tmpls: *mut c_void);
+    fn snap_str_free(p: *mut c_char);
 }
 
 // --- llama.cpp/ggml logging -------------------------------------------------
@@ -69,252 +82,241 @@ pub fn route_logs_to_tracing() {
     }
 }
 
-pub fn load_model(path: &str) -> Result<Model> {
-    let cpath = CString::new(path)?;
-    let mut params = unsafe { sys::llama_model_default_params() };
-    params.n_gpu_layers = -1; // everything on GPU (Metal); llama.cpp falls back to CPU if it can't
-    let m = unsafe { sys::llama_model_load_from_file(cpath.as_ptr(), params) };
-    if m.is_null() {
-        bail!("failed to load model: {path}");
-    }
-    Ok(Model(m))
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn new_ctx(
-    model: &Model,
-    n_ctx: i32,
-    n_batch: i32,
-    n_ubatch: i32,
-    n_seq_max: i32,
-    kv_unified: bool,
-    n_threads: i32,
-) -> Result<Ctx> {
-    let mut p = unsafe { sys::llama_context_default_params() };
-    p.n_ctx = n_ctx as u32;
-    p.n_batch = n_batch as u32;
-    p.n_ubatch = n_ubatch as u32;
-    p.n_seq_max = n_seq_max as u32;
-    p.n_outputs_max = n_seq_max as u32; // default would reserve n_batch vocab rows
-    p.n_threads = n_threads;
-    p.n_threads_batch = n_threads;
-    p.flash_attn_type = sys::LLAMA_FLASH_ATTN_TYPE_ENABLED;
-    p.swa_full = true;
-    p.kv_unified = kv_unified;
-    p.no_perf = true;
-    let c = unsafe { sys::llama_init_from_model(model.0, p) };
-    if c.is_null() {
-        bail!("llama_init_from_model returned null");
-    }
-    Ok(Ctx(c))
-}
-
-pub fn free_ctx(ctx: *mut sys::llama_context) {
-    if !ctx.is_null() {
-        unsafe { sys::llama_free(ctx) }
-    }
-}
-
-pub fn free_model(model: *mut sys::llama_model) {
-    if !model.is_null() {
-        unsafe { sys::llama_model_free(model) }
-    }
-}
-
-pub fn vocab(model: &Model) -> *const sys::llama_vocab {
-    unsafe { sys::llama_model_get_vocab(model.0) }
-}
-
-pub fn n_vocab(model: &Model) -> i32 {
-    unsafe { sys::llama_vocab_n_tokens(vocab(model)) }
-}
-
-/// Tokenize `text` with the model's own tokenizer (BPE). add_special adds BOS.
-pub fn tokenize(model: &Model, text: &str, add_special: bool) -> Result<Vec<i32>> {
-    let v = vocab(model);
-    let bytes = text.as_bytes();
-    let mut cap = (bytes.len() as i32 / 2) + 64;
-    loop {
-        let mut buf = vec![0i32; cap as usize];
-        let n = unsafe {
-            sys::llama_tokenize(
-                v,
-                bytes.as_ptr() as *const c_char,
-                bytes.len() as i32,
-                buf.as_mut_ptr(),
-                cap,
-                add_special,
-                true, // parse_special: special tokens in the template matter
-            )
-        };
-        if n >= 0 {
-            buf.truncate(n as usize);
-            return Ok(buf);
-        }
-        cap = -n + 16;
-    }
-}
-
-/// GGUF metadata string value; grows the buffer until it fits.
-pub fn meta_val(model: &Model, key: &str) -> Option<String> {
-    let ckey = CString::new(key).ok()?;
-    let mut size = 256i32;
-    loop {
-        let mut buf = vec![0 as c_char; size as usize];
-        let n = unsafe {
-            sys::llama_model_meta_val_str(model.0, ckey.as_ptr(), buf.as_mut_ptr(), size as usize)
-        };
-        if n < 0 {
-            return None;
-        }
-        if (n as usize) < size as usize {
-            let bytes =
-                unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, n as usize) };
-            return Some(String::from_utf8_lossy(bytes).into_owned());
-        }
-        size = n + 1;
-    }
-}
-
-/// One decode group: `toks` at consecutive positions from `pos0`, tagged with
-/// every seq in `seqs` (multi-seq tagging = shared-prefix fan-out without a
-/// memory_seq_cp). `logits` asks for the vocab row at the last token.
-pub struct Dec<'a> {
-    pub seqs: &'a [i32],
-    pub toks: &'a [i32],
-    pub pos0: i32,
-    pub logits: bool,
-}
-
-impl<'a> Dec<'a> {
-    /// The common case: a group on seq 0 emitting logits.
-    pub fn one(toks: &'a [i32], pos0: i32) -> Self {
-        Dec {
-            seqs: &[0],
-            toks,
-            pos0,
-            logits: true,
-        }
-    }
-
-    pub fn new(seqs: &'a [i32], toks: &'a [i32], pos0: i32, logits: bool) -> Self {
-        Dec {
-            seqs,
-            toks,
-            pos0,
-            logits,
-        }
-    }
-}
-
-/// Decode groups, chunked to `n_batch` tokens per `llama_decode`. Returns one
-/// logits row per group with `logits: true`, in group order.
-///
-/// # Safety
-/// `ctx` must be a live context whose `n_seq_max` covers every seq used here.
-/// Positions must be consecutive per sequence w.r.t. what the KV already holds
-/// (multi-seq tokens keep every tagged seq contiguous).
-pub unsafe fn batch_decode(
+/// A loaded model plus its one multi-seq context over a unified KV cache —
+/// unified because shared-prefix fan-out tags one token with many seqs.
+pub struct Llama {
+    model: *mut sys::llama_model,
     ctx: *mut sys::llama_context,
-    groups: &[Dec],
-    n_batch: usize,
+    tmpls: *mut c_void,
     n_vocab: usize,
-) -> Result<Vec<Vec<f32>>> {
-    // flatten: (seqs, token, pos, last-token-of-its-group, group index)
-    struct Ent<'a> {
-        seqs: &'a [i32],
-        tok: i32,
-        pos: i32,
-        last: bool,
-        grp: usize,
-    }
-    let mut flat: Vec<Ent> = Vec::new();
-    for (gi, g) in groups.iter().enumerate() {
-        for (j, &t) in g.toks.iter().enumerate() {
-            flat.push(Ent {
-                seqs: g.seqs,
-                tok: t,
-                pos: g.pos0 + j as i32,
-                last: g.logits && j + 1 == g.toks.len(),
-                grp: gi,
-            });
+    n_ctx: usize,
+    n_seq: usize,
+    n_batch: usize,
+}
+
+// Only ever used behind the engine's Mutex; llama.cpp objects aren't
+// internally thread-safe but exclusive access makes sending them sound.
+unsafe impl Send for Llama {}
+
+impl Llama {
+    pub fn load(path: &str, n_ctx: i32, n_batch: i32, n_threads: i32) -> Result<Llama> {
+        unsafe { sys::llama_backend_init() };
+        let cpath = CString::new(path)?;
+        let mut mp = unsafe { sys::llama_model_default_params() };
+        mp.n_gpu_layers = -1; // everything on GPU; llama.cpp falls back to CPU if it can't
+        let model = unsafe { sys::llama_model_load_from_file(cpath.as_ptr(), mp) };
+        if model.is_null() {
+            bail!("failed to load model: {path}");
         }
-    }
-    let mut rows: Vec<Option<Vec<f32>>> = vec![None; groups.len()];
-    for chunk in flat.chunks(n_batch.max(1)) {
-        let mut batch = sys::llama_batch_init(chunk.len() as i32, 0, MAX_SEQS);
-        if batch.token.is_null() {
-            bail!("llama_batch_init failed");
+        // owns `model` from here: Drop frees whatever got allocated
+        let mut me = Llama {
+            model,
+            ctx: std::ptr::null_mut(),
+            tmpls: std::ptr::null_mut(),
+            n_vocab: unsafe { sys::llama_vocab_n_tokens(sys::llama_model_get_vocab(model)) }
+                as usize,
+            n_ctx: n_ctx as usize,
+            n_seq: 0,
+            n_batch: n_batch.max(1) as usize,
+        };
+        if me.meta("tokenizer.chat_template").is_none() {
+            bail!("model has no tokenizer.chat_template in GGUF metadata");
         }
-        for (i, e) in chunk.iter().enumerate() {
-            *batch.token.add(i) = e.tok;
-            *batch.pos.add(i) = e.pos;
-            *batch.n_seq_id.add(i) = e.seqs.len() as i32;
-            for (k, &s) in e.seqs.iter().enumerate() {
-                *(*batch.seq_id.add(i)).add(k) = s;
+        me.tmpls = unsafe {
+            snap_chat_templates_init(model, std::ptr::null(), std::ptr::null(), std::ptr::null())
+        };
+        if me.tmpls.is_null() {
+            bail!("common_chat_templates_init failed (unsupported chat template?)");
+        }
+        // 0 = auto: llama.cpp's own default is 4 threads, which starves
+        // prefill on CPU-only builds (most release targets).
+        let n_threads = if n_threads > 0 {
+            n_threads
+        } else {
+            std::thread::available_parallelism().map_or(4, |n| n.get() as i32)
+        };
+        let hybrid =
+            unsafe { sys::llama_model_is_hybrid(model) || sys::llama_model_is_recurrent(model) };
+        // fewer seqs is slower, never wrong — degrade instead of failing
+        let mut nseq = if hybrid { HYBRID_SEQS } else { MAX_SEQS };
+        loop {
+            let mut p = unsafe { sys::llama_context_default_params() };
+            p.n_ctx = n_ctx as u32;
+            p.n_batch = n_batch as u32;
+            p.n_ubatch = n_batch as u32;
+            p.n_seq_max = nseq as u32;
+            p.n_outputs_max = nseq as u32; // default would reserve n_batch vocab rows
+            p.n_threads = n_threads;
+            p.n_threads_batch = n_threads;
+            p.flash_attn_type = sys::LLAMA_FLASH_ATTN_TYPE_ENABLED;
+            p.swa_full = true; // SWA layers must keep whole prefixes to be forkable
+            p.kv_unified = true;
+            p.no_perf = true;
+            me.ctx = unsafe { sys::llama_init_from_model(model, p) };
+            if !me.ctx.is_null() {
+                me.n_seq = nseq as usize;
+                return Ok(me);
             }
-            *batch.logits.add(i) = e.last as i8;
-        }
-        batch.n_tokens = chunk.len() as i32;
-        let rc = sys::llama_decode(ctx, batch);
-        sys::llama_batch_free(batch);
-        if rc != 0 {
-            bail!("llama_decode returned {rc}");
-        }
-        // logits rows are valid until the next decode: read them now
-        for (i, e) in chunk.iter().enumerate() {
-            if e.last {
-                let p = sys::llama_get_logits_ith(ctx, i as i32);
-                rows[e.grp] = Some(std::slice::from_raw_parts(p, n_vocab).to_vec());
+            if nseq <= 2 {
+                bail!("llama_init_from_model returned null");
             }
+            nseq = nseq / 2 + 1;
+            eprintln!("snap: context init failed, retrying with {nseq} seqs");
         }
     }
-    rows.into_iter()
-        .zip(groups)
-        .filter(|(_, g)| g.logits)
-        .map(|(r, _)| r.ok_or_else(|| anyhow::anyhow!("group produced no logits")))
-        .collect()
+
+    /// GGUF metadata string value; grows the buffer until it fits.
+    pub fn meta(&self, key: &str) -> Option<String> {
+        let ckey = CString::new(key).ok()?;
+        let mut size = 256i32;
+        loop {
+            let mut buf = vec![0 as c_char; size as usize];
+            let n = unsafe {
+                sys::llama_model_meta_val_str(
+                    self.model,
+                    ckey.as_ptr(),
+                    buf.as_mut_ptr(),
+                    size as usize,
+                )
+            };
+            if n < 0 {
+                return None;
+            }
+            if n < size {
+                let bytes =
+                    unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, n as usize) };
+                return Some(String::from_utf8_lossy(bytes).into_owned());
+            }
+            size = n + 1;
+        }
+    }
+
+    fn memory(&self) -> sys::llama_memory_t {
+        unsafe { sys::llama_get_memory(self.ctx) }
+    }
 }
 
-pub unsafe fn mem_rm(ctx: *mut sys::llama_context, seq: i32, p0: i32, p1: i32) {
-    let mem = sys::llama_get_memory(ctx);
-    sys::llama_memory_seq_rm(mem, seq, p0, p1);
+impl Drop for Llama {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.ctx.is_null() {
+                sys::llama_free(self.ctx);
+            }
+            if !self.tmpls.is_null() {
+                snap_chat_templates_free(self.tmpls);
+            }
+            sys::llama_model_free(self.model);
+        }
+    }
 }
 
-pub unsafe fn mem_cp(ctx: *mut sys::llama_context, src: i32, dst: i32, p0: i32, p1: i32) {
-    let mem = sys::llama_get_memory(ctx);
-    sys::llama_memory_seq_cp(mem, src, dst, p0, p1);
-}
+impl Backend for Llama {
+    fn n_ctx(&self) -> usize {
+        self.n_ctx
+    }
 
-pub unsafe fn mem_clear(ctx: *mut sys::llama_context) {
-    let mem = sys::llama_get_memory(ctx);
-    sys::llama_memory_clear(mem, true);
-}
+    fn n_seq(&self) -> usize {
+        self.n_seq
+    }
 
-/// Hybrid/recurrent memory can't trim a sequence to an arbitrary position:
-/// partial seq_rm needs n_rs_seq rollback slots, which contexts don't
-/// allocate — so deep rewind is never available on these archs.
-pub fn model_hybrid(model: &Model) -> bool {
-    unsafe { sys::llama_model_is_hybrid(model.0) || sys::llama_model_is_recurrent(model.0) }
-}
+    fn render(&self, system: &str, user: &str) -> Result<String> {
+        let (system, user) = (CString::new(system)?, CString::new(user)?);
+        let p = unsafe { snap_chat_apply(self.tmpls, system.as_ptr(), user.as_ptr()) };
+        if p.is_null() {
+            bail!("chat template apply failed");
+        }
+        let s = unsafe { CStr::from_ptr(p).to_string_lossy().into_owned() };
+        unsafe { snap_str_free(p) };
+        Ok(s)
+    }
 
-/// Last position held by `seq` (-1 when empty). Cached question heads are
-/// only trusted when this matches their token span exactly.
-pub unsafe fn mem_seq_pos_max(ctx: *mut sys::llama_context, seq: i32) -> i32 {
-    let mem = sys::llama_get_memory(ctx);
-    sys::llama_memory_seq_pos_max(mem, seq)
-}
+    /// The model's own tokenizer; no BOS added (templates carry their own).
+    fn tokenize(&self, text: &str) -> Result<Vec<i32>> {
+        let vocab = unsafe { sys::llama_model_get_vocab(self.model) };
+        let bytes = text.as_bytes();
+        let mut cap = (bytes.len() as i32 / 2) + 64;
+        loop {
+            let mut buf = vec![0i32; cap as usize];
+            let n = unsafe {
+                sys::llama_tokenize(
+                    vocab,
+                    bytes.as_ptr() as *const c_char,
+                    bytes.len() as i32,
+                    buf.as_mut_ptr(),
+                    cap,
+                    false,
+                    true, // parse_special: special tokens in the template matter
+                )
+            };
+            if n >= 0 {
+                buf.truncate(n as usize);
+                return Ok(buf);
+            }
+            cap = -n + 16;
+        }
+    }
 
-/// Whole-context state snapshot (KV + recurrent state + rng). Used on hybrid
-/// archs where arbitrary KV rewind is unsupported.
-pub unsafe fn state_save(ctx: *mut sys::llama_context) -> Vec<u8> {
-    let n = sys::llama_state_get_size(ctx);
-    let mut buf = vec![0u8; n];
-    let w = sys::llama_state_get_data(ctx, buf.as_mut_ptr(), n);
-    buf.truncate(w);
-    buf
-}
+    /// Flatten groups, chunk to `n_batch` tokens per `llama_decode`, and hand
+    /// each requested logits row to `row` while it is still valid (the next
+    /// decode overwrites it) — no per-row copies.
+    fn decode(
+        &mut self,
+        groups: &[Dec],
+        row: &mut dyn FnMut(usize, &[f32]),
+    ) -> Result<(), DecodeError> {
+        // (group, token index within the group)
+        let flat: Vec<(usize, usize)> = groups
+            .iter()
+            .enumerate()
+            .flat_map(|(g, d)| (0..d.toks.len()).map(move |i| (g, i)))
+            .collect();
+        for chunk in flat.chunks(self.n_batch) {
+            unsafe {
+                let mut batch = sys::llama_batch_init(chunk.len() as i32, 0, MAX_SEQS);
+                if batch.token.is_null() {
+                    return Err(DecodeError::Failed("llama_batch_init failed".into()));
+                }
+                for (i, &(g, t)) in chunk.iter().enumerate() {
+                    let d = &groups[g];
+                    *batch.token.add(i) = d.toks[t];
+                    *batch.pos.add(i) = (d.pos0 + t) as i32;
+                    *batch.n_seq_id.add(i) = d.seqs.len() as i32;
+                    for (k, &s) in d.seqs.iter().enumerate() {
+                        *(*batch.seq_id.add(i)).add(k) = s;
+                    }
+                    *batch.logits.add(i) = (d.logits && t + 1 == d.toks.len()) as i8;
+                }
+                batch.n_tokens = chunk.len() as i32;
+                let rc = sys::llama_decode(self.ctx, batch);
+                sys::llama_batch_free(batch);
+                match rc {
+                    0 => {}
+                    1 => return Err(DecodeError::NoSlot),
+                    rc => return Err(DecodeError::Failed(format!("llama_decode returned {rc}"))),
+                }
+                for (i, &(g, t)) in chunk.iter().enumerate() {
+                    if groups[g].logits && t + 1 == groups[g].toks.len() {
+                        let p = sys::llama_get_logits_ith(self.ctx, i as i32);
+                        row(g, std::slice::from_raw_parts(p, self.n_vocab));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 
-pub unsafe fn state_load(ctx: *mut sys::llama_context, data: &[u8]) {
-    sys::llama_state_set_data(ctx, data.as_ptr(), data.len());
+    fn seq_rm(&mut self, seq: i32) {
+        unsafe { sys::llama_memory_seq_rm(self.memory(), seq, -1, -1) };
+    }
+
+    /// Whole-seq copy: on unified KV it only tags cells, and on recurrent
+    /// memory it shares the tail state copy-on-write (which is also why
+    /// `src` must hold exactly `len` tokens — recurrent seq_cp ignores ranges).
+    fn seq_cp(&mut self, src: i32, dst: i32, len: usize) {
+        unsafe { sys::llama_memory_seq_cp(self.memory(), src, dst, 0, len as i32) };
+    }
+
+    fn clear(&mut self) {
+        unsafe { sys::llama_memory_clear(self.memory(), true) };
+    }
 }

@@ -70,20 +70,22 @@ question. No prose, no parsing, no retries, no hallucinated JSON keys.
 - **Choices past the alphabet.** More than 26 options? Each candidate
   gets its own yes/no probe, batched over the same shared prefix, and
   the scores merge into one distribution. Up to 256.
-- **State amortized.** All questions in a request share the same state
-  prefix, evaluated once. On full-attention architectures every question
-  suffix decodes in **a single batched call** across parallel KV
-  sequences. The constant prompt head stays resident between requests.
+- **State amortized.** Every prompt of a request decodes as one
+  shared-prefix trie in **a single batched call**: the state — and any
+  text several questions share — is evaluated once, on every architecture,
+  hybrids included. The constant prompt head stays resident between
+  requests.
 - **Questions amortized too.** `layout: question_first` flips the prompt —
-  the question head is identical across requests and stays resident on its
-  own KV sequence (state snapshots on hybrid archs, LRU-bounded). Repeat
+  the question head is identical across requests and stays cached on its
+  own KV sequence (LRU-bounded). Repeat
   workloads — the same triage questions on a stream of tickets — decode
   only the state.
 - **Honest internals.** `x_snap` reports exactly what happened:
-  `cached_head_tokens`, `shared_prefix_tokens`, `qhead_hits/misses`,
-  `rewind: kv|snapshot`, `suffix_decode: batched|sequential`,
-  prefill/total ms. Every answer also carries `coverage` — how much of the
-  model's raw next-token mass landed on the allowed letters at all.
+  `prompt_tokens` against the tokens actually decoded
+  (`usage.input_tokens`), `cached_head_tokens`, `shared_prefix_tokens`,
+  `cache_hits/misses`, `waves`, decode/total ms. Every answer also carries
+  `coverage` — how much of the model's raw next-token mass landed on the
+  allowed letters at all.
 
 ## The API — drop-in Jev, extended
 
@@ -98,7 +100,7 @@ them and defaults preserve Jev semantics:
 |---|---|
 | question `"type": "numeric"` | `{min, max, granularity}` — distribution over a numeric range |
 | question `allow_abstain` | default `false`; `true` adds an `__abstain__` slot (status `abstained`) |
-| request `mode` | `shared` (default, prefix amortized) or `direct` |
+| request `mode` | `shared` (default: shared text decoded once, spans cached across requests) or `direct` (every question decoded alone — the reference path) |
 | request `layout` | `auto` (default), `state_first`, `question_first`, `header`, `catalog` |
 | request `expand` | `probes` (default) or `pages` — how >26-option choices expand |
 | request `compact_state` | default `false`; `true` renders object states as compact lines/csv rows |
@@ -148,37 +150,46 @@ and no abstention.
 
 ## Performance
 
-Apple Silicon, Metal, in-process, p50:
+Apple M1 Max, Metal, in-process `snap bench --requests 20`, p50. Every
+request carries a fresh state — a stream of new documents — so only what
+production can reuse gets reused: the template head and the question
+heads.
 
 | scenario | minicpm5-2b Q4_K_M | spark-4b Q8_0 | qwen3.8-4b Q4_K_M |
 |---|---:|---:|---:|
-| single question | 136 ms | 272 ms | 284 ms |
-| 4 questions, shared prefix | 454 ms (114 ms/q) | 816 ms (204 ms/q) | 992 ms (249 ms/q) |
-| 8 questions, shared prefix | 803 ms (100 ms/q) | 1760 ms (217 ms/q) | 1914 ms (248 ms/q) |
-| 8 questions, direct mode | 1008 ms (126 ms/q) | 2135 ms (271 ms/q) | 2450 ms (305 ms/q) |
-| 8 KB state, 1 question | 1245 ms | 2818 ms | 2427 ms |
+| single question | 50 ms | 89 ms | 82 ms |
+| 4 questions | 126 ms (32 ms/q) | 232 ms (58 ms/q) | 227 ms (57 ms/q) |
+| 8 questions | 252 ms (32 ms/q) | 406 ms (51 ms/q) | 472 ms (59 ms/q) |
+| 8 questions, `mode: direct` (nothing shared) | 1170 ms (146 ms/q) | 2158 ms (270 ms/q) | 2381 ms (298 ms/q) |
+| 8 questions on a 1.8 KB document | 1887 ms (236 ms/q) | 3278 ms (410 ms/q) | 3327 ms (416 ms/q) |
+| 4 KB state, 1 question | 1364 ms | 2476 ms | 2164 ms |
 
-MiniCPM and Spark run the batched multi-sequence path; Qwen's hybrid KV
-falls back to sequential suffixes (still prefix-cached — a startup probe
-decides, you don't configure it).
+The `direct` row decodes every question on its own: the gap to the row
+above it is what prefix sharing and the cached question heads buy. The
+hybrid qwen3.8 runs the same batched path, with 17 parallel sequences
+instead of 65.
 
 ### …and against the same weights through Ollama
 
-Same MiniCPM-2B GGUF, same machine, `think:false`, minimal
-`num_predict`, temperature 0, cold prompts:
+Ollama 0.34.3 serving `openbmb/minicpm5-2b` (its own packaging of the
+same MiniCPM5-2B Q4_K_M), same machine, both over HTTP, p50 of 15:
+`think:false`, one output token per question, temperature 0, the prompt
+text snap compiles, a fresh state per request.
 
 | workload | Ollama | SNAP | |
 |---|---:|---:|---|
-| 1 question | 193 ms | 136 ms | −30% |
-| 4 questions, one request each | 788 ms | 454 ms | −42% |
-| 8 questions, one request each | 1884 ms | 803 ms | **−57%** |
-| 4 questions, combined prompt | 559 ms | 454 ms | −19% |
-| 8 questions, combined prompt | 962 ms | 803 ms | −17% |
-| ~8k-token state | rejected (ctx) | 1245 ms | — |
+| 1 question | 149 ms | 51 ms | −66% |
+| 4 questions, one request each | 523 ms | 126 ms | −76% |
+| 8 questions, one request each | 796 ms | 258 ms | −68% |
+| 4 questions, combined prompt | 571 ms | 126 ms | −78% |
+| 8 questions, combined prompt | 731 ms | 258 ms | −65% |
+| 4 KB state, 1 question | 1376 ms | 1304 ms | −5% |
 
-The combined-prompt column is Ollama's best case for N questions — and it
+The combined-prompt rows are Ollama's best case for N questions — and it
 hands you `"A,C,B"` as *text* to parse, with no probabilities. SNAP's
-whole answer is the distribution.
+whole answer is the distribution. With one question over a long state
+both are bound by the same prefill: the win is in the many-question
+case.
 
 ## Accuracy
 
@@ -194,27 +205,44 @@ meaning-preserving criterion rewording, and an unrelated-context
 injection — `--no-perturb` skips them. Line format:
 `{"id", "state", "question", "expect", "variants"?}`.
 
+Measured with the API's own defaults — `layout: auto`, no abstain slot
+unless a case asks for one — i.e. exactly what `/v1/systemone` serves:
+
 | model | core (52) | edge (19) | ms/case |
 |---|---:|---:|---:|
-| qwen3.8-4b Q4_K_M | **90.4%** | **89.5%** | ~240 |
-| spark-4b Q8_0 | 88.5% | 73.7% | ~230 |
-| minicpm5-2b Q4_K_M | 67.3% | 57.9% | ~135 |
+| qwen3.8-4b Q4_K_M | **94.2%** | **79.0%** | ~210 |
+| spark-4b Q8_0 | 92.3% | **79.0%** | ~180 |
+| minicpm5-2b Q4_K_M | 80.8% | 57.9% | ~95 |
+
+These sets are small: the 95% interval is about ±7–11 points on the 52
+core cases and ±17–20 on the 19 edge cases, so a few points between the
+4B models is noise.
 
 Distribution quality (lower is better; same runs):
 
 | model | brier core | brier edge | ECE core | ECE edge |
 |---|---:|---:|---:|---:|
-| qwen3.8-4b Q4_K_M | 0.156 | 0.205 | 0.120 | 0.081 |
-| spark-4b Q8_0 | 0.228 | 0.342 | 0.130 | 0.182 |
-| minicpm5-2b Q4_K_M | 0.472 | 0.690 | 0.175 | 0.347 |
+| qwen3.8-4b Q4_K_M | 0.126 | 0.201 | 0.159 | 0.151 |
+| spark-4b Q8_0 | 0.157 | 0.370 | 0.101 | 0.190 |
+| minicpm5-2b Q4_K_M | 0.300 | 0.627 | 0.079 | 0.281 |
 
-The ECE column is why calibration exists: spark is accurate but
-overconfident (94% mean confidence vs 74–88% accuracy), qwen is actually
-*under*confident (72% vs 90%) — both fixable by `snap calibrate`, both
-invisible to accuracy alone. On `variants` all three agreed 100% of the
-time with ≤0.03 mean drift — a tiny sample (n=2), but the harness works.
+The ECE column is why calibration exists: qwen is *under*confident (73%
+mean confidence at 94% accuracy on core), spark is overconfident where
+it's weaker (87% confidence at 79% on edge) — both fixable by
+`snap calibrate`, both invisible to accuracy alone.
 
-MiniCPM-2B is the speed/footprint option; the 4B models are the
+Stability on core — how often the answer survives a perturbation that
+shouldn't change it:
+
+| model | options reversed | instruction reworded | unrelated context added |
+|---|---:|---:|---:|
+| qwen3.8-4b | 91% | 90% | 90% |
+| spark-4b | 91% | 81% | 92% |
+| minicpm5-2b | 68% | 81% | 88% |
+
+Reversing the option order flips a third of MiniCPM's choices: letter
+and position bias is the main weakness of small models answering by
+letter. MiniCPM-2B is the speed/footprint option; the 4B models are the
 production pick.
 
 ### TypeSafe's public cases
@@ -235,6 +263,16 @@ python3 eval/typesafe_public.py answer --out results/typesafe-public/snap-qwen38
 python3 eval/typesafe_public.py score results/typesafe-public/snap-qwen38.json
 ```
 
+qwen3.8-4b on an M1 Max: **73.2%** agreement over the 373 decisions
+(Security 35/48, AgentTrace 32/49, Invoice 130/184, CustomerSvc 76/92) —
+87% on yes/no questions, 56% on scores, 48% on choices, ~1.1 s per
+decision. The misses are not random: half are on the invoices, where
+whole question families cross-check a ~7k-token document (is this line
+really delivered, is this price really approved) and a 4B model
+answering in one token disagrees systematically with reasoning frontier
+models — the kind of question to route elsewhere when a calibrated
+answer comes back `contested`.
+
 ## Calibration
 
 Raw letter logits are honest but uncalibrated: `0.9` does not mean
@@ -243,10 +281,10 @@ your eval cases, collects every emitted distribution with its
 ground-truth target, and fits one temperature per question type:
 
 ```bash
-snap calibrate eval/core.jsonl eval/edge.jsonl -o calibration.json
+snap calibrate --model qwen3.8-4b eval/core.jsonl eval/edge.jsonl -o calibration.json
 # fitted on 69 cases (2 skipped)
-#   boolean  T=0.536   choice  T=0.125   score  T=1.006
-# ece  0.110 raw -> 0.068 in-sample | 0.074 out-of-fold  CI95 [0.04, 0.15]
+#   boolean  T=0.477   choice  T=0.474   numeric  T=1.000   score  T=0.774
+# ece  0.127 raw -> 0.089 in-sample | 0.106 out-of-fold  CI95 [0.055, 0.185]
 # caveat: OOF interval overlaps raw ECE — gain not proven at this n
 snap serve --model qwen3.8-4b --calibration calibration.json
 ```
@@ -276,7 +314,13 @@ resembles production traffic.
 Prebuilt binaries on
 [GitHub Releases](https://github.com/emnlmn/snap/releases):
 
-macOS (Apple Silicon):
+macOS (Apple Silicon) via Homebrew:
+
+```bash
+brew install emnlmn/snap/snap
+```
+
+or the tarball:
 
 ```bash
 mkdir -p ~/snap && curl -L https://github.com/emnlmn/snap/releases/latest/download/snap-macos-arm64.tar.gz | tar xz -C ~/snap
@@ -296,6 +340,10 @@ it on PATH. Other assets: `linux-x86_64-v3` (single-file AVX2),
 `linux-x86_64-vulkan`. macOS isn't notarized — a browser-quarantined
 tarball may need `xattr -d com.apple.quarantine ~/snap/snap`. First
 inference pulls the model GGUF (~1.5 GB), then offline.
+
+Once a day `snap` checks GitHub for a newer release and prints a line on
+stderr — never on stdout, never in `-p`. `SNAP_NO_UPDATE_CHECK=1` turns
+it off.
 
 Or build from source — llama.cpp is vendored and compiled at first
 build (~2 min), Metal on by default on Apple Silicon:
@@ -339,13 +387,17 @@ snap bench --requests 20                    # latency/throughput
 that loads is not a GGUF that answers correctly; new candidates get a
 row in `src/models.rs` after they pass the eval suite.
 
-`--ctx` (default 8192 tokens ≈ ~6k words) is the per-question context
-limit — state + question + options — and the KV arena is reserved in
-full at startup, ~140 KB/token on llama.cpp: `8192` ≈ 1 GB, `32768` ≈
-4.5 GB, `131072` ≈ 18 GB on top of the weights. Long inputs are
-rejected 422 (never truncated), so raise it only when your states need
-it: `snap serve --ctx 32768`. Deliberately not "model max": spark
-advertises 1M tokens, which would be ~140 GB of reservation.
+`--ctx` (default 8192 tokens ≈ ~6k words) is the KV pool: every prompt —
+state + question + options — must fit in it, and the questions in flight
+share it with the cache (more questions than fit just run in more
+waves). It is reserved in full at startup: ~42 KB/token for minicpm5-2b,
+~144 KB/token for spark-4b (its sliding-window layers keep full-size KV so
+prefixes can be forked), ~32 KB/token for qwen3.8-4b plus ~0.85 GB of
+recurrent state. `8192` ≈ 0.34 / 1.1 / 0.25 GB, `32768` ≈ 1.3 / 4.5 /
+1 GB on top of the weights. Long inputs are rejected 422 (never
+truncated), so raise it only when your states need it:
+`snap serve --ctx 32768`. Deliberately not "model max": spark advertises
+1M tokens, which would be ~140 GB of reservation.
 
 `--threads` (default 0 = all available cores) sets llama.cpp's decode
 threads — relevant on CPU-only builds; on GPU backends it barely matters.
@@ -377,8 +429,8 @@ snap serve --model spark-4b   # then open http://localhost:8018/playground
 - **`/playground`** — an API console. Build a request channel per
   question (all five types), flip between builder, raw JSON and cURL,
   and read every answer as a probability map on a shared 0–100% scale
-  plus the `x_snap` internals (prefill/total ms, cached head, batched
-  vs sequential suffix decode). `⌘↵` runs.
+  plus the `x_snap` internals (decode/total ms, tokens decoded vs prompt
+  tokens, cache hits, waves). `⌘↵` runs.
 
 ## Production
 
@@ -387,13 +439,13 @@ snap serve --model spark-4b   # then open http://localhost:8018/playground
 ```
 
 - **One process = one resident model.** Requests serialize on the engine;
-  parallelism lives *inside* a request (the batched suffix decode). Scale
+  parallelism lives *inside* a request (one batched decode per wave). Scale
   with N processes behind a load balancer.
-- **Memory** ≈ weights + KV (`--ctx` × ~140 KB/token, less on
-  hybrid-attention models) + the multi-seq context. qwen3.8-4b Q4_K_M @
-  8192: ~4 GB total.
-- **Boot** ~10 s (mmap, probes, head warm). `/healthz` is your readiness
-  probe.
+- **Memory** ≈ weights + KV (`--ctx` × the per-token cost above) +
+  recurrent state on hybrids. Peak RSS at 8192: minicpm5-2b 1.9 GB,
+  qwen3.8-4b 3.8 GB, spark-4b 5.4 GB.
+- **Boot** ~4 s on an M1 Max once the GGUF is downloaded (mmap, resident
+  head, warm-up requests). `/healthz` is your readiness probe.
 - **Logs** quiet by default (warnings only); `--debug` or
   `RUST_LOG=llamac=info` for llama.cpp internals on stderr.
 - Over-context input → 422. Never silently truncated.
@@ -409,8 +461,9 @@ Environment=RUST_LOG=info
 
 - `choice` scales to 256 options via per-option probes; `score` and
   `numeric` stay inside the 26-letter alphabet.
-- Batched decode needs unified-KV full attention; hybrids fall back to
-  sequential automatically.
+- Hybrid/recurrent models run the same batched path with fewer parallel
+  sequences (17 instead of 65 — each pins a recurrent-state row), so large
+  question sets take more waves there.
 - Probabilities are calibrated only after `snap calibrate` — and only as
   far as your eval data resembles production.
 

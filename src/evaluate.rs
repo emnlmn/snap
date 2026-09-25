@@ -352,6 +352,7 @@ fn report(
         .collect();
     json!({
         "model": label,
+        "prompt_version": crate::prompts::PROMPT_VERSION,
         "cases": rows.len(),
         "scored": scored.len(),
         "accuracy": (acc * 10000.0).round() / 10000.0,

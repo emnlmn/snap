@@ -38,7 +38,7 @@ pub struct Instance {
 
 /// $SNAP_RUN_DIR, else $XDG_RUNTIME_DIR/snap (per-user tmpfs — pidfiles
 /// shouldn't survive a reboot anyway), else ~/.snap/run.
-fn run_dir() -> PathBuf {
+pub(crate) fn run_dir() -> PathBuf {
     if let Ok(d) = std::env::var("SNAP_RUN_DIR") {
         return d.into();
     }
@@ -208,7 +208,7 @@ fn pid_alive(pid: u32) -> bool {
     const STILL_ACTIVE: u32 = 259;
     unsafe {
         let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if h == 0 {
+        if h.is_null() {
             return false;
         }
         let mut code = 0;
@@ -280,7 +280,7 @@ fn terminate(pid: u32, _force: bool) -> Result<()> {
     use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
     unsafe {
         let h = OpenProcess(PROCESS_TERMINATE, 0, pid);
-        if h == 0 {
+        if h.is_null() {
             return Err(std::io::Error::last_os_error()).context("OpenProcess");
         }
         let ok = TerminateProcess(h, 1);

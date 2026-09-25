@@ -682,16 +682,16 @@ function renderResult(req, body, ms) {
   const x = body.x_snap || {};
   const st = (label, v, unit, title, cls = "") =>
     `<span class="st ${cls}"${title ? ` title="${esc(title)}"` : ""}><em>${esc(label)}</em><b>${esc(v ?? "—")}${unit ? `<small>${unit}</small>` : ""}</b></span>`;
-  const qh = x.qhead_hits != null ? `${x.qhead_hits}/${(x.qhead_hits ?? 0) + (x.qhead_misses ?? 0)}` : null;
+  const seen = (x.cache_hits ?? 0) + (x.cache_misses ?? 0);
   $("stats").innerHTML =
     st("total", x.total_ms, "ms", "total engine time", "lead") +
-    st("prefill", x.prefill_ms, "ms", "shared-prefix prefill") +
+    st("decode", x.decode_ms, "ms", "time inside batched decode calls") +
     st("decoded", body.usage?.input_tokens, "", "tokens actually decoded") +
-    (x.shared_prefix_tokens > 0 ? st("shared", x.shared_prefix_tokens, "", "shared prefix tokens") : "") +
-    st("cached", x.cached_head_tokens, "", "cached head tokens") +
-    (qh ? st("qhead", qh, "", "question-head cache hits") : "") +
-    st("items", `${x.decoded_items ?? "—"}${x.suffix_decode ? ` · ${x.suffix_decode}` : ""}`, "", "question items · suffix decode path") +
-    st("rewind", x.rewind, "", "KV rewind strategy");
+    st("prompt", x.prompt_tokens, "", "prompt tokens across all items") +
+    (x.shared_prefix_tokens > 0 ? st("shared", x.shared_prefix_tokens, "", "prefix shared by every item") : "") +
+    st("cached", x.cached_head_tokens, "", "resident template head tokens") +
+    (seen ? st("cache", `${x.cache_hits}/${seen}`, "", "items that forked off a span cached by an earlier request") : "") +
+    st("items", `${x.decoded_items ?? "—"} · ${x.waves ?? "—"}w`, "", "decode items · batched decode waves");
   $("stats").hidden = false;
 
   const prev = lastDist || {};

@@ -4,640 +4,1133 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
-<title>snap · typed decisions from one forward pass</title>
-<meta name="description" content="snap (Single-pass Neural Answer Probabilities): typed decisions from unstructured state. One forward pass, zero generated text. Local, deterministic, Jev-compatible.">
-<meta property="og:title" content="snap · typed decisions from one forward pass">
-<meta property="og:description" content="One forward pass, zero generated text. A local LLM decision engine that returns probability distributions, not prose.">
+<meta name="theme-color" content="#f4f4ee">
+<title>snap · Ask everything. Generate nothing.</title>
+<meta name="description" content="snap is a local decision engine for LLM pipelines. Send one state and every question you have about it: typed answers, each a full probability distribution, from a single pass. No generated text. Jev-compatible, open source.">
+<meta property="og:title" content="snap · Ask everything. Generate nothing.">
+<meta property="og:description" content="Typed decisions from one pass over the model. Every answer is a probability distribution, nothing is generated, everything runs on your hardware.">
 <meta property="og:image" content="https://emnlmn.github.io/snap/logo.png">
 <meta property="og:type" content="website">
 <link rel="icon" type="image/png" href="logo.png">
+<link rel="preload" href="fonts/mona-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <style>
-/* snap landing. Same world as the console: warm paper, deep green-black
-   ink, one crocodile-green accent marking what is live. */
+@font-face {
+  font-family: "Mona Sans";
+  src: url("fonts/mona-sans-latin.woff2") format("woff2");
+  font-weight: 200 900; font-stretch: 75% 125%; font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/jetbrains-mono-latin.woff2") format("woff2");
+  font-weight: 400 700; font-display: swap;
+}
 
 :root {
-  --bg: #f5f5ef;
-  --surface: #ffffff;
-  --raise: #ecece4;
-  --line: #e0e0d6;
-  --line-hi: #cdcdc1;
-  --text: #1a1f1b;
-  --soft: #3d443e;
-  --muted: #646b64;
-  --faint: #6b7064;
-  --accent: #2a7a47;
-  --accent-deep: #226539;
-  --accent-ink: #ffffff;
-  --string: #7d5410;
-  --bad: #c0392b;
-  --ok: #2f9e5a;
-  --hover: rgba(26, 31, 27, .045);
-  --ink: #131517;
-  --ink-text: #e6e7e4;
-  --ink-soft: #a7aaa3;
-  --ink-line: #2b2e2a;
-  --bar-dim: #aeb3a4;
-  --accent-wash: color-mix(in srgb, var(--accent) 9%, transparent);
-  --accent-edge: color-mix(in srgb, var(--accent) 45%, transparent);
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, sans-serif;
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
-  --r: 10px;
-  --gutter: 24px;
+  --paper: #f4f4ee;
+  --paper-2: #ebebe3;
+  --white: #ffffff;
+  --line: #deded4;
+  --line-hi: #c9c9bd;
+  --text: #111611;
+  --soft: #353c36;
+  --muted: #555d56;
+  --faint: #646b64;
+  --green: #2a7a47;
+  --green-deep: #1d5e35;
+  --wash: color-mix(in srgb, var(--green) 9%, transparent);
+  --edge: color-mix(in srgb, var(--green) 38%, transparent);
+  --amber: #8a5712;
+  --ink: #0a0d0b;
+  --ink-2: #0f1410;
+  --ink-3: #161c17;
+  --ink-line: #222a24;
+  --ink-hi: #333d35;
+  --ink-text: #eaede7;
+  --ink-soft: #aab2a9;
+  --ink-faint: #838c83;
+  --lime: #b8ec5f;
+  --mint: #7fd79b;
+  --sand: #e2b877;
+  --heat: #e59a52;
+  --sans: "Mona Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --g: 28px;
   --ease: cubic-bezier(.16, 1, .3, 1);
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
 body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 15px/1.6 var(--sans);
-  -webkit-font-smoothing: antialiased;
+  margin: 0; background: var(--paper); color: var(--text);
+  font: 400 16px/1.6 var(--sans); font-stretch: 100%;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
 }
-::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-h1, h2, h3, p, ol, ul { margin: 0; }
-a { color: var(--accent-deep); text-underline-offset: 3px; text-decoration-thickness: 1px; }
-a:hover { color: var(--accent); }
+h1, h2, h3, p, ol, ul, dl, dd, figure, pre { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+a { color: var(--green-deep); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { color: var(--green); }
 code, pre, kbd { font-family: var(--mono); }
+code { font-size: .9em; }
+button { font: inherit; color: inherit; }
+::selection { background: color-mix(in srgb, var(--green) 24%, transparent); color: var(--text); }
+.ink ::selection, .console ::selection { background: color-mix(in srgb, var(--lime) 30%, transparent); color: #fff; }
+:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; border-radius: 6px; }
+.ink :focus-visible, .console :focus-visible { outline-color: var(--lime); }
 * { scrollbar-width: thin; scrollbar-color: var(--line-hi) transparent; }
+.ink *, .console * { scrollbar-color: var(--ink-hi) transparent; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: var(--line-hi); border-radius: 10px; border: 3px solid var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--line-hi); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
+.ink ::-webkit-scrollbar-thumb, .console ::-webkit-scrollbar-thumb { background-color: var(--ink-hi); }
 ::-webkit-scrollbar-track { background: transparent; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+[hidden] { display: none !important; }
 
-.wrap { max-width: 1060px; margin: 0 auto; padding: 0 var(--gutter); }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 var(--g); }
+.num { font-variant-numeric: tabular-nums; }
 
-/* ---------- header ---------- */
-.top {
-  position: sticky; top: 0; z-index: 10;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--line);
-}
-.top .wrap { display: flex; align-items: center; gap: 10px; height: 56px; }
-.mark { width: 30px; height: 30px; display: block; }
-.brand { font-weight: 650; font-size: 15px; letter-spacing: -.01em; }
-.top nav { display: flex; gap: 2px; margin-left: 18px; }
-.top nav a {
-  padding: 5px 10px; border-radius: 6px;
-  font-size: 13px; color: var(--muted); text-decoration: none;
-  transition: color .15s, background .15s;
-}
-.top nav a:hover { color: var(--text); background: var(--hover); }
-.gh {
-  margin-left: auto;
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 6px 12px; border: 1px solid var(--line-hi); border-radius: 8px;
-  background: var(--surface);
-  font-size: 13px; font-weight: 550; color: var(--text); text-decoration: none;
-  transition: border-color .15s, background .15s;
-}
-.gh:hover { border-color: var(--faint); background: var(--raise); color: var(--text); }
-.gh svg { width: 15px; height: 15px; fill: currentColor; }
-
-/* ---------- hero ---------- */
-.hero { padding: 84px 0 64px; }
-.hero .wrap { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 56px; align-items: center; }
+/* type */
 h1 {
-  font-size: clamp(2.1rem, 4.6vw, 3.2rem);
-  line-height: 1.08; font-weight: 700; letter-spacing: -.025em;
+  font-weight: 740; font-stretch: 116%;
+  font-size: clamp(2.8rem, 7vw, 6rem); line-height: .95; letter-spacing: -.035em;
+}
+h2 {
+  font-weight: 710; font-stretch: 112%;
+  font-size: clamp(2rem, 3.9vw, 3.3rem); line-height: 1.02; letter-spacing: -.03em;
   text-wrap: balance;
 }
-.hero .tag {
-  margin-top: 18px;
-  font: 14px var(--mono); color: var(--accent-deep);
-}
-.lede { margin-top: 14px; font-size: 16px; color: var(--soft); max-width: 34rem; text-wrap: pretty; }
-.cta { margin-top: 30px; display: flex; gap: 10px; flex-wrap: wrap; }
-.btn {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 10px 18px; border-radius: var(--r);
-  font-size: 14px; font-weight: 600; text-decoration: none;
-  transition: background .15s, border-color .15s, transform .15s var(--ease);
-}
-.btn.primary { background: var(--accent); color: var(--accent-ink); }
-.btn.primary:hover { background: var(--accent-deep); color: var(--accent-ink); }
-.btn.ghost { border: 1px solid var(--line-hi); color: var(--text); background: var(--surface); }
-.btn.ghost:hover { border-color: var(--faint); background: var(--raise); color: var(--text); }
-.micro { margin-top: 20px; font-size: 12.5px; color: var(--muted); }
-.micro code { font-size: 12px; color: var(--soft); }
+h3 { font-weight: 640; font-size: 18px; line-height: 1.3; letter-spacing: -.01em; }
+.lede { font-size: 19px; line-height: 1.55; color: var(--soft); text-wrap: pretty; }
+.sub { font-size: 17.5px; line-height: 1.6; color: var(--soft); max-width: 44rem; text-wrap: pretty; }
+.ink .sub, .ink .lede { color: var(--ink-soft); }
+.head { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 28px 64px; align-items: end; margin-bottom: 64px; }
+.head .sub { justify-self: end; }
+.note { font-size: 13px; line-height: 1.55; color: var(--faint); text-wrap: pretty; }
+.ink .note { color: var(--ink-faint); }
+.note code { font-size: 12px; }
 
-/* hero one-liner */
+/* buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 46px; padding: 0 20px; border-radius: 12px; border: 1px solid transparent;
+  font: 620 15px/1 var(--sans); text-decoration: none; cursor: pointer; white-space: nowrap;
+  transition: background .18s, border-color .18s, color .18s, transform .18s var(--ease);
+}
+.btn:active { transform: translateY(1px); }
+.btn svg { width: 16px; height: 16px; flex: none; }
+.btn.primary { background: var(--green); color: #fff; }
+.btn.primary:hover { background: var(--green-deep); color: #fff; }
+.btn.ghost { background: var(--white); border-color: var(--line-hi); color: var(--text); }
+.btn.ghost:hover { border-color: var(--faint); color: var(--text); }
+.ink .btn.primary { background: var(--lime); color: var(--ink); }
+.ink .btn.primary:hover { background: #cdf585; color: var(--ink); }
+.ink .btn.ghost { background: transparent; border-color: var(--ink-hi); color: var(--ink-text); }
+.ink .btn.ghost:hover { border-color: var(--ink-soft); color: #fff; }
+
+/* ---------- nav ---------- */
+.top {
+  position: sticky; top: 0; z-index: 20;
+  background: color-mix(in srgb, var(--paper) 86%, transparent);
+  backdrop-filter: saturate(1.4) blur(10px); -webkit-backdrop-filter: saturate(1.4) blur(10px);
+  border-bottom: 1px solid transparent; transition: border-color .2s;
+}
+.top.scrolled { border-bottom-color: var(--line); }
+.top .wrap { display: flex; align-items: center; height: 64px; gap: 8px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; margin-right: 22px; }
+.brand img { width: 30px; height: 30px; border-radius: 8px; display: block; }
+.brand span { font-weight: 720; font-stretch: 112%; font-size: 19px; letter-spacing: -.02em; }
+.brand:hover { color: var(--text); }
+.top nav { display: flex; gap: 2px; }
+.top nav a {
+  padding: 7px 12px; border-radius: 8px; font-size: 14.5px; font-weight: 500;
+  color: var(--muted); text-decoration: none; transition: color .15s, background .15s;
+}
+.top nav a:hover { color: var(--text); background: rgba(17, 22, 17, .05); }
+.top .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.top .btn { height: 38px; padding: 0 14px; font-size: 14px; border-radius: 9px; }
+.gh svg { fill: currentColor; }
+
+/* ---------- hero ---------- */
+.hero { padding: 92px 0 40px; overflow: hidden; }
+.hero h1 { max-width: 13ch; }
+.hero-row {
+  margin-top: 36px;
+  display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 32px 72px; align-items: start;
+}
+.hero .lede { max-width: 36rem; }
+.hero .lede b { color: var(--text); font-weight: 620; }
+.cta { display: flex; gap: 10px; flex-wrap: wrap; }
 .cmd {
-  margin-top: 18px;
   display: flex; align-items: center; gap: 4px;
-  max-width: 34rem;
-  background: var(--ink); color: var(--ink-text);
-  border-radius: var(--r);
-  padding: 9px 6px 9px 14px;
+  background: var(--white); border: 1px solid var(--line); border-radius: 12px;
+  padding: 5px 5px 5px 14px; max-width: 30rem;
 }
 .cmd code {
-  flex: 1; min-width: 0;
-  font: 12px/1.8 var(--mono);
-  white-space: pre; overflow-x: auto;
-  scrollbar-width: none;
+  flex: 1; min-width: 0; font-size: 13px; line-height: 34px; color: var(--soft);
+  white-space: nowrap; overflow-x: auto; scrollbar-width: none;
 }
 .cmd code::-webkit-scrollbar { display: none; }
-.cmd .p { color: #8fd4a8; user-select: none; }
-.cmd-copy {
-  flex: none;
-  border: 0; background: none; border-radius: 6px; padding: 4px 10px;
-  font: 11.5px var(--mono); color: var(--ink-soft); cursor: pointer;
+.cmd .p { color: var(--green); user-select: none; }
+.copy {
+  flex: none; height: 34px; padding: 0 12px; border: 0; border-radius: 8px;
+  background: var(--paper); color: var(--muted); font: 500 12.5px var(--mono); cursor: pointer;
   transition: background .15s, color .15s;
 }
-.cmd-copy:hover { background: rgba(255,255,255,.08); color: var(--ink-text); }
+.copy:hover { background: var(--paper-2); color: var(--text); }
+.micro { margin-top: 14px; font-size: 13.5px; color: var(--faint); }
 
-/* ---------- demo card ---------- */
-.demo {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  overflow: hidden;
-  display: flex; flex-direction: column;
-  min-width: 0;
+/* ---------- console (hero demo) ---------- */
+.stage { margin-top: 64px; position: relative; }
+.console {
+  background: var(--ink); color: var(--ink-text);
+  border-radius: 18px; overflow: hidden; position: relative;
+  box-shadow: 0 1px 0 rgba(255,255,255,.05) inset, 0 40px 80px -40px rgba(10, 30, 16, .55), 0 18px 36px -24px rgba(10, 13, 11, .5);
 }
-.demo-head {
-  display: flex; align-items: baseline; gap: 10px;
-  padding: 12px 16px; border-bottom: 1px solid var(--line);
-  font: 12px var(--mono); color: var(--muted);
+.c-bar {
+  display: flex; align-items: center; gap: 12px;
+  height: 56px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--ink-line);
 }
-.demo-head .case { font-size: 13.5px; font-weight: 650; color: var(--text); }
-.demo-head .model { margin-left: auto; color: var(--faint); }
-.demo-state {
-  padding: 12px 16px; border-bottom: 1px solid var(--line);
-  font: 11.5px/1.6 var(--mono); color: var(--soft);
-  white-space: pre-wrap; overflow-wrap: break-word;
-  max-height: 194px; overflow-y: auto;
+.c-dots { display: flex; gap: 7px; margin-right: 8px; }
+.c-dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-hi); }
+.c-tabs { display: flex; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.c-tabs::-webkit-scrollbar { display: none; }
+.tab {
+  flex: none; height: 34px; padding: 0 14px; border: 0; border-radius: 9px; background: transparent;
+  font: 500 14px var(--sans); color: var(--ink-soft); cursor: pointer; transition: color .15s, background .15s;
 }
-.demo-state b { color: var(--muted); font-weight: 500; }
-.q { padding: 12px 16px; border-bottom: 1px solid var(--line); }
-.q:last-of-type { border-bottom: 0; }
-.q-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
-.q-name { font: 12px var(--mono); font-weight: 600; color: var(--text); }
-.q-type { font: 12px var(--mono); color: var(--faint); }
-.q-winner { margin-left: auto; font: 12px var(--mono); color: var(--accent-deep); font-weight: 600; }
-.bar { display: grid; grid-template-columns: 74px 1fr 44px; align-items: center; gap: 10px; padding: 3px 0; }
-.bar .lbl { font: 12px var(--mono); color: var(--muted); text-align: right; white-space: nowrap; }
-.bar.win .lbl { color: var(--text); font-weight: 600; }
-.track { display: block; height: 8px; background: var(--raise); border-radius: 4px; overflow: hidden; }
-.fill {
-  display: block;
-  height: 100%; width: 0;
-  background: var(--bar-dim); border-radius: 4px;
-  transition: width .7s var(--ease);
+.tab:hover { color: var(--ink-text); background: var(--ink-2); }
+.tab[aria-selected="true"] { color: #fff; background: var(--ink-3); box-shadow: inset 0 0 0 1px var(--ink-hi); }
+.c-meta { margin-left: auto; font: 12px var(--mono); color: var(--ink-faint); white-space: nowrap; }
+.c-replay {
+  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px;
+  border: 1px solid var(--ink-hi); border-radius: 9px; background: transparent;
+  font: 500 13px var(--sans); color: var(--ink-text); cursor: pointer; transition: border-color .15s, background .15s;
 }
-.win .fill { background: var(--accent); }
-.pct { font: 12px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
-.win .pct { color: var(--accent-deep); font-weight: 600; }
-.demo-foot {
-  display: flex; align-items: center; gap: 10px;
-  margin-top: auto;
-  padding: 10px 16px; border-top: 1px solid var(--line);
-  font: 12px var(--mono); color: var(--muted);
+.c-replay:hover { border-color: var(--ink-soft); background: var(--ink-2); }
+.c-replay svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.c-body { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); height: 468px; }
+.c-req { border-right: 1px solid var(--ink-line); display: flex; flex-direction: column; min-height: 0; position: relative; }
+.c-res { display: flex; flex-direction: column; min-height: 0; }
+.c-head {
+  display: flex; align-items: center; gap: 10px; height: 44px; flex: none;
+  padding: 0 20px; border-bottom: 1px solid var(--ink-line);
+  font: 12px var(--mono); color: var(--ink-faint);
 }
-.demo-foot .ms { color: var(--text); font-variant-numeric: tabular-nums; }
-.dots { display: flex; gap: 7px; align-items: center; }
-.dot {
-  width: 7px; height: 7px; padding: 0; border: 0; border-radius: 50%;
-  background: var(--line-hi); cursor: pointer;
-  transition: background .2s, transform .2s var(--ease);
+.c-head b { color: var(--lime); font-weight: 600; }
+.c-head .path { color: var(--ink-text); }
+.c-head .ok { color: var(--mint); font-weight: 600; }
+.c-head .right { margin-left: auto; display: flex; gap: 2px; }
+.seg {
+  height: 26px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent;
+  font: 12px var(--mono); color: var(--ink-faint); cursor: pointer;
 }
-.dot:hover { transform: scale(1.25); }
-.dot.on { background: var(--accent); }
-.replay {
-  margin-left: auto;
-  display: inline-flex; align-items: center; gap: 6px;
-  border: 0; background: none; border-radius: 6px; padding: 4px 8px;
-  font: 12px var(--mono); color: var(--accent-deep); cursor: pointer;
-  transition: background .15s;
+.seg:hover { color: var(--ink-text); }
+.seg[aria-pressed="true"] { background: var(--ink-3); color: var(--ink-text); }
+.c-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px 18px; position: relative; }
+.c-label { font: 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 8px; }
+.c-label + .c-label, * + .c-label { margin-top: 18px; }
+.json { font: 12.5px/1.65 var(--mono); color: var(--ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+.json .k { color: #c9d1c7; }
+.json .s { color: var(--sand); }
+.json .n, .json .b { color: var(--mint); }
+.c-qs { display: grid; gap: 1px; }
+.c-q {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: baseline;
+  padding: 7px 0; border-top: 1px solid var(--ink-line); font-size: 13px;
 }
-.replay:hover { background: var(--accent-wash); }
-.replay svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; }
-.note { font-size: 12px; color: var(--faint); margin-top: 10px; }
+.c-q:first-child { border-top: 0; }
+.c-q .qn { font: 500 12.5px var(--mono); color: var(--ink-text); }
+.c-q .qt { font: 12px var(--mono); color: var(--ink-faint); }
+.c-q .qa { grid-column: 1 / -1; color: var(--ink-soft); font-size: 13px; line-height: 1.4; }
+.c-q.lit .qn { color: var(--lime); }
+.scan {
+  position: absolute; left: 0; right: 0; top: 44px; height: 2px; pointer-events: none; opacity: 0;
+  background: linear-gradient(90deg, transparent, var(--lime) 30%, var(--lime) 70%, transparent);
+}
+.running .scan { opacity: .85; animation: scan var(--dur, .7s) linear forwards; }
+@keyframes scan { from { transform: translateY(0); } to { transform: translateY(420px); } }
+
+.answers { display: grid; }
+.a-row {
+  display: grid; grid-template-columns: minmax(0, 1.05fr) 132px minmax(0, 1fr) 46px;
+  align-items: center; gap: 16px; padding: 12px 8px; margin: 0 -8px;
+  border-radius: 10px; cursor: default; transition: background .15s;
+}
+.a-row + .a-row { box-shadow: 0 -1px 0 var(--ink-line); }
+.a-row:hover, .a-row:focus-visible, .a-row.on { background: var(--ink-2); }
+.a-row:focus-visible { outline-offset: -2px; }
+.a-name { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.a-name b { font: 500 13px var(--mono); color: var(--ink-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.a-name small { font: 12px var(--mono); color: var(--ink-faint); }
+.hist { display: flex; align-items: flex-end; gap: 2px; height: 30px; }
+.hist i {
+  flex: 1; min-width: 3px; height: 2px; border-radius: 2px; background: var(--ink-hi);
+  transition: height .6s var(--ease), background .3s;
+}
+.hist i.w { background: var(--lime); }
+.a-val {
+  min-width: 0; font-weight: 620; font-size: 15.5px; color: #fff; letter-spacing: -.005em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: opacity .35s, transform .5s var(--ease);
+}
+.a-p { font: 500 13px var(--mono); color: var(--ink-soft); text-align: right; font-variant-numeric: tabular-nums; transition: opacity .35s; }
+.pending .a-val, .pending .a-p { opacity: 0; transform: translateY(4px); }
+.pending .hist i { height: 2px !important; }
+.c-inspect {
+  flex: none; min-height: 58px; padding: 10px 20px 12px; border-top: 1px solid var(--ink-line);
+  font: 12px/1.55 var(--mono); color: var(--ink-faint);
+}
+.c-inspect .ask { color: var(--ink-soft); font: 13px/1.4 var(--sans); margin-bottom: 4px; }
+.c-inspect .opt { white-space: nowrap; margin-right: 14px; }
+.c-inspect .opt b { color: var(--ink-soft); font-weight: 500; }
+.c-inspect .opt.w, .c-inspect .opt.w b { color: var(--lime); }
+.c-foot {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 20px; align-items: center;
+  padding: 14px 20px; border-top: 1px solid var(--ink-line); background: var(--ink-2);
+}
+.clock { font: 600 24px/1 var(--mono); color: #fff; font-variant-numeric: tabular-nums; letter-spacing: -.02em; min-width: 7.2ch; }
+.clock small { font-size: 13px; color: var(--ink-faint); font-weight: 500; margin-left: 4px; }
+.track { height: 6px; border-radius: 3px; background: var(--ink-line); overflow: hidden; }
+.track i { display: block; height: 100%; width: 0; background: var(--lime); border-radius: 3px; }
+.facts { display: flex; gap: 18px; font: 12px var(--mono); color: var(--ink-faint); white-space: nowrap; }
+.facts b { color: var(--ink-text); font-weight: 600; }
+.facts .zero b { color: var(--lime); }
+.stage-note { margin-top: 14px; display: flex; gap: 8px 24px; flex-wrap: wrap; justify-content: space-between; }
 
 /* ---------- sections ---------- */
-section { padding: 72px 0; }
-section + section { border-top: 1px solid var(--line); }
-h2 {
-  font-size: clamp(1.45rem, 2.6vw, 1.9rem);
-  line-height: 1.2; font-weight: 700; letter-spacing: -.02em;
-  margin-bottom: 18px; text-wrap: balance;
-}
-.sub { color: var(--soft); max-width: 44rem; text-wrap: pretty; }
-.sub + .sub { margin-top: 12px; }
+section { padding: 128px 0; }
+.band { border-top: 1px solid var(--line); }
+.ink { background: var(--ink); color: var(--ink-text); }
+.ink h2, .ink h3 { color: #fff; }
+.ink a { color: var(--mint); }
+.ink a:hover { color: var(--lime); }
 
-/* the pipeline you delete */
-.pipe {
-  margin-top: 30px;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
-  padding: 22px 26px;
-  font: 13.5px/2 var(--mono);
+/* ---------- use cases ---------- */
+.uc { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 28px; align-items: start; }
+.uc-list { display: grid; gap: 4px; position: sticky; top: 88px; }
+.uc-tab {
+  display: block; width: 100%; text-align: left; border: 1px solid transparent; background: transparent;
+  border-radius: 12px; padding: 14px 16px; cursor: pointer; transition: background .15s, border-color .15s;
 }
-.pipe .dead { color: var(--faint); }
-.pipe .dead s { text-decoration-color: var(--bad); text-decoration-thickness: 1.5px; }
-.pipe .live { color: var(--text); }
-.pipe .live .hl { color: var(--accent-deep); font-weight: 600; }
-.pipe .arrow { color: var(--faint); }
+.uc-tab b { display: block; font-weight: 640; font-size: 16px; letter-spacing: -.01em; color: var(--text); }
+.uc-tab span { display: block; margin-top: 3px; font-size: 14px; line-height: 1.45; color: var(--muted); }
+.uc-tab:hover { background: rgba(17, 22, 17, .04); }
+.uc-tab[aria-selected="true"] { background: var(--white); border-color: var(--line); box-shadow: 0 10px 24px -18px rgba(17, 30, 20, .35); }
+.uc-tab[aria-selected="true"] b { color: var(--green-deep); }
+.uc-panel { background: var(--white); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.uc-top { padding: 28px 32px 24px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 24px; align-items: start; }
+.uc-top h3 { font-size: 24px; font-weight: 700; font-stretch: 108%; letter-spacing: -.02em; }
+.uc-top p { grid-column: 1; color: var(--soft); font-size: 16px; max-width: 42rem; text-wrap: pretty; }
+.uc-stat { grid-row: 1 / span 2; grid-column: 2; text-align: right; font: 12px/1.6 var(--mono); color: var(--faint); white-space: nowrap; }
+.uc-stat b { display: block; font: 600 22px/1.2 var(--mono); color: var(--text); letter-spacing: -.02em; }
+.uc-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
+.uc-req { padding: 22px 28px 26px 32px; border-right: 1px solid var(--line); background: #fbfbf7; min-width: 0; }
+.uc-res { padding: 22px 32px 26px 28px; min-width: 0; }
+.lbl { font: 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--faint); margin-bottom: 10px; }
+.uc-req .json { color: var(--soft); font-size: 12.5px; }
+.uc-req .json .k { color: var(--text); }
+.uc-req .json .s { color: var(--amber); }
+.uc-req .json .n, .uc-req .json .b { color: var(--green-deep); }
+.uc-qs { margin-top: 18px; display: grid; gap: 8px; }
+.uc-qs li { font-size: 14px; line-height: 1.45; color: var(--soft); }
+.uc-qs code { font-size: 12.5px; color: var(--text); font-weight: 500; }
+.uc-qs .t { font: 12px var(--mono); color: var(--faint); margin-left: 6px; }
+.dist + .dist { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.dist-h { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.dist-h code { font-size: 13px; font-weight: 600; color: var(--text); }
+.dist-h .t { font: 12px var(--mono); color: var(--faint); }
+.dist-h .v { margin-left: auto; font-weight: 640; font-size: 15px; color: var(--green-deep); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.bars { display: grid; gap: 4px; }
+.bar { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr) 40px; gap: 12px; align-items: center; }
+.bar .l { font: 12px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar .tr { height: 8px; background: var(--paper-2); border-radius: 4px; overflow: hidden; }
+.bar .tr i { display: block; height: 100%; background: var(--line-hi); border-radius: 4px; width: 0; transition: width .6s var(--ease); }
+.bar .p { font: 12px var(--mono); color: var(--faint); text-align: right; font-variant-numeric: tabular-nums; }
+.bar.w .l { color: var(--text); font-weight: 600; }
+.bar.w .tr i { background: var(--green); }
+.bar.w .p { color: var(--green-deep); font-weight: 600; }
+.more { font: 12px var(--mono); color: var(--faint); margin-top: 4px; }
+.hist-l { display: flex; align-items: flex-end; gap: 3px; height: 44px; }
+.hist-l i { flex: 1; height: 2px; min-height: 2px; background: var(--line-hi); border-radius: 2px; transition: height .6s var(--ease); }
+.hist-l i.w { background: var(--green); }
+.axis { display: flex; justify-content: space-between; margin-top: 6px; font: 12px var(--mono); color: var(--faint); }
+.uc-wire { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px; align-items: center; padding: 18px 32px; background: var(--ink); color: var(--ink-text); }
+.uc-wire .lbl { color: var(--ink-faint); margin: 0; }
+.uc-wire pre { font: 13px/1.6 var(--mono); color: var(--ink-soft); white-space: pre; overflow-x: auto; }
+.uc-wire .kw { color: var(--mint); }
+.uc-wire .s { color: var(--sand); }
+.uc-wire .c { color: var(--ink-faint); }
 
-/* how it works */
-.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin-top: 34px; }
-.step .n { font: 12px var(--mono); color: var(--accent-deep); font-weight: 600; }
-.step h3 { font-size: 15.5px; font-weight: 650; margin: 8px 0 6px; letter-spacing: -.01em; }
-.step p { font-size: 13.5px; color: var(--muted); }
-.alphabet { margin-top: 36px; display: flex; flex-wrap: wrap; gap: 5px; }
-.alphabet span {
-  width: 30px; height: 34px; display: grid; place-items: center;
-  border: 1px solid var(--line); border-radius: 6px;
-  font: 12px var(--mono); color: var(--faint);
-  background: var(--surface);
+/* ---------- how it works ---------- */
+.duel { border: 1px solid var(--ink-line); border-radius: 18px; background: var(--ink-2); overflow: hidden; }
+.duel-cols, .lane { display: grid; grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1.05fr) minmax(0, 2.1fr) minmax(0, 1.05fr) minmax(0, 1.25fr); }
+.duel-cols { border-bottom: 1px solid var(--ink-line); }
+.duel-cols span { padding: 14px 16px; font: 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); }
+.lane { align-items: stretch; position: relative; }
+.lane + .lane { border-top: 1px solid var(--ink-line); }
+.lane > * { padding: 22px 16px; min-width: 0; }
+.lane-name { display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+.lane-name b { font-weight: 680; font-stretch: 108%; font-size: 17px; color: #fff; letter-spacing: -.01em; }
+.lane-name span { font-size: 13px; color: var(--ink-faint); line-height: 1.35; }
+.cell { display: flex; flex-direction: column; justify-content: center; gap: 8px; position: relative; }
+.cell + .cell::before {
+  content: ""; position: absolute; left: -6px; top: 50%; width: 12px; height: 12px; margin-top: -6px;
+  border-top: 1.5px solid var(--ink-hi); border-right: 1.5px solid var(--ink-hi); transform: rotate(45deg) scale(.6);
 }
-.alphabet span.hot {
-  background: var(--accent-wash); border-color: var(--accent-edge);
-  color: var(--accent-deep); font-weight: 600;
+.box {
+  border: 1px solid var(--ink-hi); border-radius: 10px; padding: 10px 12px; background: var(--ink);
+  font: 12px/1.45 var(--mono); color: var(--ink-soft); transition: border-color .25s, color .25s, box-shadow .25s;
 }
-.alphabet-cap { margin-top: 12px; font-size: 12.5px; color: var(--muted); }
-.alphabet-cap code { font-size: 11.5px; }
+.box b { color: var(--ink-text); font-weight: 600; }
+.box.on { border-color: currentColor; }
+.gen .box.on { color: var(--heat); box-shadow: 0 0 0 3px color-mix(in srgb, var(--heat) 14%, transparent); }
+.read .box.on { color: var(--lime); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 14%, transparent); }
+.box.on b { color: inherit; }
+.model { text-align: center; }
+.model .k { display: block; margin-top: 4px; font: 600 20px/1 var(--mono); color: #fff; font-variant-numeric: tabular-nums; }
+.model .u { display: block; margin-top: 4px; font-size: 12px; color: var(--ink-faint); }
+.gen .model.tick { color: var(--heat); border-color: var(--heat); }
+.stream { font: 12px/1.9 var(--mono); color: var(--ink-soft); min-height: 118px; word-break: break-all; }
+.stream span { padding: 1px 1px; border-radius: 3px; }
+.stream span:nth-child(odd) { background: color-mix(in srgb, var(--heat) 16%, transparent); }
+.stream span:nth-child(even) { background: color-mix(in srgb, var(--heat) 8%, transparent); }
+.stream .caret { display: inline-block; width: 7px; height: 14px; background: var(--heat); vertical-align: -2px; margin-left: 2px; animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.cnt { font: 12px var(--mono); color: var(--ink-faint); }
+.cnt b { color: var(--ink-text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.logits { display: flex; align-items: flex-end; gap: 1px; height: 96px; }
+.logits i { flex: 1; background: var(--ink-hi); border-radius: 1px 1px 0 0; transition: opacity .4s, background .3s; min-width: 1px; }
+.logits i.L { background: var(--ink-soft); position: relative; }
+.logits.lit i.L { background: var(--lime); }
+.logits.masked i:not(.L) { opacity: .12; }
+.letters { display: flex; justify-content: space-between; font: 12px var(--mono); color: var(--ink-faint); }
+.steps-mini { display: flex; flex-direction: column; gap: 6px; }
+.out-dist .bar { grid-template-columns: 64px minmax(0, 1fr) 30px; gap: 8px; }
+.out-dist .bar .l { font-size: 12px; color: var(--ink-faint); }
+.out-dist .bar .tr { height: 6px; background: var(--ink-line); }
+.out-dist .bar .tr i { background: var(--ink-hi); }
+.out-dist .bar.w .l, .out-dist .bar.w .p { color: var(--lime); }
+.out-dist .bar.w .tr i { background: var(--lime); }
+.out-dist .bar .p { font-size: 12px; color: var(--ink-faint); }
+.out-str { font: 600 15px var(--mono); color: var(--ink-text); }
+.dim { opacity: .28; transition: opacity .4s; }
+.dim.on, .done .dim { opacity: 1; }
+.duel-foot { display: flex; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; padding: 14px 16px; border-top: 1px solid var(--ink-line); }
 
-/* numbers */
-.tables { display: grid; grid-template-columns: 1.25fr 1fr; gap: 40px; margin-top: 32px; align-items: start; }
-.tbl-cap { font-size: 12.5px; color: var(--muted); margin-bottom: 10px; }
+.steps { margin-top: 88px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--ink-line); }
+.step { padding: 32px 28px 0 0; }
+.step + .step { padding-left: 28px; border-left: 1px solid var(--ink-line); }
+.step .n { font: 600 12px var(--mono); color: var(--lime); }
+.step h3 { margin: 10px 0 10px; font-size: 20px; font-stretch: 106%; }
+.step p { font-size: 15px; line-height: 1.6; color: var(--ink-soft); text-wrap: pretty; }
+.step p code { color: var(--ink-text); font-size: 13px; }
+.step p + p { margin-top: 10px; }
+.fig { height: 120px; margin-bottom: 24px; border-radius: 12px; border: 1px solid var(--ink-line); background: var(--ink-2); display: grid; place-items: center; overflow: hidden; }
+.fig svg { width: 100%; height: 100%; display: block; }
+.fig-prompt { font: 12px/1.6 var(--mono); color: var(--ink-soft); padding: 12px 14px; place-items: stretch; align-content: center; }
+.fig-prompt b { color: var(--ink-text); font-weight: 500; }
+.fig-prompt .hot { color: var(--lime); }
+.alpha { margin-top: 72px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 22rem); gap: 20px 48px; align-items: center; }
+.alpha-row { display: grid; grid-template-columns: repeat(26, minmax(0, 1fr)); gap: 5px; }
+.alpha-row span {
+  aspect-ratio: 5 / 6; display: grid; place-items: center; border-radius: 7px;
+  border: 1px solid var(--ink-line); font: 500 13px var(--mono); color: var(--ink-faint);
+}
+.alpha-row span.hot { border-color: var(--lime); color: var(--lime); background: color-mix(in srgb, var(--lime) 9%, transparent); }
+.alpha p { font-size: 15px; color: var(--ink-soft); }
+.alpha p code { color: var(--ink-text); font-size: 13px; }
+
+/* ---------- security ---------- */
+.threats { background: var(--white); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.threats table { width: 100%; border-collapse: collapse; }
+.threats th, .threats td { text-align: left; vertical-align: top; padding: 18px 24px; border-top: 1px solid var(--line); font-size: 15px; line-height: 1.5; }
+.threats thead th { border-top: 0; padding-top: 16px; padding-bottom: 14px; font: 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--faint); font-weight: 500; background: #fbfbf7; }
+.threats tbody th { font-weight: 620; color: var(--text); width: 30%; }
+.threats td { color: var(--soft); }
+.threats td:nth-child(2) { width: 30%; color: var(--muted); }
+.mk { display: flex; gap: 10px; align-items: flex-start; }
+.mk svg { flex: none; width: 18px; height: 18px; margin-top: 2px; }
+.mk.x svg { color: var(--amber); }
+.mk.ok svg { color: var(--green); }
+.mk.mid svg { color: var(--amber); }
+.threats tr.residual { background: color-mix(in srgb, var(--amber) 5%, transparent); }
+.threats td code { font-size: 13px; color: var(--text); }
+.deploy { margin-top: 72px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line-hi); }
+.deploy > div { padding: 28px 28px 0 0; }
+.deploy > div + div { padding-left: 28px; border-left: 1px solid var(--line); }
+.deploy h3 { margin-bottom: 10px; }
+.deploy p { font-size: 15px; color: var(--soft); text-wrap: pretty; }
+.deploy code { font-size: 12.5px; color: var(--text); }
+
+/* ---------- benchmarks ---------- */
+.race { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 28px 32px 22px; }
+.race-h { display: flex; justify-content: space-between; align-items: baseline; gap: 12px 24px; flex-wrap: wrap; margin-bottom: 20px; }
+.race-h h3 { font-size: 18px; }
+.legend { display: flex; gap: 18px; font: 12px var(--mono); color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.legend .o { background: var(--line-hi); }
+.legend .s { background: var(--green); }
+.rrow { display: grid; grid-template-columns: minmax(0, 15rem) minmax(0, 1fr) 64px; gap: 8px 24px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+.rrow:first-of-type { border-top: 0; }
+.rrow .w { font-size: 14.5px; color: var(--soft); }
+.rbars { display: grid; gap: 5px; }
+.rb { display: flex; align-items: center; gap: 10px; }
+.rb i { display: block; height: 12px; border-radius: 3px; background: var(--line-hi); width: calc(var(--v) * 1%); min-width: 3px; transform-origin: left; }
+.rb.s i { background: var(--green); }
+.rb span { font: 12px var(--mono); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rb.s span { color: var(--text); font-weight: 600; }
+.rb .rej { font: 12px var(--mono); color: var(--faint); }
+.delta { font: 600 14px var(--mono); color: var(--green-deep); text-align: right; font-variant-numeric: tabular-nums; }
+.delta.na { color: var(--faint); font-weight: 400; }
+.tables { margin-top: 28px; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+.tcard { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 24px 28px 20px; }
+.tcard h3 { font-size: 16px; margin-bottom: 14px; }
+.tcard .note { margin-top: 14px; }
 .tbl-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { padding: 8px 0; text-align: right; border-bottom: 1px solid var(--line); }
-th:first-child, td:first-child { text-align: left; }
-thead th {
-  font-size: 11.5px; font-weight: 600; color: var(--muted);
-  border-bottom: 1px solid var(--line-hi);
-}
-tbody tr:last-child td { border-bottom: 0; }
-td { font-variant-numeric: tabular-nums; color: var(--soft); }
-td.m { font-family: var(--mono); font-size: 12.5px; }
-td.snapcol, th.snapcol { color: var(--text); font-weight: 600; }
-td.delta { color: var(--accent-deep); font-weight: 600; }
-td.na { color: var(--faint); }
-td.y { color: var(--accent-deep); font-weight: 600; }
-td.n { color: var(--faint); }
-.cmp { margin-top: 30px; }
-.cmp td, .cmp th { padding-right: 18px; }
-.acc { margin-top: 40px; }
-.acc .tbl-cap { margin-bottom: 10px; }
+table.t { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.t th, .t td { padding: 10px 0 10px 16px; text-align: right; border-top: 1px solid var(--line); white-space: nowrap; }
+.t th:first-child, .t td:first-child { text-align: left; padding-left: 0; }
+.t thead th { border-top: 0; font: 12px var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--faint); font-weight: 500; padding-top: 0; }
+.t td { color: var(--soft); font-variant-numeric: tabular-nums; }
+.t td.m { font-family: var(--mono); font-size: 12.5px; }
+.t td.m small { color: var(--faint); font-size: 12px; }
+.t .hi { color: var(--text); font-weight: 650; }
+.acc-bar { display: inline-block; width: 56px; height: 6px; border-radius: 3px; background: var(--paper-2); margin-right: 10px; vertical-align: 1px; overflow: hidden; }
+.acc-bar i { display: block; height: 100%; background: var(--green); width: calc(var(--v) * 1%); }
 
-/* jev */
-.jev { display: grid; grid-template-columns: 1.15fr .85fr; gap: 48px; align-items: start; }
-.jev-endpoint {
-  background: var(--ink); color: var(--ink-text);
-  border-radius: 14px; padding: 20px 22px;
-  font: 12.8px/1.7 var(--mono);
-  overflow-x: auto;
-}
-.jev-endpoint pre { margin: 0; white-space: pre; }
-.jev-endpoint pre + pre {
-  margin-top: 14px; padding-top: 14px;
-  border-top: 1px solid var(--ink-line);
-}
-.jev-endpoint .m { color: #8fd4a8; font-weight: 600; }
-.jev-endpoint .s { color: #d9b37c; }
-.jev-endpoint .dim { color: var(--ink-soft); }
-.jev h2 { margin-bottom: 14px; }
-.jev p { color: var(--soft); font-size: 14.5px; }
-.jev p + p { margin-top: 10px; }
-.jev .fields { margin-top: 16px; font: 12.5px/1.9 var(--mono); color: var(--muted); }
-.jev .fields b { color: var(--soft); font-weight: 500; }
-.jev .disclaimer { margin-top: 18px; font-size: 12.5px; color: var(--faint); }
+/* ---------- api ---------- */
+.api { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); gap: 72px; align-items: start; }
+.api .sub + .sub { margin-top: 14px; }
+.types { margin-top: 36px; border-top: 1px solid var(--ink-line); }
+.types div { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 16px; padding: 13px 0; border-bottom: 1px solid var(--ink-line); font-size: 14.5px; color: var(--ink-soft); }
+.types code { color: var(--lime); font-size: 13px; font-weight: 500; }
+.types span code { color: var(--ink-text); font-weight: 400; }
+.api .links { margin-top: 28px; display: flex; gap: 10px; flex-wrap: wrap; }
+.win { border: 1px solid var(--ink-line); border-radius: 16px; background: var(--ink-2); overflow: hidden; }
+.win-h { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 18px; border-bottom: 1px solid var(--ink-line); font: 12px var(--mono); color: var(--ink-faint); }
+.win-h b { color: var(--lime); font-weight: 600; }
+.win-h .ok { color: var(--mint); font-weight: 600; }
+.win-h .path { color: var(--ink-text); }
+.win-h .r { margin-left: auto; }
+.win pre { padding: 18px 20px; font: 12.5px/1.7 var(--mono); color: var(--ink-soft); white-space: pre; overflow-x: auto; }
+.win pre .k { color: #c9d1c7; }
+.win pre .s { color: var(--sand); }
+.win pre .n, .win pre .b { color: var(--mint); }
+.win pre .c { color: var(--ink-faint); }
+.win .div { border-top: 1px solid var(--ink-line); }
+.api .note { margin-top: 14px; }
 
-/* install */
-.install { display: grid; grid-template-columns: 1.15fr .85fr; gap: 48px; align-items: start; }
-.term {
-  background: var(--ink); color: var(--ink-text);
-  border-radius: 14px; overflow: hidden;
-}
-.term-head {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 16px; border-bottom: 1px solid var(--ink-line);
-}
-.term-head i { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-line); }
-.term-head .t { margin-left: 6px; font: 12px var(--mono); color: var(--ink-soft); }
-.copy {
-  margin-left: auto; border: 0; background: none; border-radius: 6px; padding: 3px 8px;
-  font: 12px var(--mono); color: var(--ink-soft); cursor: pointer;
-  transition: background .15s, color .15s;
-}
-.copy:hover { background: rgba(255,255,255,.07); color: var(--ink-text); }
-.term pre {
-  margin: 0; padding: 18px 20px;
-  font: 12.8px/1.75 var(--mono);
-  overflow-x: auto;
-}
-.term .c { color: var(--ink-soft); }
-.term .p { color: #8fd4a8; user-select: none; }
-.install .steps-side p { color: var(--soft); font-size: 14px; }
-.install .steps-side p + p { margin-top: 12px; }
-.plat { margin-top: 18px; font: 12px/1.9 var(--mono); color: var(--muted); }
-.plat b { color: var(--soft); font-weight: 500; }
+/* ---------- compare ---------- */
+.cmp { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 8px 28px 14px; }
+.cmp table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.cmp th, .cmp td { padding: 16px 16px 16px 0; text-align: left; border-top: 1px solid var(--line); vertical-align: top; }
+.cmp thead th { border-top: 0; font-weight: 650; font-size: 15px; color: var(--text); }
+.cmp thead th.me { color: var(--green-deep); }
+.cmp tbody th { font-weight: 500; color: var(--muted); width: 22%; }
+.cmp td { color: var(--soft); }
+.cmp td.me { color: var(--text); font-weight: 600; }
+.cmp .y, .cmp .no { display: inline-flex; gap: 8px; align-items: baseline; }
+.cmp .y svg, .cmp .no svg { width: 14px; height: 14px; flex: none; align-self: center; }
+.cmp .y svg { color: var(--green); }
+.cmp .no { color: var(--faint); }
+.cmp .no svg { color: var(--line-hi); }
+.cmp td code { font-size: 13px; }
+.cmp-note { margin-top: 16px; }
 
-/* footer */
-footer { border-top: 1px solid var(--line); padding: 40px 0 56px; }
-footer .wrap { display: flex; align-items: center; gap: 12px; }
-footer .mark { width: 24px; height: 24px; }
-footer .tag { font-style: italic; color: var(--muted); font-size: 13.5px; }
-footer .links { margin-left: auto; display: flex; gap: 18px; font-size: 13px; }
-footer .links a { color: var(--muted); text-decoration: none; }
-footer .links a:hover { color: var(--text); }
+/* ---------- start ---------- */
+.start { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.sstep { border: 1px solid var(--ink-line); border-radius: 16px; background: var(--ink-2); display: flex; flex-direction: column; min-width: 0; }
+.sstep-h { padding: 22px 22px 16px; }
+.sstep-h .n { font: 600 12px var(--mono); color: var(--lime); }
+.sstep-h h3 { margin-top: 8px; font-size: 20px; font-stretch: 106%; }
+.sstep-h p { margin-top: 6px; font-size: 14.5px; color: var(--ink-soft); }
+.sstep .plat { display: flex; gap: 2px; padding: 0 18px; }
+.sstep pre { margin-top: auto; padding: 16px 22px 18px; border-top: 1px solid var(--ink-line); font: 12.5px/1.75 var(--mono); color: var(--ink-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.sstep pre .p { color: var(--lime); user-select: none; }
+.sstep pre .c { color: var(--ink-faint); }
+.sstep-f { display: flex; justify-content: flex-end; padding: 0 12px 12px; }
+.sstep .copy { background: var(--ink-3); color: var(--ink-soft); }
+.sstep .copy:hover { background: var(--ink-hi); color: #fff; }
+.platforms { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 8px 28px; font: 12.5px var(--mono); color: var(--ink-faint); }
+.platforms b { color: var(--ink-text); font-weight: 500; }
+.close { margin-top: 120px; padding-top: 72px; border-top: 1px solid var(--ink-line); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px 48px; align-items: end; }
+.close h2 { font-size: clamp(2.2rem, 5vw, 4.4rem); max-width: 14ch; }
+.close .cta { justify-content: flex-end; }
 
+/* ---------- footer ---------- */
+footer { padding: 56px 0 64px; }
+.foot { display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr)); gap: 32px; }
+.foot .brand { margin: 0; }
+.foot .tagline { margin-top: 14px; font-size: 14px; color: var(--muted); max-width: 22rem; }
+.foot h3 { margin: 0 0 12px; font: 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--faint); font-weight: 500; }
+.foot ul { display: grid; gap: 8px; }
+.foot a { color: var(--soft); text-decoration: none; font-size: 14.5px; }
+.foot a:hover { color: var(--green-deep); text-decoration: underline; }
+.legal { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; font-size: 13px; color: var(--faint); }
+
+/* ---------- responsive ---------- */
+@media (max-width: 1100px) {
+  .duel-cols { display: none; }
+  .lane { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .lane-name { grid-column: 1 / -1; padding-bottom: 0 !important; }
+  .lane .cell:nth-child(4) { grid-column: 1 / span 2; }
+  .lane .cell:nth-child(2)::before { display: none; }
+  .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .step:nth-child(3) { padding-left: 0; border-left: 0; }
+  .step:nth-child(n+3) { margin-top: 32px; border-top: 1px solid var(--ink-line); }
+  .deploy { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .deploy > div:nth-child(3) { padding-left: 0; border-left: 0; }
+  .deploy > div:nth-child(n+3) { margin-top: 28px; border-top: 1px solid var(--line); }
+  .c-meta { display: none; }
+}
 @media (max-width: 880px) {
-  .hero { padding: 56px 0 48px; }
-  .hero .wrap, .jev, .install, .tables { grid-template-columns: 1fr; }
-  .hero .wrap { gap: 40px; }
-  .steps { grid-template-columns: 1fr; gap: 20px; }
-  section { padding: 52px 0; }
-  .top nav { display: none; }
+  :root { --g: 20px; }
+  section { padding: 88px 0; }
+  .top nav, .top .gh-t { display: none; }
+  .hero { padding-top: 56px; }
+  .hero-row, .head, .api, .tables, .alpha, .close { grid-template-columns: minmax(0, 1fr); }
+  .head { margin-bottom: 44px; }
+  .head .sub { justify-self: start; }
+  .stage { margin-top: 44px; }
+  .c-body { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .c-req { border-right: 0; border-bottom: 1px solid var(--ink-line); }
+  .c-req .c-scroll { max-height: 190px; }
+  .c-qs, .c-req .c-label.qs-l { display: none; }
+  .c-res .c-scroll { overflow: visible; }
+  .scan { display: none; }
+  .c-foot { grid-template-columns: auto minmax(0, 1fr); }
+  .facts { grid-column: 1 / -1; flex-wrap: wrap; gap: 6px 16px; white-space: normal; }
+  .c-dots { display: none; }
+  .uc { grid-template-columns: minmax(0, 1fr); }
+  .uc-list { position: static; display: flex; gap: 6px; overflow-x: auto; margin: 0 calc(-1 * var(--g)); padding: 0 var(--g) 4px; scrollbar-width: none; }
+  .uc-list::-webkit-scrollbar { display: none; }
+  .uc-tab { flex: none; width: auto; padding: 10px 14px; }
+  .uc-tab span { display: none; }
+  .uc-top { grid-template-columns: minmax(0, 1fr); padding: 22px 20px 18px; }
+  .uc-stat { grid-row: auto; grid-column: 1; text-align: left; }
+  .uc-stat b { display: inline; margin-right: 8px; }
+  .uc-grid { grid-template-columns: minmax(0, 1fr); }
+  .uc-req { border-right: 0; border-bottom: 1px solid var(--line); padding: 18px 20px 20px; }
+  .uc-res { padding: 18px 20px 22px; }
+  .uc-wire { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 16px 20px; }
+  .bar { grid-template-columns: minmax(0, 8rem) minmax(0, 1fr) 36px; }
+  .lane { grid-template-columns: minmax(0, 1fr); }
+  .lane .cell:nth-child(4) { grid-column: auto; }
+  .lane > * { padding: 14px 16px; }
+  .lane-name { padding-top: 20px !important; }
+  .cell + .cell::before { left: 50%; top: -6px; margin: 0 0 0 -6px; transform: rotate(135deg) scale(.6); }
+  .lane .cell:nth-child(2)::before { display: none; }
+  .stream { min-height: 0; }
+  .steps { grid-template-columns: minmax(0, 1fr); margin-top: 64px; }
+  .step, .step + .step { padding: 28px 0 0; border-left: 0; }
+  .step + .step { margin-top: 28px; border-top: 1px solid var(--ink-line); }
+  .alpha-row { grid-template-columns: repeat(13, minmax(0, 1fr)); }
+  .threats thead { display: none; }
+  .threats tr { display: block; padding: 16px 18px; border-top: 1px solid var(--line); }
+  .threats tbody tr:first-child { border-top: 0; }
+  .threats th, .threats td { display: block; width: auto !important; padding: 4px 0; border: 0; }
+  .threats tbody th { padding-bottom: 8px; }
+  .deploy { grid-template-columns: minmax(0, 1fr); }
+  .deploy > div, .deploy > div + div { padding: 24px 0 0; border-left: 0; }
+  .deploy > div + div { margin-top: 24px; border-top: 1px solid var(--line); }
+  .race { padding: 22px 20px 16px; }
+  .rrow { grid-template-columns: minmax(0, 1fr) 56px; }
+  .rrow .w { grid-column: 1 / -1; }
+  .tcard { padding: 20px 20px 16px; }
+  .cmp { padding: 4px 18px 0; overflow-x: auto; }
+  .cmp table { min-width: 560px; }
+  .start { grid-template-columns: minmax(0, 1fr); }
+  .close { margin-top: 88px; padding-top: 56px; }
+  .close .cta { justify-content: flex-start; }
+  .foot { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .foot > div:first-child { grid-column: 1 / -1; }
 }
-
+@media (max-width: 520px) {
+  .a-row { grid-template-columns: minmax(0, 1fr) 84px 42px; gap: 10px; }
+  .a-row .a-val { grid-column: 1 / -1; grid-row: 2; font-size: 14.5px; margin-top: -2px; }
+  .a-row .hist { grid-column: 2; grid-row: 1; }
+  .a-row .a-p { grid-column: 3; grid-row: 1; }
+  .c-inspect .opt { display: inline-block; }
+  .clock { font-size: 20px; }
+  .top .btn.primary { display: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .fill { transition: none; }
+  *, *::before, *::after { transition-duration: 0s !important; animation: none !important; }
 }
 </style>
 </head>
 <body>
 
-<header class="top">
+<a class="sr" href="#main">Skip to content</a>
+
+<header class="top" id="top">
   <div class="wrap">
-    <img class="mark" src="logo.png" alt="snap crocodile logo">
-    <span class="brand">snap</span>
+    <a class="brand" href="#" aria-label="snap home"><img src="logo.png" alt="" width="30" height="30"><span>snap</span></a>
     <nav aria-label="Sections">
-      <a href="#how">How</a>
-      <a href="#numbers">Numbers</a>
-      <a href="#jev">Jev</a>
-      <a href="#compare">Compare</a>
-      <a href="#install">Install</a>
+      <a href="#use-cases">Use cases</a>
+      <a href="#how">How it works</a>
+      <a href="#security">Security</a>
+      <a href="#benchmarks">Benchmarks</a>
+      <a href="#api">API</a>
     </nav>
-    <a class="gh" href="https://github.com/emnlmn/snap" aria-label="snap on GitHub">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-      GitHub
-    </a>
+    <div class="right">
+      <a class="btn ghost gh" href="https://github.com/emnlmn/snap" aria-label="snap on GitHub">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        <span class="gh-t">GitHub</span>
+      </a>
+      <a class="btn primary" href="#start">Get snap</a>
+    </div>
   </div>
 </header>
 
-<main>
+<main id="main">
 
-<section class="hero">
+<!-- ======================= HERO ======================= -->
+<section class="hero" aria-labelledby="hero-h">
   <div class="wrap">
-    <div>
-      <h1>Typed decisions from unstructured state.</h1>
-      <p class="tag">one forward pass · zero generated text</p>
-      <p class="lede">You send a state and a batch of questions. Back comes a yes/no, a class, a
-        score or a number for each — with the full probability map. The model never generates
-        text, so there is nothing to parse on your side.</p>
-      <div class="cta">
-        <a class="btn primary" href="https://github.com/emnlmn/snap/releases">Download the binary</a>
-        <a class="btn ghost" href="https://github.com/emnlmn/snap">View source</a>
+    <h1 id="hero-h">Ask everything. Generate nothing.</h1>
+    <div class="hero-row">
+      <p class="lede">snap is a decision engine for LLM pipelines. Send one state with <b>every question you have about it</b> and get back typed answers, each with its full probability distribution, from a single pass over the model. Nothing is generated, so there is nothing to parse, retry or sanitize.</p>
+      <div>
+        <div class="cmd">
+          <code id="hero-cmd"><span class="p">$ </span><span id="hero-cmd-t">brew install emnlmn/snap/snap</span></code>
+          <button class="copy" data-copy="hero">copy</button>
+        </div>
+        <p class="micro">Open source (MIT) · runs on your hardware · Jev wire-compatible</p>
       </div>
-      <div class="cmd">
-        <code id="herocmd"><span class="p">$</span> mkdir -p ~/snap &amp;&amp; curl -sL https://github.com/emnlmn/snap/releases/latest/download/<span id="asset">snap-macos-arm64.tar.gz</span> | tar xz -C ~/snap &amp;&amp; ~/snap/snap serve</code>
-        <button class="cmd-copy" id="copy-hero">copy</button>
-      </div>
-      <p class="micro">macOS arm64 · Linux x86_64 · one Rust binary, llama.cpp inside · no API key, no telemetry</p>
     </div>
 
-    <div>
-      <div class="demo" role="region" aria-label="Recorded snap responses: typed answers with probability distributions">
-        <div class="demo-head">
-          <span class="case" id="case-name">ticket triage</span>
-          <span class="model">minicpm5-2b</span>
-        </div>
-        <div class="demo-state"><b>"state"</b>: {
-  "ticket": "charged twice, furious, wants a chargeback."
-}</div>
-
-        <div class="q">
-          <div class="q-head"><span class="q-name">route</span><span class="q-type">choice</span><span class="q-winner">billing</span></div>
-          <div class="bar win"><span class="lbl">billing</span><span class="track"><span class="fill" data-p=".99"></span></span><span class="pct">.99</span></div>
-          <div class="bar"><span class="lbl">tech</span><span class="track"><span class="fill" data-p=".01"></span></span><span class="pct">.01</span></div>
-          <div class="bar"><span class="lbl">account</span><span class="track"><span class="fill" data-p="0"></span></span><span class="pct">.00</span></div>
-        </div>
-
-        <div class="q">
-          <div class="q-head"><span class="q-name">urgent</span><span class="q-type">noul</span><span class="q-winner">true</span></div>
-          <div class="bar win"><span class="lbl">true</span><span class="track"><span class="fill" data-p=".96"></span></span><span class="pct">.96</span></div>
-          <div class="bar"><span class="lbl">false</span><span class="track"><span class="fill" data-p=".04"></span></span><span class="pct">.04</span></div>
-        </div>
-
-        <div class="q">
-          <div class="q-head"><span class="q-name">impact</span><span class="q-type">score</span><span class="q-winner">high · 0.92</span></div>
-          <div class="bar"><span class="lbl">low</span><span class="track"><span class="fill" data-p=".04"></span></span><span class="pct">.04</span></div>
-          <div class="bar"><span class="lbl">mid</span><span class="track"><span class="fill" data-p=".09"></span></span><span class="pct">.09</span></div>
-          <div class="bar win"><span class="lbl">high</span><span class="track"><span class="fill" data-p=".87"></span></span><span class="pct">.87</span></div>
-        </div>
-
-        <div class="demo-foot">
-          <span><span class="ms" id="ms">0</span> ms/q · <span id="nq">3</span> questions, shared prefix</span>
-          <span class="dots" role="group" aria-label="Recorded cases">
-            <button class="dot on" data-i="0" title="ticket triage" aria-label="case: ticket triage"></button>
-            <button class="dot" data-i="1" title="on-call triage" aria-label="case: on-call triage"></button>
-            <button class="dot" data-i="2" title="CV screen" aria-label="case: CV screen"></button>
-          </span>
-          <button class="replay" id="replay">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5a5.5 5.5 0 1 1-5.3 4M2.7 2.8v3.7h3.7"/></svg>
-            replay
+    <div class="stage">
+      <div class="console" id="console" role="region" aria-label="Recorded snap requests: every question answered in one pass">
+        <div class="c-bar">
+          <div class="c-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+          <div class="c-tabs" role="tablist" aria-label="Recorded requests">
+            <button class="tab" role="tab" aria-selected="true" data-case="support">Support ticket</button>
+            <button class="tab" role="tab" aria-selected="false" data-case="agent" tabindex="-1">Agent tool call</button>
+            <button class="tab" role="tab" aria-selected="false" data-case="incident" tabindex="-1">Incident page</button>
+          </div>
+          <span class="c-meta">spark-4b · Q8_0 · Apple M1 Max</span>
+          <button class="c-replay" id="replay" aria-label="Replay this request">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.8 8a5.2 5.2 0 1 0 1.6-3.8M2.6 1.9v2.8h2.8"/></svg>Replay
           </button>
         </div>
+        <div class="c-body">
+          <div class="c-req">
+            <div class="c-head"><b>POST</b><span class="path">/v1/systemone</span></div>
+            <div class="scan" aria-hidden="true"></div>
+            <div class="c-scroll">
+              <p class="c-label">state</p>
+              <pre class="json" id="c-state"></pre>
+              <p class="c-label qs-l">questions</p>
+              <div class="c-qs" id="c-qs"></div>
+            </div>
+          </div>
+          <div class="c-res">
+            <div class="c-head">
+              <span id="c-status">waiting</span>
+              <span class="right" role="group" aria-label="Response view">
+                <button class="seg" aria-pressed="true" data-view="answers">answers</button>
+                <button class="seg" aria-pressed="false" data-view="json">json</button>
+              </span>
+            </div>
+            <div class="c-scroll" id="c-res-scroll">
+              <div class="answers" id="c-answers"></div>
+              <pre class="json" id="c-json" hidden></pre>
+            </div>
+            <div class="c-inspect" id="c-inspect" aria-live="polite"></div>
+          </div>
+        </div>
+        <div class="c-foot">
+          <span class="clock" aria-label="Engine time"><span id="c-ms">0.0</span><small>ms</small></span>
+          <span class="track" aria-hidden="true"><i id="c-fill"></i></span>
+          <span class="facts" id="c-facts"></span>
+        </div>
+      </div>
+      <div class="stage-note">
+        <p class="note">Recorded responses from <code>snap serve --model spark-4b</code> on an Apple M1 Max (Metal), <code>layout: catalog</code>, replayed at recorded speed. Times are the engine's own <code>x_snap.total_ms</code>.</p>
+        <p class="note">Hover an answer to see its full distribution.</p>
       </div>
     </div>
   </div>
 </section>
 
-<section>
+<!-- ======================= USE CASES ======================= -->
+<section id="use-cases" class="band" aria-labelledby="uc-h">
   <div class="wrap">
-    <h2>SNAP never lets it talk.</h2>
-    <p class="sub">Ask a chat model for strict JSON and you inherit the rest: a parser that
-      mostly works, a retry loop for when it doesn't, and an invoice for prose you throw away
-      on the next line. All of it exists because text is the only handle the model gives you.</p>
-    <div class="pipe" aria-label="Pipeline comparison">
-      <div class="dead"><s>prompt <span class="arrow">→</span> generate prose <span class="arrow">→</span> parse JSON <span class="arrow">→</span> validate <span class="arrow">→</span> retry <span class="arrow">→</span> bill</s></div>
-      <div class="live">prompt <span class="arrow">→</span> <span class="hl">one decode <span class="arrow">→</span> distribution</span></div>
+    <div class="head">
+      <h2 id="uc-h">Built for the decisions inside your pipeline.</h2>
+      <p class="sub">Anywhere you prompt a model for a label, a flag or a score and then parse what it wrote, snap is the shorter path. Six patterns, each with a real request and the response it got.</p>
+    </div>
+    <div class="uc">
+      <div class="uc-list" role="tablist" aria-label="Use cases" id="uc-list"></div>
+      <div class="uc-panel" role="tabpanel" id="uc-panel" aria-live="polite"></div>
     </div>
   </div>
 </section>
 
-<section id="how">
+<!-- ======================= HOW IT WORKS ======================= -->
+<section id="how" class="ink" aria-labelledby="how-h">
   <div class="wrap">
-    <h2>Logits in, distributions out.</h2>
-    <p class="sub">The output surface is a fixed alphabet of letters — nothing downstream to
-      parse, validate, or repair. All questions in a request share the same state prefix,
-      evaluated once; the question suffixes decode in one batched call.</p>
+    <div class="head">
+      <h2 id="how-h">A chat model writes its answer. snap reads it.</h2>
+      <div>
+        <p class="sub">At every step, a language model scores every token in its vocabulary as the possible next one. Those scores are the <b>logits</b>. Chat inference picks a token, appends it and runs the model again, once per token, until there is enough text for you to parse.</p>
+        <p class="sub" style="margin-top:14px">snap asks each question so that the answer is a single letter, runs the model once, and reads the scores of those letters directly.</p>
+      </div>
+    </div>
 
-    <div class="steps">
-      <div class="step">
+    <figure class="duel" id="duel" aria-label="Schematic: generating a JSON answer token by token versus reading the answer from one row of logits">
+      <div class="duel-cols" aria-hidden="true">
+        <span></span><span>input</span><span>model</span><span>what comes out</span><span>then</span><span>what you get</span>
+      </div>
+      <div class="lane gen">
+        <div class="lane-name"><b>Generate, then parse</b><span>chat completion with JSON output</span></div>
+        <div class="cell"><div class="box" data-g="in"><b>ticket</b> + 6 questions + "reply in JSON"</div></div>
+        <div class="cell"><div class="box model" id="gen-model">forward pass<span class="k" id="gen-passes">0</span><span class="u">one per token</span></div></div>
+        <div class="cell">
+          <div class="stream" id="gen-stream" aria-hidden="true"></div>
+          <span class="cnt"><b id="gen-toks">0</b> tokens generated</span>
+        </div>
+        <div class="cell steps-mini">
+          <div class="box dim" data-g="parse">parse JSON</div>
+          <div class="box dim" data-g="val">validate schema</div>
+          <div class="box dim" data-g="retry">retry if broken</div>
+        </div>
+        <div class="cell dim" data-g="out">
+          <span class="out-str">"route": "auth"</span>
+          <span class="cnt">a string, no probability</span>
+        </div>
+      </div>
+      <div class="lane read">
+        <div class="lane-name"><b>Read the answer</b><span>snap</span></div>
+        <div class="cell"><div class="box" data-r="in"><b>ticket</b> + 6 questions, options lettered A, B, C…</div></div>
+        <div class="cell"><div class="box model" id="read-model">forward pass<span class="k" id="read-passes">0</span><span class="u">all questions, batched</span></div></div>
+        <div class="cell">
+          <div class="logits" id="logits" aria-hidden="true"></div>
+          <div class="letters" aria-hidden="true"><span>logits over the vocabulary</span></div>
+          <span class="cnt"><b id="read-toks">0</b> tokens generated</span>
+        </div>
+        <div class="cell steps-mini">
+          <div class="box dim" data-r="mask">keep letters A–D</div>
+          <div class="box dim" data-r="soft">softmax</div>
+        </div>
+        <div class="cell dim out-dist" data-r="out">
+          <div class="bars" id="read-dist"></div>
+        </div>
+      </div>
+      <figcaption class="duel-foot">
+        <span class="note">Schematic, not to scale. Measured latencies are under <a href="#benchmarks">Benchmarks</a>.</span>
+        <span class="note">The distribution shown is the recorded <code>route</code> answer from the support ticket above.</span>
+      </figcaption>
+    </figure>
+
+    <ol class="steps">
+      <li class="step">
+        <div class="fig fig-prompt" aria-hidden="true">
+          <span><b>QUESTION</b> Which team should take this first?</span>
+          <span>A billing · B auth · C technical · D sales</span>
+          <span><b>Answer:</b> <span class="hot">▍</span></span>
+        </div>
         <span class="n">1</span>
         <h3>Compile</h3>
-        <p>Each question (<code>noul</code>, <code>choice</code>, <code>score</code>,
-        <code>numeric</code>) becomes a prompt whose first answer token must be a letter.</p>
-      </div>
-      <div class="step">
+        <p>Each question becomes a prompt that stops exactly where the answer's first token goes. Options get letters, so the whole answer is one token.</p>
+        <p><code>noul</code> is A/B, <code>choice</code> one letter per option, <code>score</code> ordered levels, <code>numeric</code> anchors across your range.</p>
+      </li>
+      <li class="step">
+        <div class="fig" aria-hidden="true">
+          <svg viewBox="0 0 260 120" preserveAspectRatio="xMidYMid meet">
+            <rect x="16" y="52" width="104" height="16" rx="4" fill="#b8ec5f" opacity=".9"/>
+            <text x="68" y="44" fill="#838c83" font-family="JetBrains Mono, monospace" font-size="9" text-anchor="middle">state, decoded once</text>
+            <g stroke="#333d35" stroke-width="1.5" fill="none">
+              <path d="M120 60 C140 60 140 18 160 18"/><path d="M120 60 C140 60 140 35 160 35"/><path d="M120 60 C140 60 140 52 160 52"/>
+              <path d="M120 60 C140 60 140 68 160 68"/><path d="M120 60 C140 60 140 85 160 85"/><path d="M120 60 C140 60 140 102 160 102"/>
+            </g>
+            <g fill="#333d35"><rect x="160" y="13" width="48" height="10" rx="3"/><rect x="160" y="30" width="36" height="10" rx="3"/><rect x="160" y="47" width="56" height="10" rx="3"/><rect x="160" y="63" width="42" height="10" rx="3"/><rect x="160" y="80" width="30" height="10" rx="3"/><rect x="160" y="97" width="50" height="10" rx="3"/></g>
+            <g fill="#e9ece6"><circle cx="216" cy="18" r="2.5"/><circle cx="204" cy="35" r="2.5"/><circle cx="224" cy="52" r="2.5"/><circle cx="210" cy="68" r="2.5"/><circle cx="198" cy="85" r="2.5"/><circle cx="218" cy="102" r="2.5"/></g>
+          </svg>
+        </div>
         <span class="n">2</span>
-        <h3>Read one position</h3>
-        <p>snap takes the logits at that single token position. One <code>llama_decode</code> per
-        question, batched across parallel KV sequences.</p>
-      </div>
-      <div class="step">
+        <h3>Prefill once</h3>
+        <p>The state runs through the model one time. What it computes, the <b>KV cache</b> (the model's working memory of your input), is shared by every question.</p>
+        <p>Question suffixes branch off it as a prefix tree, so any text they share is computed once, and repeat heads stay cached across requests.</p>
+      </li>
+      <li class="step">
+        <div class="fig" aria-hidden="true">
+          <svg viewBox="0 0 260 120" preserveAspectRatio="xMidYMid meet">
+            <g fill="#222a24"><rect x="20" y="16" width="220" height="10" rx="3"/><rect x="20" y="32" width="220" height="10" rx="3"/><rect x="20" y="48" width="220" height="10" rx="3"/><rect x="20" y="64" width="220" height="10" rx="3"/><rect x="20" y="80" width="220" height="10" rx="3"/><rect x="20" y="96" width="220" height="10" rx="3"/></g>
+            <g fill="#333d35"><rect x="20" y="16" width="120" height="10" rx="3"/><rect x="20" y="32" width="120" height="10" rx="3"/><rect x="20" y="48" width="120" height="10" rx="3"/><rect x="20" y="64" width="120" height="10" rx="3"/><rect x="20" y="80" width="120" height="10" rx="3"/><rect x="20" y="96" width="120" height="10" rx="3"/></g>
+            <rect x="150" y="8" width="16" height="106" rx="4" fill="none" stroke="#b8ec5f" stroke-width="1.5"/>
+            <g fill="#b8ec5f"><rect x="153" y="16" width="10" height="10" rx="2"/><rect x="153" y="32" width="10" height="10" rx="2"/><rect x="153" y="48" width="10" height="10" rx="2"/><rect x="153" y="64" width="10" height="10" rx="2"/><rect x="153" y="80" width="10" height="10" rx="2"/><rect x="153" y="96" width="10" height="10" rx="2"/></g>
+          </svg>
+        </div>
         <span class="n">3</span>
-        <h3>Softmax</h3>
-        <p>Letter variants pool and normalize into a distribution over your options, calibrated
-        after <code>snap calibrate</code>.</p>
-      </div>
-    </div>
+        <h3>One batched decode</h3>
+        <p>Every question suffix decodes together in a single <code>llama_decode</code> call, one KV sequence per question. Six questions cost one pass, not six conversations.</p>
+        <p>A startup probe picks the path each architecture supports. Nothing to configure.</p>
+      </li>
+      <li class="step">
+        <div class="fig" aria-hidden="true">
+          <svg viewBox="0 0 260 120" preserveAspectRatio="xMidYMid meet" id="fig-read"></svg>
+        </div>
+        <span class="n">4</span>
+        <h3>Read one position</h3>
+        <p>For each question snap reads a single row of logits, keeps only the option letters, merges their variants and softmaxes them into your distribution.</p>
+        <p><code>coverage</code> reports how much of the raw mass sat on your letters. <code>snap calibrate</code> fits a temperature per question type.</p>
+      </li>
+    </ol>
 
-    <div class="alphabet" aria-label="The letter alphabet output surface">
-      <span>A</span><span class="hot">B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span><span>I</span><span>J</span><span>K</span><span>L</span><span>M</span><span>N</span><span>O</span><span>P</span><span>Q</span><span>R</span><span>S</span><span>T</span><span>U</span><span>V</span><span>W</span><span>X</span><span>Y</span><span>Z</span>
+    <div class="alpha">
+      <div class="alpha-row" aria-label="The output surface: letters A to Z">
+        <span>A</span><span class="hot">B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span><span>I</span><span>J</span><span>K</span><span>L</span><span>M</span><span>N</span><span>O</span><span>P</span><span>Q</span><span>R</span><span>S</span><span>T</span><span>U</span><span>V</span><span>W</span><span>X</span><span>Y</span><span>Z</span>
+      </div>
+      <p>This is the entire output surface. Past 26 options, each candidate gets its own yes/no probe over the same shared prefix, up to <code>256</code>.</p>
     </div>
-    <p class="alphabet-cap">The entire output surface. Past 26 options, each candidate gets its own
-      yes/no probe batched over the shared prefix (up to <code>256</code>).</p>
   </div>
 </section>
 
-<section id="numbers">
+<!-- ======================= SECURITY ======================= -->
+<section id="security" aria-labelledby="sec-h">
   <div class="wrap">
-    <h2>Numbers.</h2>
-    <p class="sub">Apple Silicon, Metal, in-process, p50. Reproduce with
-      <code>snap bench</code> and <code>snap evaluate eval/*.jsonl</code>.</p>
+    <div class="head">
+      <h2 id="sec-h">Prompt injection needs a voice. snap doesn't have one.</h2>
+      <p class="sub">Injection works by getting a model to produce text you didn't intend: a leaked system prompt, a smuggled tool call, a link your UI renders. snap never produces text. What leaves the engine is a probability over options you wrote, in a JSON shape the server builds, not the model.</p>
+    </div>
+
+    <div class="threats">
+      <table>
+        <thead><tr><th scope="col">Attack</th><th scope="col">LLM that generates text</th><th scope="col">snap</th></tr></thead>
+        <tbody>
+          <tr>
+            <th scope="row">Exfiltrate data through the response</th>
+            <td><span class="mk x"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Possible. The response is free text.</span></td>
+            <td><span class="mk ok"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.8 9.2l2.2 2.2 4.2-4.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>No text channel. Answers are numbers keyed by your option names.</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Smuggle a tool call or command</th>
+            <td><span class="mk x"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Possible. The model writes the call.</span></td>
+            <td><span class="mk ok"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.8 9.2l2.2 2.2 4.2-4.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Nothing to execute. Your code maps a decided option to an action you wrote.</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Leak the system prompt or context</th>
+            <td><span class="mk x"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Possible. It can be asked to repeat itself.</span></td>
+            <td><span class="mk ok"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.8 9.2l2.2 2.2 4.2-4.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Nothing is generated for it to leak into.</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Inject markup or links downstream</th>
+            <td><span class="mk x"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Possible. Output gets rendered in a UI or an email.</span></td>
+            <td><span class="mk ok"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.8 9.2l2.2 2.2 4.2-4.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>The response schema is fixed by the server.</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Break the output format</th>
+            <td><span class="mk x"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Handled with validators, repair and retries.</span></td>
+            <td><span class="mk ok"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.8 9.2l2.2 2.2 4.2-4.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Can't happen. The model doesn't write the response.</span></td>
+          </tr>
+          <tr class="residual">
+            <th scope="row">Argue the model toward a different answer</th>
+            <td><span class="mk x"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Possible, and invisible in the output.</span></td>
+            <td><span class="mk mid"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 9h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>Still possible, but bounded and measurable. Text in the state can only move probability between your options. It shows up as split <code>confidence</code> or low <code>coverage</code>, and <code>allow_abstain</code> gives it a way out. Threshold on it and route to a human.</span></span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="deploy">
+      <div>
+        <h3>On your hardware</h3>
+        <p>A laptop, a VM, a Kubernetes pod or an air-gapped rack. One binary with llama.cpp compiled in, including a fully static Linux build. No Python, no runtime to patch.</p>
+      </div>
+      <div>
+        <h3>No data egress</h3>
+        <p>No API key, no telemetry, no third party processing your records. Weights are a GGUF on disk; after the first download snap runs offline. The daily release check prints to stderr and turns off with <code>SNAP_NO_UPDATE_CHECK=1</code>.</p>
+      </div>
+      <div>
+        <h3>Auditable by design</h3>
+        <p>Same input, same distribution. Log the full probability map with every decision, replay it later, and read <code>x_snap</code> for exactly what the engine did.</p>
+      </div>
+      <div>
+        <h3>Open source</h3>
+        <p>MIT-licensed Rust you can read end to end. Models come from a tested list, and calibration files refuse to load against a different model or prompt version.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= BENCHMARKS ======================= -->
+<section id="benchmarks" class="band" aria-labelledby="bench-h">
+  <div class="wrap">
+    <div class="head">
+      <h2 id="bench-h">Measured on the same weights.</h2>
+      <p class="sub">Apple Silicon, Metal, in-process, p50. Every number reproduces with <code>snap bench</code> and <code>snap evaluate eval/*.jsonl</code>.</p>
+    </div>
+
+    <div class="race">
+      <div class="race-h">
+        <h3>snap vs Ollama · same MiniCPM-2B GGUF, same machine, cold prompts</h3>
+        <div class="legend"><span><i class="o"></i>Ollama</span><span><i class="s"></i>snap</span></div>
+      </div>
+      <div class="rrow"><span class="w">1 question</span><div class="rbars"><div class="rb"><i style="--v:10.2"></i><span>193 ms</span></div><div class="rb s"><i style="--v:2.7"></i><span>51 ms</span></div></div><span class="delta">−74%</span></div>
+      <div class="rrow"><span class="w">4 questions, one request each</span><div class="rbars"><div class="rb"><i style="--v:41.8"></i><span>788 ms</span></div><div class="rb s"><i style="--v:6.7"></i><span>126 ms</span></div></div><span class="delta">−84%</span></div>
+      <div class="rrow"><span class="w">8 questions, one request each</span><div class="rbars"><div class="rb"><i style="--v:92"></i><span>1884 ms</span></div><div class="rb s"><i style="--v:11.7"></i><span>220 ms</span></div></div><span class="delta">−88%</span></div>
+      <div class="rrow"><span class="w">4 questions, combined prompt</span><div class="rbars"><div class="rb"><i style="--v:29.7"></i><span>559 ms</span></div><div class="rb s"><i style="--v:6.7"></i><span>126 ms</span></div></div><span class="delta">−77%</span></div>
+      <div class="rrow"><span class="w">8 questions, combined prompt</span><div class="rbars"><div class="rb"><i style="--v:51.1"></i><span>962 ms</span></div><div class="rb s"><i style="--v:11.7"></i><span>220 ms</span></div></div><span class="delta">−77%</span></div>
+      <div class="rrow"><span class="w">~8k-token state</span><div class="rbars"><div class="rb"><span class="rej">rejected, context too long</span></div><div class="rb s"><i style="--v:68"></i><span>1281 ms</span></div></div><span class="delta na">n/a</span></div>
+      <p class="note" style="margin-top:14px">Combined prompt is Ollama's best case for N questions, and it answers <code>"A,C,B"</code> as text to parse, with no probabilities.</p>
+    </div>
 
     <div class="tables">
-      <div>
-        <p class="tbl-cap">Latency · questions share one state prefix</p>
-        <div class="tbl-wrap"><table>
-          <thead><tr><th>scenario</th><th>minicpm5-2b</th><th>spark-4b</th><th class="snapcol">qwen3.8-4b</th></tr></thead>
+      <div class="tcard">
+        <h3>Latency · questions share one state prefix</h3>
+        <div class="tbl-wrap"><table class="t">
+          <thead><tr><th>scenario</th><th>minicpm5-2b</th><th>spark-4b</th><th>qwen3.8-4b</th></tr></thead>
           <tbody>
-            <tr><td>single question</td><td class="m">136 ms</td><td class="m">272 ms</td><td class="m snapcol">284 ms</td></tr>
-            <tr><td>4 questions, shared</td><td class="m">454 ms · 114 ms/q</td><td class="m">816 ms · 204 ms/q</td><td class="m snapcol">992 ms · 249 ms/q</td></tr>
-            <tr><td>8 questions, shared</td><td class="m">803 ms · 100 ms/q</td><td class="m">1760 ms · 217 ms/q</td><td class="m snapcol">1914 ms · 248 ms/q</td></tr>
-            <tr><td>8 questions, direct</td><td class="m">1008 ms · 126 ms/q</td><td class="m">2135 ms · 271 ms/q</td><td class="m snapcol">2450 ms · 305 ms/q</td></tr>
-            <tr><td>8 KB state, 1 question</td><td class="m">1245 ms</td><td class="m">2818 ms</td><td class="m snapcol">2427 ms</td></tr>
+            <tr><td>single question</td><td class="m">51 ms</td><td class="m">87 ms</td><td class="m">82 ms</td></tr>
+            <tr><td>4 questions, shared</td><td class="m">126 ms <small>32/q</small></td><td class="m">214 ms <small>72/q</small></td><td class="m">240 ms <small>81/q</small></td></tr>
+            <tr><td>8 questions, shared</td><td class="m">220 ms <small>28/q</small></td><td class="m">401 ms <small>62/q</small></td><td class="m">591 ms <small>86/q</small></td></tr>
+            <tr><td>8 questions, direct</td><td class="m">222 ms <small>28/q</small></td><td class="m">406 ms <small>52/q</small></td><td class="m">456 ms <small>58/q</small></td></tr>
+            <tr><td>8 KB state, 1 question</td><td class="m">1281 ms</td><td class="m">2873 ms</td><td class="m">2221 ms</td></tr>
           </tbody>
         </table></div>
-        <p class="note">minicpm and spark decode question suffixes batched over parallel KV
-          sequences; qwen's hybrid KV falls back to sequential suffixes, still prefix-cached.
-          A startup probe picks the path — nothing to configure.</p>
+        <p class="note">minicpm and spark batch question suffixes over parallel KV sequences; qwen's hybrid memory rewinds from state snapshots instead. A startup probe picks the path.</p>
       </div>
-      <div>
-        <p class="tbl-cap">Same MiniCPM-2B GGUF, same machine · snap vs Ollama, cold prompts</p>
-        <div class="tbl-wrap"><table>
-          <thead><tr><th>workload</th><th>Ollama</th><th class="snapcol">snap</th><th></th></tr></thead>
+      <div class="tcard">
+        <h3>Accuracy · eval/core (52 cases) · eval/edge (19)</h3>
+        <div class="tbl-wrap"><table class="t">
+          <thead><tr><th>model</th><th>core</th><th>edge</th><th>ms/case</th></tr></thead>
           <tbody>
-            <tr><td>1 question</td><td class="m">193 ms</td><td class="m snapcol">136 ms</td><td class="delta">−30%</td></tr>
-            <tr><td>4 questions, one request each</td><td class="m">788 ms</td><td class="m snapcol">454 ms</td><td class="delta">−42%</td></tr>
-            <tr><td>8 questions, one request each</td><td class="m">1884 ms</td><td class="m snapcol">803 ms</td><td class="delta">−57%</td></tr>
-            <tr><td>4 questions, combined prompt</td><td class="m">559 ms</td><td class="m snapcol">454 ms</td><td class="delta">−19%</td></tr>
-            <tr><td>8 questions, combined prompt</td><td class="m">962 ms</td><td class="m snapcol">803 ms</td><td class="delta">−17%</td></tr>
-            <tr><td>~8k-token state</td><td class="m na">rejected (ctx)</td><td class="m snapcol">1245 ms</td><td class="na">n/a</td></tr>
+            <tr><td>qwen3.8-4b <small class="note">Q4_K_M</small></td><td class="m hi"><span class="acc-bar"><i style="--v:90.4"></i></span>90.4%</td><td class="m hi">89.5%</td><td class="m">~240</td></tr>
+            <tr><td>spark-4b <small class="note">Q8_0</small></td><td class="m"><span class="acc-bar"><i style="--v:88.5"></i></span>88.5%</td><td class="m">73.7%</td><td class="m">~230</td></tr>
+            <tr><td>minicpm5-2b <small class="note">Q4_K_M</small></td><td class="m"><span class="acc-bar"><i style="--v:67.3"></i></span>67.3%</td><td class="m">57.9%</td><td class="m">~135</td></tr>
           </tbody>
         </table></div>
-        <p class="note">Combined prompt is Ollama's best case for N questions — and it answers
-          <code>"A,C,B"</code> as text to parse, no probabilities.</p>
+        <p class="note">Raw probabilities are uncalibrated. <code>snap calibrate</code> fits one temperature per question type on your labeled cases, bound to the model and prompt version, and prints ECE before and after.</p>
       </div>
-    </div>
-
-    <div class="acc">
-      <p class="tbl-cap">Accuracy · eval/core (52 cases) · eval/edge (19)</p>
-      <div class="tbl-wrap"><table>
-        <thead><tr><th>model</th><th>core</th><th>edge</th><th>ms/case</th></tr></thead>
-        <tbody>
-          <tr><td>qwen3.8-4b Q4_K_M</td><td class="m snapcol">90.4%</td><td class="m snapcol">89.5%</td><td class="m">~240</td></tr>
-          <tr><td>spark-4b Q8_0</td><td class="m">88.5%</td><td class="m">73.7%</td><td class="m">~230</td></tr>
-          <tr><td>minicpm5-2b Q4_K_M</td><td class="m">67.3%</td><td class="m">57.9%</td><td class="m">~135</td></tr>
-        </tbody>
-      </table></div>
-      <p class="note">Raw probabilities are uncalibrated: <code>snap calibrate</code> fits
-        one temperature per question type on your labeled cases, bound to the model and prompt
-        version, with ECE printed before and after.</p>
     </div>
   </div>
 </section>
 
-<section id="jev">
-  <div class="wrap jev">
-    <div class="jev-endpoint" aria-label="Jev-compatible request and response">
-<pre><span class="m">POST</span> /v1/systemone
-{ <span class="s">"state"</span>: <span class="s">"My payouts have been failing for 3 days."</span>,
-  <span class="s">"questions"</span>: {
-    <span class="s">"urgent"</span>: { <span class="s">"type"</span>: <span class="s">"noul"</span>, <span class="s">"instructions"</span>: <span class="s">"SLA breach likely?"</span> },
-    <span class="s">"team"</span>:   { <span class="s">"type"</span>: <span class="s">"choice"</span>,
-                  <span class="s">"criteria"</span>: { <span class="s">"billing"</span>: <span class="s">"payments, refunds"</span>,
-                                <span class="s">"technical"</span>: <span class="s">"bugs, outages"</span> } } } }</pre>
-<pre><span class="m">200 OK</span> <span class="dim">· 0 output tokens</span>
-{ <span class="s">"answers"</span>: {
-    <span class="s">"urgent"</span>: { <span class="s">"type"</span>: <span class="s">"noul"</span>, <span class="s">"noul"</span>: 0.94, <span class="s">"boolean"</span>: <span class="m">true</span> },
-    <span class="s">"team"</span>:   { <span class="s">"type"</span>: <span class="s">"choice"</span>, <span class="s">"choice"</span>: <span class="s">"billing"</span>,
-                  <span class="s">"probabilities"</span>: { <span class="s">"billing"</span>: 0.87, <span class="s">"technical"</span>: 0.13 } } },
-  <span class="s">"model"</span>: <span class="s">"snap-qwen3.8-4b-q4_k_m"</span>,
-  <span class="s">"usage"</span>: { <span class="s">"input_tokens"</span>: 212 } }</pre>
+<!-- ======================= API ======================= -->
+<section id="api" class="ink" aria-labelledby="api-h">
+  <div class="wrap api">
+    <div>
+      <h2 id="api-h">Drop-in Jev. One endpoint.</h2>
+      <p class="sub" style="margin-top:24px">snap speaks Jev's wire format on <code>POST /v1/systemone</code>. If a client already talks to Jev, point it at a local <code>snap serve</code> and it keeps working unchanged.</p>
+      <p class="sub">Extensions are optional fields a Jev client can ignore, and defaults preserve Jev semantics. Answers add <code>status</code>, <code>confidence</code>, <code>coverage</code> and the full <code>probabilities</code> on top of the Jev shape.</p>
+      <div class="types">
+        <div><code>noul</code><span>Yes or no. Returns <code>noul</code> (P of yes) and <code>boolean</code>.</span></div>
+        <div><code>choice</code><span>One of your options, 2 to 256. Returns the key and every option's probability.</span></div>
+        <div><code>score</code><span>Ordered levels. Returns the winning <code>level</code> and an expected <code>score</code> in [0, 1].</span></div>
+        <div><code>numeric</code><span>A value in <code>{min, max}</code>, read over anchors plus below/above range.</span></div>
+        <div><code>allow_abstain</code><span>Adds an <code>__abstain__</code> slot, so "not enough information" is an answer.</span></div>
+      </div>
+      <div class="links">
+        <a class="btn ghost" href="https://github.com/emnlmn/snap/blob/main/openapi.yaml">OpenAPI spec</a>
+        <a class="btn ghost" href="https://github.com/emnlmn/snap#the-api--drop-in-jev-extended">API reference</a>
+      </div>
     </div>
     <div>
-      <h2>Drop-in Jev.</h2>
-      <p>snap speaks Jev's wire format. If a client already talks to Jev, point it at a
-        local <code>snap serve</code> and it keeps working unchanged.</p>
-      <p>Snap extensions are optional fields a Jev client can ignore; defaults preserve Jev
-        semantics. Answers carry extras (<code>status</code>, <code>confidence</code>, full
-        <code>probabilities</code>, <code>coverage</code>) on top of the Jev shape.</p>
-      <div class="fields">
-        <b>"type": "numeric"</b> → distribution over {min, max, granularity}<br>
-        <b>allow_abstain</b> → adds an __abstain__ slot, status "abstained"<br>
-        <b>"mode"</b> → "shared" (prefix amortized) or "direct"<br>
-        <b>coverage</b> → per-answer: mass on the allowed letters pre-renorm
+      <div class="win" aria-label="Recorded request and response">
+        <div class="win-h"><b>POST</b><span class="path">/v1/systemone</span><span class="r">request</span></div>
+<pre>{ <span class="k">"state"</span>: <span class="s">"My payouts have been failing
+           for 3 days."</span>,
+  <span class="k">"questions"</span>: {
+    <span class="k">"urgent"</span>: { <span class="k">"type"</span>: <span class="s">"noul"</span>,
+                <span class="k">"instructions"</span>: <span class="s">"SLA breach?"</span> },
+    <span class="k">"team"</span>:   { <span class="k">"type"</span>: <span class="s">"choice"</span>,
+                <span class="k">"criteria"</span>: {
+                  <span class="k">"billing"</span>:   <span class="s">"payments, refunds"</span>,
+                  <span class="k">"technical"</span>: <span class="s">"bugs, outages"</span> } } } }</pre>
+        <div class="win-h div"><span class="ok">200 OK</span><span>0 output tokens</span><span class="r">response</span></div>
+<pre>{ <span class="k">"answers"</span>: {
+    <span class="k">"urgent"</span>: { <span class="k">"type"</span>: <span class="s">"noul"</span>, <span class="k">"status"</span>: <span class="s">"decided"</span>,
+                <span class="k">"noul"</span>: <span class="n">0.8973</span>, <span class="k">"boolean"</span>: <span class="b">true</span>,
+                <span class="k">"confidence"</span>: <span class="n">0.7945</span>,
+                <span class="k">"coverage"</span>: <span class="n">0.9996</span> },
+    <span class="k">"team"</span>:   { <span class="k">"type"</span>: <span class="s">"choice"</span>, <span class="k">"status"</span>: <span class="s">"decided"</span>,
+                <span class="k">"choice"</span>: <span class="s">"billing"</span>,
+                <span class="k">"probabilities"</span>: {
+                  <span class="k">"billing"</span>: <span class="n">0.6385</span>,
+                  <span class="k">"technical"</span>: <span class="n">0.3615</span> } } },
+  <span class="k">"usage"</span>:  { <span class="k">"input_tokens"</span>: <span class="n">100</span> },
+  <span class="k">"x_snap"</span>: { <span class="k">"layout"</span>: <span class="s">"question_first"</span>,
+              <span class="k">"decoded_items"</span>: <span class="n">2</span>,
+              <span class="k">"total_ms"</span>: <span class="n">344.1</span> } }</pre>
       </div>
-      <p class="disclaimer">snap is an independent implementation. Jev itself is a hosted
-        model in early access. Shape of the response shown; values illustrative.</p>
+      <p class="note">Recorded on spark-4b, response abridged. snap is an independent implementation; Jev itself is a hosted model in early access.</p>
     </div>
   </div>
 </section>
 
-<section id="compare">
+<!-- ======================= COMPARE ======================= -->
+<section id="compare" aria-labelledby="cmp-h">
   <div class="wrap">
-    <h2>Where snap sits.</h2>
-    <p class="sub">The two natural comparisons: Jev, the hosted original, and
-      <a href="https://github.com/TheoLeeCJ/SemIf">SemIf</a>, the open research scorer.</p>
-    <div class="tbl-wrap cmp"><table>
-      <thead><tr><th></th><th class="snapcol">snap</th><th>Jev</th><th>SemIf</th></tr></thead>
-      <tbody>
-        <tr><td>runs</td><td class="snapcol">local · one Rust binary</td><td>hosted service</td><td>local · Python · WebGPU demo</td></tr>
-        <tr><td>open weights</td><td class="y snapcol">✓ GGUF</td><td class="n">✗</td><td class="y">✓ Qwen</td></tr>
-        <tr><td>Jev-style HTTP API</td><td class="y snapcol">✓</td><td>the original</td><td class="n">✗ CLI</td></tr>
-        <tr><td>numeric primitive</td><td class="y snapcol">✓</td><td class="n">✗</td><td class="n">✗</td></tr>
-        <tr><td>calibrated probabilities</td><td class="snapcol"><code>snap calibrate</code></td><td>claimed</td><td>per-workload T</td></tr>
-        <tr><td><a href="https://evals.typesafe.ai">TypeSafe public eval</a></td><td class="m snapcol">66% · 2.6B model</td><td class="m">~88%</td><td class="na">n/a</td></tr>
-      </tbody>
-    </table></div>
-    <p class="note">Jev column from its public description; SemIf from its repo. The eval row is
-      agreement with the published consensus on the 373 public decisions — reproduce with
-      <code>eval/typesafe_public.py</code>; Jev's ~88% is its reported number.</p>
+    <div class="head">
+      <h2 id="cmp-h">Where snap sits.</h2>
+      <p class="sub">The two natural comparisons: Jev, the hosted original, and <a href="https://github.com/TheoLeeCJ/SemIf">SemIf</a>, the open research scorer.</p>
+    </div>
+    <div class="cmp">
+      <table>
+        <thead><tr><th scope="col"><span class="sr">Capability</span></th><th scope="col" class="me">snap</th><th scope="col">Jev</th><th scope="col">SemIf</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Runs</th><td class="me">Locally, one Rust binary</td><td>Hosted service</td><td>Locally, Python, WebGPU demo</td></tr>
+          <tr><th scope="row">Open weights</th><td class="me"><span class="y"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 7.4l2.8 2.8 6.2-6.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>GGUF</span></td><td><span class="no"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 7h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>No</span></td><td><span class="y"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 7.4l2.8 2.8 6.2-6.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Qwen</span></td></tr>
+          <tr><th scope="row">Jev-style HTTP API</th><td class="me"><span class="y"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 7.4l2.8 2.8 6.2-6.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Yes</span></td><td>The original</td><td><span class="no"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 7h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>CLI only</span></td></tr>
+          <tr><th scope="row">Numeric answers</th><td class="me"><span class="y"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 7.4l2.8 2.8 6.2-6.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Yes</span></td><td><span class="no"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 7h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>No</span></td><td><span class="no"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 7h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>No</span></td></tr>
+          <tr><th scope="row">Calibrated probabilities</th><td class="me"><code>snap calibrate</code></td><td>Claimed</td><td>Per-workload temperature</td></tr>
+          <tr><th scope="row"><a href="https://evals.typesafe.ai">TypeSafe public eval</a></th><td class="me">66% · 2.6B model</td><td>~88%</td><td>n/a</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note cmp-note">Jev column from its public description; SemIf from its repo. The eval row is agreement with the published consensus on the 373 public decisions; reproduce with <code>eval/typesafe_public.py</code>. Jev's ~88% is its reported number.</p>
   </div>
 </section>
 
-<section id="install">
-  <div class="wrap install">
-    <div class="term">
-      <div class="term-head">
-        <i></i><i></i><i></i>
-        <span class="t">sh</span>
-        <button class="copy" id="copy">copy</button>
-      </div>
-      <pre id="term"><span class="c"># pick your platform's tarball from Releases</span>
-<span class="p">$</span> curl -LO https://github.com/emnlmn/snap/releases/latest/download/snap-macos-arm64.tar.gz
-<span class="p">$</span> tar xzf snap-*.tar.gz
-<span class="p">$</span> ./snap serve --model qwen3.8-4b
-<span class="c"># → http://localhost:8018/playground</span>
-<span class="c"># first run pulls the GGUF (~1.5-4 GB), then fully offline</span></pre>
+<!-- ======================= GET STARTED ======================= -->
+<section id="start" class="ink" aria-labelledby="start-h">
+  <div class="wrap">
+    <div class="head">
+      <h2 id="start-h">Three commands to your first decision.</h2>
+      <p class="sub">The first run downloads the model once (1.5 to 4 GB). After that, everything runs offline on your machine.</p>
     </div>
-    <div class="steps-side">
-      <h2>Everything stays on the box.</h2>
-      <p>No API key, no telemetry, no third party reading your customers' tickets. Weights are a
-        GGUF on disk, downloaded once from HuggingFace.</p>
-      <p>Nothing to jailbreak: the model cannot emit a payload because it cannot emit text.</p>
-      <div class="plat">
-        <b>macOS</b> arm64 · Metal<br>
-        <b>Linux</b> x86_64 · x86-64-v3 · aarch64 · musl (static) · vulkan<br>
-        <b>Source</b> cargo build --release (llama.cpp vendored)
+    <div class="start">
+      <div class="sstep">
+        <div class="sstep-h"><span class="n">1</span><h3>Install</h3><p>One binary. Homebrew on macOS, a tarball everywhere else.</p></div>
+        <div class="plat" role="tablist" aria-label="Platform">
+          <button class="seg" role="tab" aria-selected="true" aria-pressed="true" data-plat="mac">macOS</button>
+          <button class="seg" role="tab" aria-selected="false" aria-pressed="false" data-plat="linux">Linux</button>
+          <button class="seg" role="tab" aria-selected="false" aria-pressed="false" data-plat="src">Source</button>
+        </div>
+        <pre id="install-pre"></pre>
+        <div class="sstep-f"><button class="copy" data-copy="install">copy</button></div>
+      </div>
+      <div class="sstep">
+        <div class="sstep-h"><span class="n">2</span><h3>Serve</h3><p>Pick a model from the tested set. The playground ships inside the binary.</p></div>
+<pre><span class="p">$ </span>snap serve --model qwen3.8-4b
+<span class="c"># → http://localhost:8018/playground</span></pre>
+        <div class="sstep-f"><button class="copy" data-copy="serve">copy</button></div>
+      </div>
+      <div class="sstep">
+        <div class="sstep-h"><span class="n">3</span><h3>Ask</h3><p>Every question about the state, in one request.</p></div>
+<pre><span class="p">$ </span>curl -s localhost:8018/v1/systemone -d '{
+  "state": "Checkout has been down for an hour.",
+  "questions": {
+    "urgent": {"type": "noul"},
+    "team": {"type": "choice",
+      "criteria": ["billing", "technical"]}}}'</pre>
+        <div class="sstep-f"><button class="copy" data-copy="ask">copy</button></div>
+      </div>
+    </div>
+    <div class="platforms">
+      <span><b>macOS</b> arm64 · Metal</span>
+      <span><b>Linux</b> x86_64 · x86-64-v3 · aarch64 · musl static · Vulkan</span>
+      <span><b>Source</b> cargo build · CUDA · ROCm · Vulkan · Metal</span>
+    </div>
+
+    <div class="close">
+      <h2>Stop parsing. Start deciding.</h2>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/emnlmn/snap/releases/latest">Download snap</a>
+        <a class="btn ghost" href="https://github.com/emnlmn/snap">Star on GitHub</a>
       </div>
     </div>
   </div>
@@ -647,149 +1140,368 @@ footer .links a:hover { color: var(--text); }
 
 <footer>
   <div class="wrap">
-    <img class="mark" src="logo.png" alt="">
-    <span class="tag">One pass. One distribution. The jaw snaps shut.</span>
-    <nav class="links">
-      <a href="https://github.com/emnlmn/snap">GitHub</a>
-      <a href="https://github.com/emnlmn/snap/releases">Releases</a>
-      <a href="https://github.com/emnlmn/snap/blob/main/README.md">README</a>
-      <a href="https://github.com/TheoLeeCJ/SemIf">SemIf</a>
-    </nav>
+    <div class="foot">
+      <div>
+        <a class="brand" href="#" aria-label="snap home"><img src="logo.png" alt="" width="30" height="30"><span>snap</span></a>
+        <p class="tagline">Single-pass Neural Answer Probabilities. One pass. One distribution. The jaw snaps shut.</p>
+      </div>
+      <div>
+        <h3 class="foot-h">Product</h3>
+        <ul><li><a href="#use-cases">Use cases</a></li><li><a href="#how">How it works</a></li><li><a href="#security">Security</a></li><li><a href="#benchmarks">Benchmarks</a></li></ul>
+      </div>
+      <div>
+        <h3 class="foot-h">Developers</h3>
+        <ul><li><a href="https://github.com/emnlmn/snap#readme">README</a></li><li><a href="https://github.com/emnlmn/snap/blob/main/openapi.yaml">OpenAPI spec</a></li><li><a href="https://github.com/emnlmn/snap/releases">Releases</a></li><li><a href="https://github.com/emnlmn/snap#playground">Playground</a></li></ul>
+      </div>
+      <div>
+        <h3 class="foot-h">Project</h3>
+        <ul><li><a href="https://github.com/emnlmn/snap">GitHub</a></li><li><a href="https://opensource.org/license/mit">MIT license</a></li><li><a href="https://github.com/TheoLeeCJ/SemIf">SemIf</a></li></ul>
+      </div>
+    </div>
+    <div class="legal">
+      <span>snap is open source under the MIT license.</span>
+      <span>Jev is a hosted product of its own authors; snap is an independent, wire-compatible implementation.</span>
+    </div>
   </div>
 </footer>
 
 <script>
-// Recorded on this machine: snap -p <case>.json --model minicpm5-2b (shared prefix).
-const CASES = [
-  {
-    name: 'ticket triage',
-    state: '{\n  "ticket": "charged twice, furious, wants a chargeback."\n}',
-    msq: 113,
-    qs: [
-      { n: 'route',  t: 'choice', w: 'billing', wt: 'billing',     bars: [['billing', .99], ['tech', .01], ['account', 0]] },
-      { n: 'urgent', t: 'noul',   w: 'true',    wt: 'true',        bars: [['true', .96], ['false', .04]] },
-      { n: 'impact', t: 'score',  w: 'high',    wt: 'high · 0.92', bars: [['low', .04], ['mid', .09], ['high', .87]] },
-    ],
-  },
-  {
-    name: 'on-call triage',
-    state: '{\n  "ctx": "fri 18:40 · payments deploy 18:05",\n  "alerts": {\n    "a1": "checkout p95 300ms → 2.1s",\n    "a2": "disk 87%, full in ~36h",\n    "a3": "pay success 99.1 → 96.8%",\n    "a4": "staging login down"\n  }\n}',
-    msq: 131,
-    qs: [
-      { n: 'sev_a1', t: 'score',  w: 'sev1', wt: 'sev1 · 0.74', bars: [['sev3', .16], ['sev2', .19], ['sev1', .65]] },
-      { n: 'sev_a3', t: 'score',  w: 'sev1', wt: 'sev1 · 0.81', bars: [['sev3', .09], ['sev2', .20], ['sev1', .71]] },
-      { n: 'first',  t: 'choice', w: 'a1',   wt: 'a1',          bars: [['a1', .82], ['a2', .03], ['a3', .14], ['a4', 0]] },
-    ],
-  },
-  {
-    name: 'CV screen',
-    state: '{\n  "resume": "8y Python · AWS · led 5 · no mobile"\n}',
-    msq: 106,
-    qs: [
-      { n: 'led_team',  t: 'noul',   w: 'true',    wt: 'true',         bars: [['true', .99], ['false', .01]] },
-      { n: 'best_role', t: 'choice', w: 'backend', wt: 'backend',      bars: [['backend', .99], ['frontend', 0], ['mobile', 0]] },
-      { n: 'seniority', t: 'score',  w: 'senior',  wt: 'senior · 0.92', bars: [['junior', .03], ['mid-level', .11], ['senior', .86]] },
-    ],
-  },
-];
+const DATA = {"support":{"state":{"ticket":"#48213","from":"maria@northwind.io","plan":"Business, 40 seats","subject":"Charged twice and locked out before our board demo","body":"We were billed twice for September (invoice #4411, EUR 1,240 each). Worse: since this morning's password reset nobody on our team can log in, and we demo to our board at 3pm today. Fix the login first, then refund the duplicate. If this isn't sorted today we're moving to another vendor."},"qs":[{"n":"route","t":"choice","ask":"Which team should take this ticket first?","o":["billing","auth","technical","sales"],"d":["invoices, payments, refunds","login, SSO, password resets, lockouts","bugs, outages, errors","pricing, upgrades, contracts"],"p":[0.0,1.0,0.0,0.0],"a":"auth","c":1.0,"s":"decided"},{"n":"urgent","t":"noul","ask":"Must this be handled within the hour?","o":["yes","no"],"d":null,"p":[1.0,0.0],"a":"yes","c":1.0,"s":"decided"},{"n":"churn_risk","t":"score","ask":"How likely is this customer to cancel?","o":["none","low","elevated","high"],"d":null,"p":[0.0,0.0,0.0,1.0],"a":"high","c":1.0,"s":"decided"},{"n":"refund_eur","t":"numeric","ask":"Refund owed to the customer, in EUR","o":["< 0","0","310","620","930","1240","1550","1860","2170","2480","> 2480"],"d":null,"p":[0.0,0.0,0.0,0.0,0.108,0.864,0.003,0.0,0.0,0.003,0.021],"a":"1,210","c":0.85,"s":"decided","min":0,"max":2480,"step":310},{"n":"needs_human","t":"noul","ask":"Should a human agent reply instead of an automated response?","o":["yes","no"],"d":null,"p":[1.0,0.0],"a":"yes","c":1.0,"s":"decided"},{"n":"sentiment","t":"choice","ask":"Customer tone","o":["calm","frustrated","angry"],"d":null,"p":[0.0,1.0,0.0],"a":"frustrated","c":1.0,"s":"decided"}],"ms":698.7,"input":610,"shared":323,"raw":{"answers":{"route":{"confidence":1.0,"status":"decided","coverage":1.0,"type":"choice","choice":"auth","probabilities":{"billing":0.0,"auth":1.0,"technical":0.0,"sales":0.0}},"urgent":{"confidence":0.9995,"status":"decided","coverage":1.0,"type":"noul","noul":0.9998,"boolean":true,"choice":"yes"},"churn_risk":{"confidence":0.9998,"status":"decided","coverage":1.0,"type":"score","score":1.0,"level":3,"probabilities":{"none":0.0,"low":0.0,"elevated":0.0001,"high":0.9999}},"refund_eur":{"confidence":0.8503,"status":"decided","coverage":0.9998,"type":"numeric","value":1209.9312,"probabilities":{"0":0.0001,"310":0.0002,"620":0.0001,"930":0.1083,"1240":0.8639,"1550":0.0026,"1860":0.0002,"2170":0.0005,"2480":0.0025,"__below__":0.0001,"__above__":0.0215}},"needs_human":{"confidence":0.9999,"status":"decided","coverage":1.0,"type":"noul","noul":1.0,"boolean":true,"choice":"yes"},"sentiment":{"confidence":0.9998,"status":"decided","coverage":1.0,"type":"choice","choice":"frustrated","probabilities":{"calm":0.0,"frustrated":0.9999,"angry":0.0001}}},"usage":{"input_tokens":610},"x_snap":{"layout":"catalog","decoded_items":6,"shared_prefix_tokens":323,"cached_head_tokens":44,"total_ms":698.7}}},"agent":{"state":{"run":"run_7f3a","user_request":"Clean up the staging bucket, it's full of old test uploads.","proposed_call":{"tool":"s3.delete_objects","args":{"bucket":"acme-prod-uploads","prefix":"","recursive":true}},"credentials":"production"},"qs":[{"n":"allow","t":"noul","ask":"Is it safe to execute this tool call without human review?","o":["yes","no"],"d":null,"p":[0.0,1.0],"a":"no","c":1.0,"s":"decided"},{"n":"matches_intent","t":"noul","ask":"Does the proposed call target what the user asked for?","o":["yes","no"],"d":null,"p":[0.0,1.0],"a":"no","c":1.0,"s":"decided"},{"n":"blast_radius","t":"score","ask":"Impact if the call is wrong","o":["none, read-only","reversible write","destructive, one resource","irreversible, production-wide"],"d":null,"p":[0.0,0.0,0.0,1.0],"a":"irreversible","c":0.999,"s":"decided"},{"n":"action","t":"choice","ask":"What should the orchestrator do next?","o":["execute","ask_user","block"],"d":["run the call as proposed","pause and ask the user to confirm","refuse and log the attempt"],"p":[0.0,0.997,0.002],"a":"ask_user","c":0.996,"s":"decided"},{"n":"category","t":"choice","ask":"Kind of operation","o":["read","write","delete","network","payment"],"d":null,"p":[0.0,0.0,1.0,0.0,0.0],"a":"delete","c":1.0,"s":"decided"},{"n":"prod_target","t":"noul","ask":"Does the call touch a production resource?","o":["yes","no"],"d":null,"p":[1.0,0.0],"a":"yes","c":1.0,"s":"decided"}],"ms":556.6,"input":457,"shared":243,"raw":{"answers":{"allow":{"confidence":1.0,"status":"decided","coverage":1.0,"type":"noul","noul":0.0,"boolean":false,"choice":"no"},"matches_intent":{"confidence":0.9997,"status":"decided","coverage":1.0,"type":"noul","noul":0.0001,"boolean":false,"choice":"no"},"blast_radius":{"confidence":0.9993,"status":"decided","coverage":1.0,"type":"score","score":0.9998,"level":3,"probabilities":{"none, read-only":0.0,"reversible write":0.0,"destructive, one resource":0.0005,"irreversible, production-wide":0.9995}},"action":{"confidence":0.9962,"status":"decided","coverage":1.0,"type":"choice","choice":"ask_user","probabilities":{"execute":0.0001,"ask_user":0.9975,"block":0.0024}},"category":{"confidence":1.0,"status":"decided","coverage":1.0,"type":"choice","choice":"delete","probabilities":{"read":0.0,"write":0.0,"delete":1.0,"network":0.0,"payment":0.0}},"prod_target":{"confidence":0.9998,"status":"decided","coverage":1.0,"type":"noul","noul":0.9999,"boolean":true,"choice":"yes"}},"usage":{"input_tokens":457},"x_snap":{"layout":"catalog","decoded_items":6,"shared_prefix_tokens":243,"cached_head_tokens":44,"total_ms":556.6}}},"incident":{"state":{"page":"INC-2291","time":"Fri 18:40","deploys":["payments-api v4.12 at 18:05"],"alerts":["checkout p95 latency 300ms -> 2.1s since 18:07","payment success rate 99.1% -> 96.8%","db-replica-2 disk 87%, full in ~36h","staging login returns 502"]},"qs":[{"n":"severity","t":"score","ask":"Incident severity","o":["sev4, cosmetic","sev3, minor","sev2, degraded for customers","sev1, outage or revenue loss"],"d":null,"p":[0.001,0.008,0.004,0.988],"a":"sev1","c":0.984,"s":"decided"},{"n":"page_now","t":"noul","ask":"Should the on-call engineer be paged right now?","o":["yes","no"],"d":null,"p":[0.864,0.136],"a":"yes","c":0.728,"s":"decided"},{"n":"likely_cause","t":"choice","ask":"Most likely cause of the customer-facing alerts","o":["recent_deploy","capacity","dependency","network"],"d":["a change shipped shortly before","resource exhaustion","a third-party provider","connectivity or DNS"],"p":[1.0,0.0,0.0,0.0],"a":"recent_deploy","c":1.0,"s":"decided"},{"n":"rollback","t":"noul","ask":"Should the payments-api deploy be rolled back first?","o":["yes","no"],"d":null,"p":[0.877,0.123],"a":"yes","c":0.755,"s":"decided"},{"n":"customer_facing","t":"noul","ask":"Are customers affected right now?","o":["yes","no"],"d":null,"p":[0.846,0.154],"a":"yes","c":0.693,"s":"decided"},{"n":"first","t":"choice","ask":"Which alert should be worked first?","o":["checkout_latency","pay_success","disk","staging_login"],"d":["checkout p95 latency","payment success rate","db-replica-2 disk","staging login 502"],"p":[0.002,0.998,0.0,0.0],"a":"pay_success","c":0.998,"s":"decided"}],"ms":818.9,"input":528,"shared":292,"raw":{"answers":{"severity":{"confidence":0.9844,"status":"decided","coverage":0.9999,"type":"score","score":0.9932,"level":3,"probabilities":{"sev4, cosmetic":0.0006,"sev3, minor":0.0076,"sev2, degraded for customers":0.0036,"sev1, outage or revenue loss":0.9883}},"page_now":{"confidence":0.728,"status":"decided","coverage":0.9998,"type":"noul","noul":0.864,"boolean":true,"choice":"yes"},"likely_cause":{"confidence":0.9996,"status":"decided","coverage":1.0,"type":"choice","choice":"recent_deploy","probabilities":{"recent_deploy":0.9997,"capacity":0.0003,"dependency":0.0,"network":0.0}},"rollback":{"confidence":0.7548,"status":"decided","coverage":0.9999,"type":"noul","noul":0.8774,"boolean":true,"choice":"yes"},"customer_facing":{"confidence":0.6928,"status":"decided","coverage":0.9999,"type":"noul","noul":0.8464,"boolean":true,"choice":"yes"},"first":{"confidence":0.9975,"status":"decided","coverage":1.0,"type":"choice","choice":"pay_success","probabilities":{"checkout_latency":0.0016,"pay_success":0.9981,"disk":0.0001,"staging_login":0.0003}}},"usage":{"input_tokens":528},"x_snap":{"layout":"catalog","decoded_items":6,"shared_prefix_tokens":292,"cached_head_tokens":44,"total_ms":818.9}}},"moderation":{"state":{"listing":"L-90412","channel":"marketplace chat","message":"Still available! iPhone 15 Pro, sealed, $300. Don't use the app checkout, fees are crazy. Pay me in USDT and I ship today. Text me: +1 415 555 0134"},"qs":[{"n":"policy","t":"choice","ask":"Which policy does the message violate, if any?","o":["none","off_platform_payment","scam","harassment","prohibited_item"],"d":["no violation","asks to pay outside the platform","likely fraud or bait pricing","abuse or threats","item not allowed on the marketplace"],"p":[0.0,1.0,0.0,0.0,0.0],"a":"off_platform_payment","c":1.0,"s":"decided"},{"n":"contains_pii","t":"noul","ask":"Does the message share personal contact details?","o":["yes","no"],"d":null,"p":[0.995,0.005],"a":"yes","c":0.99,"s":"decided"},{"n":"action","t":"choice","ask":"Moderation action","o":["allow","hold","remove"],"d":["deliver as is","hold for human review","remove and warn the sender"],"p":[0.0,0.015,0.985],"a":"remove","c":0.977,"s":"decided"}],"ms":505.5,"input":330,"shared":205,"raw":{"answers":{"policy":{"confidence":0.9998,"status":"decided","coverage":1.0,"type":"choice","choice":"off_platform_payment","probabilities":{"none":0.0,"off_platform_payment":0.9998,"scam":0.0002,"harassment":0.0,"prohibited_item":0.0}},"contains_pii":{"confidence":0.9904,"status":"decided","coverage":1.0,"type":"noul","noul":0.9952,"boolean":true,"choice":"yes"},"action":{"confidence":0.9769,"status":"decided","coverage":1.0,"type":"choice","choice":"remove","probabilities":{"allow":0.0,"hold":0.0154,"remove":0.9846}}},"usage":{"input_tokens":330},"x_snap":{"layout":"catalog","decoded_items":3,"shared_prefix_tokens":205,"cached_head_tokens":44,"total_ms":505.5}}},"search":{"state":{"query":"how do I rotate an API key without downtime?"},"qs":[{"n":"best","t":"choice","ask":"Which document best answers the query?","o":["doc_118","doc_342","doc_077","doc_205","doc_411","doc_019"],"d":["Rotating API keys: create a second key, deploy it, then revoke the old one","Revoking a compromised key immediately","Rate limits per API key","Creating your first API key","Rotating webhook signing secrets with an overlap window","Setting up SSO and SCIM"],"p":[0.999,0.0,0.0,0.0,0.001,0.0],"a":"doc_118","c":0.999,"s":"decided"},{"n":"intent","t":"choice","ask":"What is the user trying to do?","o":["how_to","troubleshoot","security_incident","billing"],"d":["learn how to do something","fix something broken","respond to a leak or compromise","plans, invoices, pricing"],"p":[1.0,0.0,0.0,0.0],"a":"how_to","c":1.0,"s":"decided"}],"ms":425.2,"input":269,"shared":129,"raw":{"answers":{"best":{"confidence":0.999,"status":"decided","coverage":1.0,"type":"choice","choice":"doc_118","probabilities":{"doc_118":0.9992,"doc_342":0.0,"doc_077":0.0,"doc_205":0.0,"doc_411":0.0008,"doc_019":0.0}},"intent":{"confidence":1.0,"status":"decided","coverage":1.0,"type":"choice","choice":"how_to","probabilities":{"how_to":1.0,"troubleshoot":0.0,"security_incident":0.0,"billing":0.0}}},"usage":{"input_tokens":269},"x_snap":{"layout":"catalog","decoded_items":2,"shared_prefix_tokens":129,"cached_head_tokens":44,"total_ms":425.2}}},"judge":{"state":{"eval":"rag-faithfulness #312","question":"What is the refund window for annual plans?","context":"Annual plans can be refunded in full within 30 days of purchase. After 30 days, refunds are prorated.","candidate_answer":"Annual plans get a full refund within 60 days, after that no refunds are possible."},"qs":[{"n":"faithful","t":"noul","ask":"Is the candidate answer fully supported by the context?","o":["yes","no"],"d":null,"p":[0.0,1.0],"a":"no","c":1.0,"s":"decided"},{"n":"correctness","t":"score","ask":"How correct is the candidate answer?","o":["wrong","partially correct","mostly correct","fully correct"],"d":null,"p":[0.999,0.0,0.0,0.0],"a":"wrong","c":0.999,"s":"decided"},{"n":"error_type","t":"choice","ask":"Main error in the candidate answer","o":["none","wrong_number","missing_info","unsupported_claim"],"d":["no error","a figure contradicts the context","omits something the context states","adds a claim not in the context"],"p":[0.0,0.998,0.0,0.002],"a":"wrong_number","c":0.998,"s":"decided"}],"ms":419.9,"input":332,"shared":214,"raw":{"answers":{"faithful":{"confidence":1.0,"status":"decided","coverage":1.0,"type":"noul","noul":0.0,"boolean":false,"choice":"no"},"correctness":{"confidence":0.9993,"status":"decided","coverage":1.0,"type":"score","score":0.0002,"level":0,"probabilities":{"wrong":0.9995,"partially correct":0.0005,"mostly correct":0.0,"fully correct":0.0}},"error_type":{"confidence":0.9978,"status":"decided","coverage":1.0,"type":"choice","choice":"wrong_number","probabilities":{"none":0.0001,"wrong_number":0.9984,"missing_info":0.0,"unsupported_claim":0.0015}}},"usage":{"input_tokens":332},"x_snap":{"layout":"catalog","decoded_items":3,"shared_prefix_tokens":214,"cached_head_tokens":44,"total_ms":419.9}}},"labeling":{"state":{"lead":"inbound #5530","form":"I'm Head of Data at a 1,200-person logistics company. We classify about 2M shipment exceptions a month and need it on-prem, nothing can leave our network. Could we talk next week?"},"qs":[{"n":"intent","t":"score","ask":"Buying intent","o":["browsing","researching","evaluating","ready to buy"],"d":null,"p":[0.0,0.0,0.0,1.0],"a":"ready to buy","c":1.0,"s":"decided"},{"n":"segment","t":"choice","ask":"Company segment","o":["smb","mid_market","enterprise"],"d":["under 100 employees","100 to 1,000 employees","over 1,000 employees"],"p":[0.0,0.0,1.0],"a":"enterprise","c":1.0,"s":"decided"},{"n":"on_prem","t":"noul","ask":"Does the lead require an on-premise deployment?","o":["yes","no"],"d":null,"p":[1.0,0.0],"a":"yes","c":1.0,"s":"decided"},{"n":"monthly_volume_m","t":"numeric","ask":"Monthly volume in millions of items","o":["< 0","0","0.5","1","1.5","2","2.5","3","3.5","4","4.5","5","> 5"],"d":null,"p":[0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"a":"2.0","c":1.0,"s":"decided","min":0,"max":5,"step":0.5}],"ms":531.2,"input":435,"shared":217,"raw":{"answers":{"intent":{"confidence":1.0,"status":"decided","coverage":1.0,"type":"score","score":1.0,"level":3,"probabilities":{"browsing":0.0,"researching":0.0,"evaluating":0.0,"ready to buy":1.0}},"segment":{"confidence":1.0,"status":"decided","coverage":1.0,"type":"choice","choice":"enterprise","probabilities":{"smb":0.0,"mid_market":0.0,"enterprise":1.0}},"on_prem":{"confidence":1.0,"status":"decided","coverage":1.0,"type":"noul","noul":1.0,"boolean":true,"choice":"yes"},"monthly_volume_m":{"confidence":0.9999,"status":"decided","coverage":1.0,"type":"numeric","value":2.0,"probabilities":{"0":0.0,"0.5":0.0,"1":0.0,"1.5":0.0,"2":0.9999,"2.5":0.0,"3":0.0,"3.5":0.0,"4":0.0,"4.5":0.0,"5":0.0,"__below__":0.0,"__above__":0.0}}},"usage":{"input_tokens":435},"x_snap":{"layout":"catalog","decoded_items":4,"shared_prefix_tokens":217,"cached_head_tokens":44,"total_ms":531.2}}}};
 
-const demo = document.querySelector('.demo');
-const stateEl = demo.querySelector('.demo-state');
-const foot = demo.querySelector('.demo-foot');
-const caseEl = document.getElementById('case-name');
-const nqEl = document.getElementById('nq');
-const dots = [...document.querySelectorAll('.dot')];
-const msEl = document.getElementById('ms');
-const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-let cur = 0, raf, timer;
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+  || new URLSearchParams(location.search).has('still');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const pf = p => p >= .995 ? '1.00' : p.toFixed(2).replace(/^0/, '');
+const TYPE = { noul: 'noul', choice: 'choice', score: 'score', numeric: 'numeric' };
 
-const fmt = p => p.toFixed(2).replace(/^0/, '');
+function hl(obj) {
+  return esc(JSON.stringify(obj, null, 2)).replace(
+    /(&quot;(?:\\.|(?!&quot;).)*?&quot;)(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:e-?\d+)?/g,
+    (m, str, colon, kw) => str ? (colon ? `<span class="k">${str}</span>${colon}` : `<span class="s">${str}</span>`)
+      : kw ? `<span class="b">${m}</span>` : `<span class="n">${m}</span>`);
+}
+const winIdx = q => q.p.indexOf(Math.max(...q.p));
+const optSummary = q => {
+  if (q.t === 'numeric') return `${q.min} … ${q.max}, step ${q.step}`;
+  if (q.t === 'noul') return 'yes | no';
+  return q.o.length > 4 ? `${q.o.slice(0, 3).join(' | ')} +${q.o.length - 3}` : q.o.join(' | ');
+};
 
-function fill(target, animate) {
-  cancelAnimationFrame(raf);
-  const fills = [...demo.querySelectorAll('.fill')];
-  if (!animate || reduced) {
-    fills.forEach(f => f.style.width = (f.dataset.p * 100) + '%');
-    msEl.textContent = target;
-    return;
-  }
-  fills.forEach(f => { f.style.transition = 'none'; f.style.width = '0'; });
-  void demo.offsetWidth; // reflow
-  const t0 = performance.now(), dur = 700;
-  fills.forEach((f, i) => {
-    f.style.transition = `width ${dur}ms cubic-bezier(.16,1,.3,1) ${i * 55}ms`;
-    f.style.width = (f.dataset.p * 100) + '%';
+/* ---------------- hero console ---------------- */
+const HERO = ['support', 'agent', 'incident'];
+const con = $('#console');
+const el = { state: $('#c-state'), qs: $('#c-qs'), ans: $('#c-answers'), json: $('#c-json'), status: $('#c-status'),
+  ms: $('#c-ms'), fill: $('#c-fill'), facts: $('#c-facts'), inspect: $('#c-inspect'), resScroll: $('#c-res-scroll') };
+let cur = 'support', raf = 0, timers = [], auto = true, hovering = false, inView = false, view = 'answers', focusQ = 0;
+
+function inspect(i) {
+  const q = DATA[cur].qs[i]; if (!q) return;
+  focusQ = i;
+  $$('.a-row', el.ans).forEach((r, j) => r.classList.toggle('on', j === i));
+  const w = winIdx(q);
+  const opts = q.o.map((o, j) => `<span class="opt${j === w ? ' w' : ''}">${esc(o)} <b>${pf(q.p[j])}</b></span>`).join('');
+  el.inspect.innerHTML = `<div class="ask">${esc(q.n)}: ${esc(q.ask)}</div>${opts}`;
+}
+
+function paint(name) {
+  const c = DATA[name];
+  el.state.innerHTML = hl(c.state);
+  el.qs.innerHTML = c.qs.map(q => `<div class="c-q"><span class="qn">${esc(q.n)}</span><span class="qt">${TYPE[q.t]}</span><span class="qa">${esc(optSummary(q))}</span></div>`).join('');
+  el.ans.innerHTML = c.qs.map((q, i) => {
+    const w = winIdx(q);
+    const bars = q.p.map((p, j) => `<i class="${j === w ? 'w' : ''}" data-h="${Math.max(p, .06)}"></i>`).join('');
+    const label = `${q.n}: ${q.a}, confidence ${pf(q.c)}`;
+    return `<div class="a-row" tabindex="0" data-i="${i}" aria-label="${esc(label)}"><span class="a-name"><b>${esc(q.n)}</b><small>${TYPE[q.t]}</small></span><span class="hist" aria-hidden="true">${bars}</span><span class="a-val">${esc(q.a)}</span><span class="a-p">${pf(q.p[w])}</span></div>`;
+  }).join('');
+  el.json.innerHTML = hl(c.raw);
+  el.facts.innerHTML = `<span><b>${c.qs.length}</b> answers</span><span><b>1</b> batched pass</span><span><b>${c.input}</b> input tokens</span><span class="zero"><b>0</b> output tokens</span>`;
+  $$('.a-row', el.ans).forEach(r => {
+    const i = +r.dataset.i;
+    r.addEventListener('mouseenter', () => inspect(i));
+    r.addEventListener('focus', () => inspect(i));
   });
+  inspect(0);
+}
+
+function land() {
+  con.classList.remove('running');
+  el.ans.classList.remove('pending');
+  $$('.hist i', el.ans).forEach(b => b.style.height = (b.dataset.h * 100) + '%');
+  el.status.innerHTML = `<span class="ok">200 OK</span>&nbsp;· ${DATA[cur].qs.length} answers`;
+  $$('.c-q', el.qs).forEach(q => q.classList.remove('lit'));
+}
+
+function clear() { cancelAnimationFrame(raf); timers.forEach(clearTimeout); timers = []; }
+
+function run(name, animate = true) {
+  clear();
+  cur = name;
+  $$('.tab', con).forEach(t => { const on = t.dataset.case === name; t.setAttribute('aria-selected', on); t.tabIndex = on ? 0 : -1; });
+  paint(name);
+  const ms = DATA[name].ms;
+  if (!animate || reduced) {
+    el.ms.textContent = ms.toFixed(1); el.fill.style.width = '100%'; land(); schedule(); return;
+  }
+  el.ans.classList.add('pending');
+  $$('.hist i', el.ans).forEach(b => b.style.height = '');
+  el.fill.style.width = '0%'; el.ms.textContent = '0.0';
+  el.status.textContent = 'decoding…';
+  con.style.setProperty('--dur', ms + 'ms');
+  con.classList.remove('running'); void con.offsetWidth; con.classList.add('running');
+  const qEls = $$('.c-q', el.qs);
+  qEls.forEach((q, i) => timers.push(setTimeout(() => q.classList.add('lit'), (i + 1) * ms / (qEls.length + 1))));
+  const t0 = performance.now();
   const tick = now => {
-    const k = Math.min(1, (now - t0) / dur);
-    msEl.textContent = Math.round(target * (1 - Math.pow(1 - k, 3)));
-    if (k < 1) raf = requestAnimationFrame(tick);
+    const t = Math.min(ms, now - t0);
+    el.ms.textContent = t.toFixed(1);
+    el.fill.style.width = (t / ms * 100) + '%';
+    if (t < ms) raf = requestAnimationFrame(tick);
+    else { el.ms.textContent = ms.toFixed(1); land(); schedule(); }
   };
   raf = requestAnimationFrame(tick);
 }
 
-function render(i, animate) {
-  cur = i;
-  const c = CASES[i];
-  caseEl.textContent = c.name;
-  stateEl.innerHTML = `<b>"state"</b>: ${c.state}`;
-  demo.querySelectorAll('.q').forEach(q => q.remove());
-  c.qs.forEach(q => {
-    const el = document.createElement('div');
-    el.className = 'q';
-    el.innerHTML =
-      `<div class="q-head"><span class="q-name">${q.n}</span><span class="q-type">${q.t}</span><span class="q-winner">${q.wt}</span></div>` +
-      q.bars.map(([l, p]) =>
-        `<div class="bar${l === q.w ? ' win' : ''}"><span class="lbl">${l}</span><span class="track"><span class="fill" data-p="${p}"></span></span><span class="pct">${fmt(p)}</span></div>`
-      ).join('');
-    demo.insertBefore(el, foot);
-  });
-  nqEl.textContent = c.qs.length;
-  dots.forEach((d, di) => d.classList.toggle('on', di === i));
-  fill(c.msq, animate);
+function schedule() {
+  if (!auto || reduced) return;
+  timers.push(setTimeout(() => {
+    if (hovering || !inView || !auto) return schedule();
+    run(HERO[(HERO.indexOf(cur) + 1) % HERO.length]);
+  }, 5200));
 }
 
-function next() { render((cur + 1) % CASES.length, true); }
-function startAuto() { if (!reduced && !timer) timer = setInterval(next, 5200); }
-function stopAuto() { clearInterval(timer); timer = null; }
-
-demo.addEventListener('mouseenter', stopAuto);
-demo.addEventListener('mouseleave', startAuto);
-demo.addEventListener('focusin', stopAuto);
-demo.addEventListener('focusout', startAuto);
-
-dots.forEach(d => d.addEventListener('click', () => {
-  render(+d.dataset.i, true);
-  stopAuto(); startAuto();
+$$('.tab', con).forEach(t => {
+  t.addEventListener('click', () => { auto = false; run(t.dataset.case); });
+  t.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const i = (HERO.indexOf(cur) + (e.key === 'ArrowRight' ? 1 : HERO.length - 1)) % HERO.length;
+    auto = false; run(HERO[i]); $(`.tab[data-case="${HERO[i]}"]`, con).focus();
+  });
+});
+$('#replay').addEventListener('click', () => { auto = false; run(cur); });
+$$('.seg[data-view]', con).forEach(b => b.addEventListener('click', () => {
+  view = b.dataset.view;
+  $$('.seg[data-view]', con).forEach(x => x.setAttribute('aria-pressed', x === b));
+  el.ans.hidden = view !== 'answers'; el.json.hidden = view !== 'json';
 }));
-document.getElementById('replay').addEventListener('click', () => render(cur, true));
+con.addEventListener('mouseenter', () => hovering = true);
+con.addEventListener('mouseleave', () => hovering = false);
 
-// first run when the demo scrolls into view
-const io = new IntersectionObserver((es) => {
-  if (es.some(e => e.isIntersecting)) { render(0, true); startAuto(); io.disconnect(); }
-}, { threshold: .4 });
-io.observe(demo);
+paint('support');
+el.ans.classList.add('pending');
+new IntersectionObserver(es => {
+  inView = es.some(e => e.isIntersecting);
+  if (inView && !con.dataset.started) { con.dataset.started = 1; run('support'); }
+}, { threshold: .35 }).observe(con);
 
-// platform-aware install one-liner
-const plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
-const asset = /linux/i.test(plat) ? 'snap-linux-x86_64.tar.gz'
-  : /win/i.test(plat) ? 'snap-windows-x86_64.tar.gz'
-  : 'snap-macos-arm64.tar.gz';
-document.getElementById('asset').textContent = asset;
-const oneline = `mkdir -p ~/snap && curl -sL https://github.com/emnlmn/snap/releases/latest/download/${asset} | tar xz -C ~/snap && ~/snap/snap serve`;
-document.getElementById('copy-hero').addEventListener('click', async (e) => {
-  try { await navigator.clipboard.writeText(oneline); e.target.textContent = 'copied'; }
-  catch { e.target.textContent = 'select + ⌘C'; }
-  setTimeout(() => e.target.textContent = 'copy', 1600);
+/* ---------------- use cases ---------------- */
+const UC = [
+  { id: 'support', t: 'Support & ops triage', s: 'Route, prioritize and price every ticket before a human opens it.',
+    d: 'One request per ticket answers routing, urgency, churn risk, refund amount and tone together. Thresholds decide what gets automated and what reaches a person.',
+    show: ['route', 'urgent', 'churn_risk', 'refund_eur'],
+    wire: '<span class="kw">if</span> a[<span class="s">"urgent"</span>][<span class="s">"boolean"</span>] <span class="kw">and</span> a[<span class="s">"route"</span>][<span class="s">"choice"</span>] == <span class="s">"auth"</span>:\n    page(<span class="s">"auth-oncall"</span>, ticket)' },
+  { id: 'agent', t: 'Agent guardrails', s: 'A typed checkpoint between an agent\u2019s plan and its tool call.',
+    d: 'Before a call runs, ask whether it matches what the user asked, what it could break and what to do next. The gate returns one of the actions you defined, never text an agent could use to talk its way past it.',
+    show: ['allow', 'matches_intent', 'blast_radius', 'action'],
+    wire: '<span class="kw">if</span> a[<span class="s">"action"</span>][<span class="s">"choice"</span>] != <span class="s">"execute"</span>:\n    <span class="kw">return</span> pause_for_review(call, a)' },
+  { id: 'moderation', t: 'Moderation & compliance', s: 'Policy labels with a confidence you can put a threshold on.',
+    d: 'Classify messages, listings or documents against your policy, flag personal data and pick an action. Each decision logs with its full distribution and replays identically for audit.',
+    show: ['policy', 'contains_pii', 'action'],
+    wire: '<span class="kw">if</span> a[<span class="s">"policy"</span>][<span class="s">"choice"</span>] != <span class="s">"none"</span>:\n    hold(msg, evidence=a[<span class="s">"policy"</span>][<span class="s">"probabilities"</span>])' },
+  { id: 'search', t: 'Search & reranking', s: 'Rerank retrieval hits by what actually answers the query.',
+    d: 'Send the query as state and your top-k candidates as options: the distribution is the ranking. Past 26 candidates, each one gets its own yes/no probe over the shared query, up to 256.',
+    show: ['best', 'intent'],
+    wire: 'p = a[<span class="s">"best"</span>][<span class="s">"probabilities"</span>]\nranked = sorted(hits, key=<span class="kw">lambda</span> h: p[h.id], reverse=<span class="kw">True</span>)' },
+  { id: 'judge', t: 'Evals & LLM-as-judge', s: 'Grade model outputs with probabilities, not a 1 to 10 guess.',
+    d: 'Score faithfulness, correctness and error type for each sample in one call. Average the probabilities across a test set, bin by confidence, and calibrate the judge on your own labels.',
+    show: ['faithful', 'correctness', 'error_type'],
+    wire: 'faithfulness = mean(r[<span class="s">"answers"</span>][<span class="s">"faithful"</span>][<span class="s">"noul"</span>] <span class="kw">for</span> r <span class="kw">in</span> runs)' },
+  { id: 'labeling', t: 'Labeling & enrichment', s: 'Turn a backlog of free text into typed columns.',
+    d: 'Segment leads, extract volumes, flag requirements. Numeric questions return a value with its distribution over your range, so out-of-range and unsure answers stay visible.',
+    show: ['intent', 'segment', 'on_prem', 'monthly_volume_m'],
+    wire: 'row |= {<span class="s">"segment"</span>: a[<span class="s">"segment"</span>][<span class="s">"choice"</span>],\n        <span class="s">"volume_m"</span>: a[<span class="s">"monthly_volume_m"</span>][<span class="s">"value"</span>]}' },
+];
+
+function distHTML(q) {
+  const w = winIdx(q);
+  const head = `<div class="dist-h"><code>${esc(q.n)}</code><span class="t">${TYPE[q.t]}</span><span class="v">${esc(q.a)}</span></div>`;
+  if (q.t === 'numeric') {
+    const bars = q.p.map((p, j) => `<i class="${j === w ? 'w' : ''}" data-h="${Math.max(p, .04)}" title="${esc(q.o[j])}: ${pf(p)}"></i>`).join('');
+    return `<div class="dist">${head}<div class="hist-l" aria-hidden="true">${bars}</div><div class="axis"><span>below ${q.min}</span><span>${q.min}</span><span>${q.max}</span><span>above</span></div></div>`;
+  }
+  let idx = q.p.map((p, j) => j);
+  const extra = idx.length > 4 ? idx.length - 4 : 0;
+  if (extra) idx = idx.sort((a, b) => q.p[b] - q.p[a]).slice(0, 4);
+  const label = j => q.d && q.t === 'choice' && q.o[j].startsWith('doc_') ? `${q.o[j]} ${q.d[j]}` : q.o[j];
+  const rows = idx.map(j => `<div class="bar${j === w ? ' w' : ''}"><span class="l" title="${esc(label(j))}">${esc(label(j))}</span><span class="tr"><i data-w="${q.p[j]}"></i></span><span class="p">${pf(q.p[j])}</span></div>`).join('');
+  return `<div class="dist">${head}<div class="bars">${rows}</div>${extra ? `<p class="more">+${extra} more options below .01</p>` : ''}</div>`;
+}
+
+function ucRender(i, animate) {
+  const u = UC[i], c = DATA[u.id];
+  $$('.uc-tab').forEach((t, j) => { t.setAttribute('aria-selected', j === i); t.tabIndex = j === i ? 0 : -1; });
+  const qs = u.show.map(n => c.qs.find(q => q.n === n));
+  const questions = c.qs.map(q => `<li><code>${esc(q.n)}</code><span class="t">${TYPE[q.t]}</span><br>${esc(q.ask)}</li>`).join('');
+  $('#uc-panel').innerHTML = `
+    <div class="uc-top">
+      <h3>${esc(u.t)}</h3>
+      <p>${esc(u.d)}</p>
+      <div class="uc-stat"><b>${c.ms.toFixed(0)} ms</b>${c.qs.length} answers, one pass</div>
+    </div>
+    <div class="uc-grid">
+      <div class="uc-req"><p class="lbl">state</p><pre class="json">${hl(c.state)}</pre><p class="lbl" style="margin-top:18px">questions</p><ul class="uc-qs">${questions}</ul></div>
+      <div class="uc-res"><p class="lbl">response${qs.length < c.qs.length ? `, ${qs.length} of ${c.qs.length} answers` : ''}</p>${qs.map(distHTML).join('')}</div>
+    </div>
+    <div class="uc-wire"><p class="lbl">wire it</p><pre>${u.wire}</pre></div>`;
+  $('#uc-panel').setAttribute('aria-labelledby', 'uc-t-' + i);
+  const grow = () => {
+    $$('#uc-panel .tr i').forEach(b => b.style.width = (b.dataset.w * 100) + '%');
+    $$('#uc-panel .hist-l i').forEach(b => b.style.height = (b.dataset.h * 100) + '%');
+  };
+  if (animate && !reduced) requestAnimationFrame(() => requestAnimationFrame(grow)); else grow();
+}
+
+$('#uc-list').innerHTML = UC.map((u, i) => `<button class="uc-tab" role="tab" id="uc-t-${i}" aria-controls="uc-panel" aria-selected="${i === 0}" tabindex="${i === 0 ? 0 : -1}"><b>${esc(u.t)}</b><span>${esc(u.s)}</span></button>`).join('');
+$$('.uc-tab').forEach((t, i) => {
+  t.addEventListener('click', () => ucRender(i, true));
+  t.addEventListener('keydown', e => {
+    const k = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+    if (!k) return;
+    e.preventDefault();
+    const j = (i + k + UC.length) % UC.length; ucRender(j, true); $$('.uc-tab')[j].focus();
+  });
 });
+ucRender(0, false);
 
-// copy install commands (install section)
-document.getElementById('copy').addEventListener('click', async (e) => {
-  const clean = "curl -LO https://github.com/emnlmn/snap/releases/latest/download/snap-macos-arm64.tar.gz\ntar xzf snap-*.tar.gz\n./snap serve --model qwen3.8-4b";
-  try { await navigator.clipboard.writeText(clean); e.target.textContent = 'copied'; }
-  catch { e.target.textContent = 'select + ⌘C'; }
-  setTimeout(() => e.target.textContent = 'copy', 1600);
-});
+/* ---------------- how it works: the duel ---------------- */
+const route = DATA.support.qs.find(q => q.n === 'route');
+$('#read-dist').innerHTML = route.o.map((o, j) => {
+  const w = j === winIdx(route);
+  return `<div class="bar${w ? ' w' : ''}"><span class="l">${String.fromCharCode(65 + j)} ${esc(o)}</span><span class="tr"><i style="width:${Math.max(route.p[j], .02) * 100}%"></i></span><span class="p">${pf(route.p[j])}</span></div>`;
+}).join('');
+
+// illustrative vocabulary row: fixed pseudo-random heights, four option letters marked
+(() => {
+  let s = 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const n = 72, L = { 14: 'A', 31: 'B', 47: 'C', 60: 'D' };
+  $('#logits').innerHTML = Array.from({ length: n }, (_, i) => {
+    const h = i === 31 ? 100 : L[i] ? 18 + rnd() * 10 : 8 + Math.pow(rnd(), 2.2) * 62;
+    return `<i class="${L[i] ? 'L' : ''}" style="height:${h.toFixed(1)}%"></i>`;
+  }).join('');
+  // step 4 figure: many logits -> four letters -> distribution
+  const g = [];
+  for (let i = 0; i < 40; i++) { const h = 6 + Math.pow(rnd(), 2) * 44; g.push(`<rect x="${14 + i * 2.6}" y="${86 - h}" width="1.6" height="${h}" fill="#333d35"/>`); }
+  [[24, 18], [40, 64], [58, 16], [76, 12]].forEach(([x, h]) => g.push(`<rect x="${x}" y="${86 - h}" width="2.2" height="${h}" fill="#b8ec5f"/>`));
+  g.push('<path d="M126 60h22m-5-4 5 4-5 4" stroke="#838c83" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>');
+  [['A', .0], ['B', 1], ['C', .0], ['D', .0]].forEach(([l, p], i) => {
+    const h = Math.max(p * 58, 2), x = 166 + i * 20;
+    g.push(`<rect x="${x}" y="${86 - h}" width="12" height="${h}" rx="2" fill="${p > .5 ? '#b8ec5f' : '#333d35'}"/><text x="${x + 6}" y="102" fill="#838c83" font-family="JetBrains Mono, monospace" font-size="9" text-anchor="middle">${l}</text>`);
+  });
+  g.push('<line x1="12" y1="87" x2="118" y2="87" stroke="#222a24"/><line x1="162" y1="87" x2="246" y2="87" stroke="#222a24"/>');
+  $('#fig-read').innerHTML = g.join('');
+})();
+
+const GEN_TOKENS = ['{"', 'route', '":', ' "', 'auth', '",', ' "', 'urg', 'ent', '":', ' true', ',', ' "', 'ch', 'urn', '_risk', '":', ' "', 'high', '",', ' "', 'ref', 'und', '_e', 'ur', '":', ' ', '124', '0', ',', ' "', 'needs', '_human', '":', ' true', ',', ' "', 'sent', 'iment', '":', ' "', 'fr', 'ustr', 'ated', '"}'];
+const duel = $('#duel');
+const D = {
+  stream: $('#gen-stream'), gp: $('#gen-passes'), gt: $('#gen-toks'), gm: $('#gen-model'),
+  rp: $('#read-passes'), rt: $('#read-toks'), rm: $('#read-model'), logits: $('#logits'),
+};
+let dt = [], duelOn = false, duelLoop = false;
+const at = (ms, f) => dt.push(setTimeout(f, ms));
+const on = (sel, v = true) => $$(sel, duel).forEach(e => e.classList.toggle('on', v));
+
+function duelReset() {
+  dt.forEach(clearTimeout); dt = [];
+  duel.classList.remove('done');
+  D.stream.innerHTML = '';
+  D.gp.textContent = D.gt.textContent = D.rp.textContent = D.rt.textContent = '0';
+  D.logits.classList.remove('lit', 'masked');
+  on('.box', false); on('.dim', false); on('.model', false);
+}
+function duelFinal() {
+  duelReset();
+  D.stream.innerHTML = GEN_TOKENS.map(t => `<span>${esc(t)}</span>`).join('');
+  D.gp.textContent = GEN_TOKENS.length + 1; D.gt.textContent = GEN_TOKENS.length;
+  D.rp.textContent = '1'; D.logits.classList.add('lit', 'masked');
+  duel.classList.add('done');
+}
+function duelPlay() {
+  duelReset();
+  const step = 95;
+  // read lane
+  at(100, () => on('[data-r="in"]'));
+  at(420, () => { D.rm.classList.add('on'); D.rp.textContent = '1'; });
+  at(800, () => D.logits.classList.add('lit'));
+  at(1250, () => { D.logits.classList.add('masked'); on('[data-r="mask"]'); });
+  at(1600, () => on('[data-r="soft"]'));
+  at(1900, () => on('[data-r="out"]'));
+  // generate lane
+  at(100, () => on('[data-g="in"]'));
+  at(420, () => { D.gm.classList.add('on'); D.gp.textContent = '1'; D.stream.innerHTML = '<span class="caret"></span>'; });
+  GEN_TOKENS.forEach((t, i) => at(700 + i * step, () => {
+    const caret = D.stream.lastElementChild;
+    const s = document.createElement('span'); s.textContent = t;
+    D.stream.insertBefore(s, caret);
+    D.gp.textContent = i + 2; D.gt.textContent = i + 1;
+    D.gm.classList.add('tick'); setTimeout(() => D.gm.classList.remove('tick'), step * .5);
+  }));
+  const end = 700 + GEN_TOKENS.length * step;
+  at(end + 100, () => { const c = D.stream.querySelector('.caret'); if (c) c.remove(); on('[data-g="parse"]'); });
+  at(end + 450, () => on('[data-g="val"]'));
+  at(end + 800, () => on('[data-g="retry"]'));
+  at(end + 1150, () => on('[data-g="out"]'));
+  at(end + 4200, () => { if (duelLoop) duelPlay(); });
+}
+if (reduced) duelFinal();
+else {
+  duelFinal();
+  new IntersectionObserver(es => {
+    const v = es.some(e => e.isIntersecting);
+    if (v && !duelOn) { duelOn = true; duelLoop = true; duelPlay(); }
+    if (!v && duelOn) { duelOn = false; duelLoop = false; duelFinal(); }
+  }, { threshold: .45 }).observe(duel);
+}
+
+/* ---------------- install + copy ---------------- */
+const INSTALL = {
+  mac: { html: '<span class="p">$ </span>brew install emnlmn/snap/snap', text: 'brew install emnlmn/snap/snap' },
+  linux: { html: '<span class="p">$ </span>mkdir -p ~/snap && curl -sL https://github.com/emnlmn/snap/releases/latest/download/snap-linux-x86_64.tar.gz | tar xz -C ~/snap\n<span class="p">$ </span>ln -sf ~/snap/snap ~/.local/bin/snap',
+    text: 'mkdir -p ~/snap && curl -sL https://github.com/emnlmn/snap/releases/latest/download/snap-linux-x86_64.tar.gz | tar xz -C ~/snap\nln -sf ~/snap/snap ~/.local/bin/snap' },
+  src: { html: '<span class="p">$ </span>git clone https://github.com/emnlmn/snap && cd snap\n<span class="p">$ </span>make setup && make build <span class="c"># → ./target/release/snap</span>',
+    text: 'git clone https://github.com/emnlmn/snap && cd snap\nmake setup && make build' },
+};
+const COPY = {
+  serve: 'snap serve --model qwen3.8-4b',
+  ask: `curl -s localhost:8018/v1/systemone -d '{\n  "state": "Checkout has been down for an hour.",\n  "questions": {\n    "urgent": {"type": "noul"},\n    "team": {"type": "choice",\n      "criteria": ["billing", "technical"]}}}'`,
+};
+let plat = 'mac';
+function setPlat(p) {
+  plat = p;
+  $('#install-pre').innerHTML = INSTALL[p].html;
+  $$('[data-plat]').forEach(b => { const on = b.dataset.plat === p; b.setAttribute('aria-selected', on); b.setAttribute('aria-pressed', on); });
+}
+$$('[data-plat]').forEach(b => b.addEventListener('click', () => setPlat(b.dataset.plat)));
+const uaPlat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+const isLinux = /linux/i.test(uaPlat) && !/android/i.test(navigator.userAgent);
+setPlat(isLinux ? 'linux' : 'mac');
+const heroCmd = isLinux
+  ? 'mkdir -p ~/snap && curl -sL https://github.com/emnlmn/snap/releases/latest/download/snap-linux-x86_64.tar.gz | tar xz -C ~/snap'
+  : 'brew install emnlmn/snap/snap';
+$('#hero-cmd-t').textContent = heroCmd;
+
+$$('[data-copy]').forEach(b => b.addEventListener('click', async () => {
+  const k = b.dataset.copy;
+  const text = k === 'hero' ? heroCmd : k === 'install' ? INSTALL[plat].text : COPY[k];
+  try { await navigator.clipboard.writeText(text); b.textContent = 'copied'; }
+  catch { b.textContent = 'select + copy'; }
+  setTimeout(() => b.textContent = 'copy', 1600);
+}));
+
+/* ---------------- nav ---------------- */
+const topbar = $('#top');
+addEventListener('scroll', () => topbar.classList.toggle('scrolled', scrollY > 8), { passive: true });
 </script>
 </body>
 </html>
