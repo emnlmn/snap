@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#f4f4ee">
 <title>snap · Ask everything. Generate nothing.</title>
-<meta name="description" content="snap is a local decision engine for LLM pipelines. Send one state and every question you have about it: typed answers, each a full probability distribution, from a single pass. No generated text. Jev-compatible, open source.">
+<meta name="description" content="snap is a local decision engine for LLM pipelines: typed answers to every question about your data, each with a full probability distribution, from a single pass and with no generated text. Jev-compatible and open source.">
 <meta property="og:title" content="snap · Ask everything. Generate nothing.">
 <meta property="og:description" content="Typed decisions from one pass over the model. Every answer is a probability distribution, nothing is generated, everything runs on your hardware.">
 <meta property="og:image" content="https://emnlmn.github.io/snap/logo.png">
@@ -401,48 +401,38 @@ section { padding: 128px 0; }
 .uc-panel { background: var(--white); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
 .uc-top { padding: 28px 32px 24px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 24px; align-items: start; }
 .uc-top h3 { font-size: 24px; font-weight: 700; font-stretch: 108%; letter-spacing: -.02em; }
-.uc-top p { grid-column: 1; color: var(--soft); font-size: 16px; max-width: 42rem; text-wrap: pretty; }
+.uc-top p { display: none; grid-column: 1; color: var(--soft); font-size: 15px; text-wrap: pretty; } /* the selected tab carries it on wide screens */
 .uc-stat { grid-row: 1 / span 2; grid-column: 2; text-align: right; font: 12px/1.6 var(--mono); color: var(--faint); white-space: nowrap; }
 .uc-stat b { display: block; font: 600 22px/1.2 var(--mono); color: var(--text); letter-spacing: -.02em; }
 .uc-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
 .uc-req { padding: 22px 28px 26px 32px; border-right: 1px solid var(--line); background: #fbfbf7; min-width: 0; }
 .uc-res { padding: 22px 32px 26px 28px; min-width: 0; }
 .lbl { font: 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--faint); margin-bottom: 10px; }
-.uc-req .json { color: var(--soft); font-size: 12.5px; }
-.uc-req .json .k { color: var(--text); }
-.uc-req .json .s { color: var(--amber); }
-.uc-req .json .n, .uc-req .json .b { color: var(--green-deep); }
-.uc-qs { margin-top: 18px; display: grid; gap: 8px; }
-.uc-qs li { font-size: 14px; line-height: 1.45; color: var(--soft); }
-.uc-qs code { font-size: 12.5px; color: var(--text); font-weight: 500; }
-.uc-qs .t { font: 12px var(--mono); color: var(--faint); margin-left: 6px; }
+/* the state as the fields it holds, not as JSON */
+.uc-state { display: grid; gap: 14px; }
+.uc-state dt { font-size: 12.5px; color: var(--faint); }
+.uc-state dd { margin-top: 2px; font-size: 14.5px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.uc-state dd span { display: block; }
+.uc-state .e { color: var(--faint); font-style: italic; }
 .dist + .dist { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
-.dist-h { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
-.dist-h code { font-size: 13px; font-weight: 600; color: var(--text); }
-.dist-h .t { font: 12px var(--mono); color: var(--faint); }
-.dist-h .st { font: 500 12px var(--mono); color: var(--amber); }
-.dist-h .v { margin-left: auto; font-weight: 640; font-size: 15px; color: var(--green-deep); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
+.dist-h { display: flex; align-items: baseline; gap: 8px 14px; margin-bottom: 10px; }
+.dist-h .q { font-size: 14.5px; font-weight: 560; line-height: 1.4; color: var(--text); text-wrap: pretty; }
+.dist-h .st { font: 500 12px var(--mono); color: var(--amber); white-space: nowrap; }
+.dist-h .v { margin-left: auto; font-weight: 640; font-size: 15px; color: var(--green-deep); white-space: nowrap; }
 .bars { display: grid; gap: 4px; }
-.bar { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr) 40px; gap: 12px; align-items: center; }
-.bar .l { font: 12px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar { display: grid; grid-template-columns: minmax(0, 13rem) minmax(0, 1fr) 40px; gap: 12px; align-items: center; }
+.bar .l { font-size: 13.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar .tr { height: 8px; background: var(--paper-2); border-radius: 4px; overflow: hidden; }
 .bar .tr i { display: block; height: 100%; background: var(--line-hi); border-radius: 4px; width: 0; transition: width .6s var(--ease); }
-.bar .p { font: 12px var(--mono); color: var(--faint); text-align: right; font-variant-numeric: tabular-nums; }
+.bar .p { font-size: 13px; color: var(--faint); text-align: right; font-variant-numeric: tabular-nums; }
 .bar.w .l { color: var(--text); font-weight: 600; }
 .bar.w .tr i { background: var(--green); }
 .bar.w .p { color: var(--green-deep); font-weight: 600; }
-.more { font: 12px var(--mono); color: var(--faint); margin-top: 4px; }
+.more { font-size: 13px; color: var(--faint); margin-top: 6px; }
 .hist-l { display: flex; align-items: flex-end; gap: 3px; height: 44px; }
 .hist-l i { flex: 1; height: 2px; min-height: 2px; background: var(--line-hi); border-radius: 2px; transition: height .6s var(--ease); }
 .hist-l i.w { background: var(--green); }
 .axis { display: flex; justify-content: space-between; margin-top: 6px; font: 12px var(--mono); color: var(--faint); }
-.uc-wire { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px; align-items: center; padding: 18px 32px; background: var(--ink); color: var(--ink-text); }
-.uc-wire .lbl { color: var(--ink-faint); margin: 0; }
-.uc-wire pre { font: 13px/1.6 var(--mono); color: var(--ink-soft); white-space: pre; overflow-x: auto; }
-.uc-wire .kw { color: var(--mint); }
-.uc-wire .s { color: var(--sand); }
-.uc-wire .c { color: var(--ink-faint); }
-.uc-wire .n { color: var(--mint); }
 
 /* ---------- how it works: the race ---------- */
 /* scroll is the clock: .rc is tall, the stage pins under the nav, and the
@@ -620,11 +610,11 @@ table.t { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 
 /* ---------- api ---------- */
 .api { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); gap: 72px; align-items: start; }
-.api .sub + .sub { margin-top: 14px; }
+.api > div:first-child { position: sticky; top: 104px; } /* the text stays beside the longer example */
 .types { margin-top: 36px; border-top: 1px solid var(--ink-line); }
-.types div { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 16px; padding: 13px 0; border-bottom: 1px solid var(--ink-line); font-size: 14.5px; color: var(--ink-soft); }
+.types div { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 16px; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--ink-line); font-size: 14.5px; color: var(--ink-soft); }
 .types code { color: var(--lime); font-size: 13px; font-weight: 500; }
-.types span code { color: var(--ink-text); font-weight: 400; }
+.types span { text-wrap: pretty; }
 .api .links { margin-top: 28px; display: flex; gap: 10px; flex-wrap: wrap; }
 .win { border: 1px solid var(--ink-line); border-radius: 16px; background: var(--ink-2); overflow: hidden; }
 .win-h { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 18px; border-bottom: 1px solid var(--ink-line); font: 12px var(--mono); color: var(--ink-faint); }
@@ -632,7 +622,7 @@ table.t { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .win-h .ok { color: var(--mint); font-weight: 600; }
 .win-h .path { color: var(--ink-text); }
 .win-h .r { margin-left: auto; }
-.win pre { padding: 18px 20px; font: 12.5px/1.7 var(--mono); color: var(--ink-soft); white-space: pre; overflow-x: auto; }
+.win pre { padding: 18px 22px 20px; font: 12.5px/1.65 var(--mono); color: var(--ink-soft); white-space: pre; overflow-x: auto; }
 .win pre .k { color: #c9d1c7; }
 .win pre .s { color: var(--sand); }
 .win pre .n, .win pre .b { color: var(--mint); }
@@ -641,49 +631,51 @@ table.t { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .api .note { margin-top: 14px; }
 
 /* ---------- compare ---------- */
-.cmp { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 8px 28px 14px; }
-.cmp table { width: 100%; border-collapse: collapse; font-size: 15px; }
-.cmp th, .cmp td { padding: 16px 16px 16px 0; text-align: left; border-top: 1px solid var(--line); vertical-align: top; }
-.cmp thead th { border-top: 0; font-weight: 650; font-size: 15px; color: var(--text); }
+.cmp { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 6px 32px 10px; }
+.cmp table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 15px; line-height: 1.45; }
+.cmp th, .cmp td { padding: 17px 28px 17px 0; text-align: left; border-top: 1px solid var(--line); vertical-align: top; }
+.cmp tr > :last-child { padding-right: 0; }
+.cmp thead th { border-top: 0; font-weight: 650; color: var(--text); }
+.cmp thead th:first-child { width: 26%; }
 .cmp thead th.me { color: var(--green-deep); }
-.cmp tbody th { font-weight: 500; color: var(--muted); width: 22%; }
-.cmp td { color: var(--soft); }
-.cmp td.me { color: var(--text); font-weight: 600; }
-.cmp .y, .cmp .no { display: inline-flex; gap: 8px; align-items: baseline; }
-.cmp .y svg, .cmp .no svg { width: 14px; height: 14px; flex: none; align-self: center; }
-.cmp .y svg { color: var(--green); }
-.cmp .no { color: var(--faint); }
-.cmp .no svg { color: var(--line-hi); }
-.cmp td code { font-size: 13px; }
+.cmp tbody th { font-weight: 500; color: var(--muted); }
+.cmp td { position: relative; color: var(--soft); }
+.cmp td.me { color: var(--text); font-weight: 560; }
+.cmp td.no { color: var(--faint); }
+/* yes/no marks hang in the column gap: every value starts on its header's line */
+.cmp td.y::before, .cmp td.no::before {
+  content: ""; position: absolute; left: -22px; top: 21px; width: 14px; height: 14px;
+  -webkit-mask: var(--mk) center / contain no-repeat; mask: var(--mk) center / contain no-repeat;
+}
+.cmp td.y::before { --mk: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M2.5 7.4l2.8 2.8 6.2-6.6' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background: var(--green); }
+.cmp td.no::before { --mk: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M3.5 7h7' stroke='%23000' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E"); background: var(--line-hi); }
 .cmp-note { margin-top: 16px; }
 
 /* ---------- start ---------- */
-.start { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
-.sstep { border: 1px solid var(--ink-line); border-radius: 16px; background: var(--ink-2); display: flex; flex-direction: column; min-width: 0; }
-.sstep-h { padding: 22px 22px 16px; }
+/* three cards on one subgrid: titles, the platform switch and the commands line up across them */
+.start { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: auto auto auto; gap: 0 20px; }
+.sstep { grid-row: span 3; display: grid; grid-template-rows: subgrid; border: 1px solid var(--ink-line); border-radius: 16px; background: var(--ink-2); min-width: 0; overflow: hidden; }
+.sstep-h { padding: 24px 24px 18px; }
 .sstep-h .n { font: 600 12px var(--mono); color: var(--lime); }
 .sstep-h h3 { margin-top: 8px; font-size: 20px; font-stretch: 106%; }
-.sstep-h p { margin-top: 6px; font-size: 14.5px; color: var(--ink-soft); }
-.sstep .plat { display: flex; flex-wrap: wrap; gap: 2px; padding: 0 18px 14px; }
+.sstep-h p { margin-top: 6px; font-size: 14.5px; color: var(--ink-soft); text-wrap: pretty; }
+.sstep .plat { display: flex; flex-wrap: wrap; gap: 2px; padding: 0 20px 16px; }
 .seg {
   height: 30px; padding: 0 11px; border: 0; border-radius: 8px; background: transparent;
   font: 500 13.5px var(--sans); color: var(--ink-faint); cursor: pointer; transition: color .15s, background .15s;
 }
 .seg:hover { color: var(--ink-text); }
 .seg[aria-selected="true"] { background: var(--ink-3); color: #fff; box-shadow: inset 0 0 0 1px var(--ink-hi); }
-.sstep pre a { color: var(--mint); }
-.sstep pre { margin-top: auto; padding: 16px 22px 18px; border-top: 1px solid var(--ink-line); font: 12.5px/1.75 var(--mono); color: var(--ink-text); white-space: pre-wrap; overflow-wrap: anywhere; }
-.sstep pre .p { color: var(--lime); user-select: none; }
-.sstep pre .c { color: var(--ink-faint); }
-.sstep-f { display: flex; justify-content: flex-end; padding: 0 12px 12px; }
+.sstep-cmd { grid-row: 3; position: relative; display: flex; align-items: flex-start; gap: 12px; padding: 14px 14px 14px 24px; border-top: 1px solid var(--ink-line); }
+.sstep-cmd pre { flex: 1; min-width: 0; padding-top: 7px; font: 12.5px/1.75 var(--mono); color: var(--ink-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.sstep-cmd pre a { color: var(--mint); }
+.sstep-cmd pre .p { color: var(--lime); user-select: none; }
+.sstep-cmd pre .c { color: var(--ink-faint); }
 .sstep .copy { background: var(--ink-3); color: var(--ink-soft); }
 .sstep .copy:hover { background: var(--ink-hi); color: #fff; }
-.platforms { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 8px 28px; font: 12.5px var(--mono); color: var(--ink-faint); }
-.platforms b { color: var(--ink-text); font-weight: 500; }
-.close { margin-top: 120px; padding-top: 72px; border-top: 1px solid var(--ink-line); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px 48px; align-items: end; }
-.close h2 { font-size: clamp(2.2rem, 5vw, 4.4rem); max-width: 14ch; }
-.close-get { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; width: min(100%, 34rem); }
-.close-get .cta { margin-top: 4px; }
+.sstep .open { display: inline-flex; align-items: center; background: var(--lime); color: var(--ink); font-weight: 600; text-decoration: none; }
+.sstep .open:hover { background: #cdf585; color: var(--ink); }
+.platforms { margin-top: 24px; font-size: 13.5px; color: var(--ink-faint); }
 
 /* ---------- footer ---------- */
 footer { padding: 56px 0 64px; }
@@ -713,7 +705,8 @@ footer { padding: 56px 0 64px; }
   section { padding: 88px 0; }
   .top nav, .top .gh-t { display: none; }
   .hero { padding-top: 56px; }
-  .hero-row, .head, .api, .tables, .alpha, .close { grid-template-columns: minmax(0, 1fr); }
+  .hero-row, .head, .api, .tables, .alpha { grid-template-columns: minmax(0, 1fr); }
+  .api > div:first-child { position: static; }
   .head { margin-bottom: 44px; }
   .head .sub { justify-self: start; }
   .stage { margin-top: 44px; }
@@ -731,12 +724,12 @@ footer { padding: 56px 0 64px; }
   .uc-tab { flex: none; width: auto; padding: 10px 14px; }
   .uc-tab span { display: none; }
   .uc-top { grid-template-columns: minmax(0, 1fr); padding: 22px 20px 18px; }
+  .uc-top p { display: block; }
   .uc-stat { grid-row: auto; grid-column: 1; text-align: left; }
   .uc-stat b { display: inline; margin-right: 8px; }
   .uc-grid { grid-template-columns: minmax(0, 1fr); }
   .uc-req { border-right: 0; border-bottom: 1px solid var(--line); padding: 18px 20px 20px; }
   .uc-res { padding: 18px 20px 22px; }
-  .uc-wire { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 16px 20px; }
   .bar { grid-template-columns: minmax(0, 8rem) minmax(0, 1fr) 36px; }
   .rc::after { height: 120vh; }
   .rc-top { padding: 14px 16px; }
@@ -770,15 +763,21 @@ footer { padding: 56px 0 64px; }
   .rrow { grid-template-columns: minmax(0, 1fr) 56px; }
   .rrow .w { grid-column: 1 / -1; }
   .tcard { padding: 20px 20px 16px; }
-  .cmp { padding: 4px 18px 0; overflow-x: auto; }
-  .cmp table { min-width: 560px; }
-  .start { grid-template-columns: minmax(0, 1fr); }
-  .close { margin-top: 88px; padding-top: 56px; }
-  .close-get { width: 100%; }
+  .cmp { padding: 4px 24px 8px; }
+  .start { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; gap: 16px; }
+  .sstep { grid-row: auto; grid-template-rows: auto; }
   .foot { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .foot > div:first-child { grid-column: 1 / -1; }
 }
 @media (max-width: 520px) {
+  .cmp { padding: 4px 16px 6px; }
+  .cmp tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 20px; padding-left: 20px; border-top: 1px solid var(--line); }
+  .cmp thead tr { border-top: 0; }
+  .cmp thead th:first-child { display: none; }
+  .cmp th, .cmp td { padding: 0 0 14px; border-top: 0; font-size: 14px; }
+  .cmp thead th { padding-top: 14px; }
+  .cmp tbody th { grid-column: 1 / -1; margin-left: -20px; padding: 14px 0 6px; font-size: 13px; }
+  .cmp td.y::before, .cmp td.no::before { left: -18px; top: 3px; width: 12px; height: 12px; }
   .a-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .a-leg { grid-column: 1; }
   .clock { font-size: 28px; }
@@ -831,7 +830,7 @@ footer { padding: 56px 0 64px; }
   <div class="wrap">
     <h1 id="hero-h">Ask everything. Generate nothing.</h1>
     <div class="hero-row">
-      <p class="lede">snap is a decision engine for LLM pipelines. Send one state with <b>every question you have about it</b> and get back typed answers, each with its full probability distribution, from a single pass over the model. Nothing is generated, so there is nothing to parse, retry or sanitize.</p>
+      <p class="lede">snap is a decision engine for LLM pipelines. The input is your data plus <b>every question you have about it</b>; the output is a set of typed answers, each with its full probability distribution, from a single pass over the model. There’s no generated text, so there’s nothing to parse, retry or clean up.</p>
       <div class="get" id="get">
         <div class="get-os" role="group" aria-label="Your platform">
           <span>Install for</span>
@@ -844,7 +843,7 @@ footer { padding: 56px 0 64px; }
           <button class="cp" data-copy="install"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.8"/><path d="M10.5 3.2V3a1.5 1.5 0 0 0-1.5-1.5H3.8A1.5 1.5 0 0 0 2.3 3v5.2a1.5 1.5 0 0 0 1.5 1.5h.2"/></svg><span class="cp-t">Copy</span><span class="cp-ok">Copied</span></button>
         </div>
         <a class="btn primary dl" href="https://github.com/emnlmn/snap/releases/latest" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8.5M4.5 7 8 10.5 11.5 7M2.5 13.5h11"/></svg>Download for Windows · x86_64</a>
-        <p class="then"><b>then</b><code class="os-then">snap serve --model qwen3.8-4b</code><button class="copy" data-copy="then">copy</button></p>
+        <p class="then"><b>then</b><code class="os-then">snap serve</code><button class="copy" data-copy="then">copy</button></p>
         <p class="micro">Open source (MIT) · runs on your hardware · Jev wire-compatible · <a href="https://github.com/emnlmn/snap/releases/latest">all downloads</a></p>
       </div>
     </div>
@@ -889,8 +888,8 @@ footer { padding: 56px 0 64px; }
 <section id="use-cases" class="band" aria-labelledby="uc-h">
   <div class="wrap">
     <div class="head">
-      <h2 id="uc-h">Built for the decisions inside your pipeline.</h2>
-      <p class="sub">Anywhere you prompt a model for a label, a flag or a score and then parse what it wrote, snap is the shorter path. Six patterns, each with a real request and the response it got.</p>
+      <h2 id="uc-h">The decisions inside your pipeline.</h2>
+      <p class="sub">snap is the shorter path for any label, flag or score you would otherwise prompt a model for and then parse. Below are six common cases, each with a real request and snap’s real response.</p>
     </div>
     <div class="uc">
       <div class="uc-list" role="tablist" aria-label="Use cases" id="uc-list"></div>
@@ -905,7 +904,7 @@ footer { padding: 56px 0 64px; }
     <div class="rc" id="rc">
       <div class="rc-stage">
         <div class="head">
-          <h2 id="how-h">A chat model writes its answer. snap reads it.</h2>
+          <h2 id="how-h">Logits, not generated text.</h2>
           <div>
             <p class="sub">At every step, a language model scores every token in its vocabulary as the possible next one. Those scores are the <b>logits</b>. Chat inference picks a token, appends it and runs the model again, once per token, until there is enough text for you to parse.</p>
             <p class="sub" style="margin-top:14px">snap asks each question so that the answer is a single letter, runs the model once, and reads the scores of those letters directly.</p>
@@ -958,9 +957,9 @@ footer { padding: 56px 0 64px; }
             <details class="rc-info">
               <summary><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.4v3.6M8 5v.1"/></svg>How we measured</summary>
               <div class="rc-pop">
-                <p>snap and Ollama 0.34.3 run the same MiniCPM5-2B weights on one Apple M1 Max; OpenAI runs gpt-5.6-luna with reasoning off. Same prompt, same JSON schema, and a state no engine has seen before, on every request.</p>
-                <p>Times are medians of 15 requests (OpenAI: 5). The bars are each engine's measured phases; the JSON is a reply the model actually wrote, replayed at its measured pace.</p>
-                <p>Reproduce with <code>eval/vs_ollama.py</code> and <code>eval/vs_openai.py</code>. Every workload and mode: <a href="#benchmarks">Benchmarks</a>.</p>
+                <p>snap and Ollama 0.34.3 run the same MiniCPM5-2B weights on one Apple M1 Max, and OpenAI runs gpt-5.6-luna with reasoning turned off. Every request uses the same prompt and JSON schema, with data no engine has seen before.</p>
+                <p>Times are the median of 15 requests (5 for OpenAI). The bars show each engine’s measured phases, and the JSON is a real reply from the model, replayed at the speed it was written.</p>
+                <p>You can reproduce these numbers with <code>eval/vs_ollama.py</code> and <code>eval/vs_openai.py</code>. Every workload and mode is in <a href="#benchmarks">Benchmarks</a>.</p>
               </div>
             </details>
             <div class="rc-ticks" id="rc-ticks" aria-hidden="true"></div>
@@ -978,9 +977,9 @@ footer { padding: 56px 0 64px; }
           <span><b>Answer:</b> <span class="hot">▍</span></span>
         </div>
         <span class="n">1</span>
-        <h3>Compile</h3>
-        <p>Each question becomes a prompt that stops exactly where the answer's first token goes. Options get letters, so the whole answer is one token.</p>
-        <p><code>noul</code> is A/B, <code>choice</code> one letter per option, <code>score</code> ordered levels, <code>numeric</code> anchors across your range.</p>
+        <h3>Letter prompts</h3>
+        <p>Each question becomes a prompt that stops exactly where the answer’s first token goes. Each option gets a letter, so the whole answer is a single token.</p>
+        <p>A yes/no question (<code>noul</code>) gets A and B, a <code>choice</code> gets one letter per option, a <code>score</code> one per level, and a <code>numeric</code> question one per anchor value across your range.</p>
       </li>
       <li class="step">
         <div class="fig" aria-hidden="true">
@@ -996,9 +995,9 @@ footer { padding: 56px 0 64px; }
           </svg>
         </div>
         <span class="n">2</span>
-        <h3>Prefill once</h3>
-        <p>The state runs through the model one time. What it computes, the <b>KV cache</b> (the model's working memory of your input), is shared by every question.</p>
-        <p>Question suffixes branch off it as a prefix tree, so any text they share is computed once, and repeat heads stay cached across requests.</p>
+        <h3>One shared prefill</h3>
+        <p>The state goes through the model once. What the model computes from it, the <b>KV cache</b> (its working memory of your input), is shared by every question.</p>
+        <p>The questions branch off it like a tree, so any text they have in common is computed only once, and prompt openings that repeat across requests stay cached.</p>
       </li>
       <li class="step">
         <div class="fig" aria-hidden="true">
@@ -1011,17 +1010,17 @@ footer { padding: 56px 0 64px; }
         </div>
         <span class="n">3</span>
         <h3>One batched decode</h3>
-        <p>Every question suffix decodes together in a single <code>llama_decode</code> call, one KV sequence per question. Four questions cost one pass, not four conversations.</p>
-        <p>A startup probe picks the path each architecture supports. Nothing to configure.</p>
+        <p>All the questions are decoded together in a single <code>llama_decode</code> call, with one KV sequence each. Four questions cost one pass, not four conversations.</p>
+        <p>At startup, snap checks which method the model’s architecture supports and uses it. There’s nothing to configure.</p>
       </li>
       <li class="step">
         <div class="fig" aria-hidden="true">
           <svg viewBox="0 0 260 120" preserveAspectRatio="xMidYMid meet" id="fig-read"></svg>
         </div>
         <span class="n">4</span>
-        <h3>Read one position</h3>
-        <p>For each question snap reads a single row of logits, keeps only the option letters, merges their variants and softmaxes them into your distribution.</p>
-        <p><code>coverage</code> reports how much of the raw mass sat on your letters. <code>snap calibrate</code> fits a temperature per question type.</p>
+        <h3>One logit row</h3>
+        <p>For each question, snap reads a single row of logits, keeps only the option letters, merges the different tokens for the same letter (like “A” and “ A”) and turns them into your distribution with a softmax.</p>
+        <p><code>coverage</code> tells you how much of the model’s probability landed on your letters. <code>snap calibrate</code> can fit a temperature for each question type.</p>
       </li>
     </ol>
 
@@ -1029,7 +1028,7 @@ footer { padding: 56px 0 64px; }
       <div class="alpha-row" aria-label="The output surface: letters A to Z">
         <span>A</span><span class="hot">B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span><span>I</span><span>J</span><span>K</span><span>L</span><span>M</span><span>N</span><span>O</span><span>P</span><span>Q</span><span>R</span><span>S</span><span>T</span><span>U</span><span>V</span><span>W</span><span>X</span><span>Y</span><span>Z</span>
       </div>
-      <p>This is the entire output surface. Past 26 options, each candidate gets its own yes/no probe over the same shared prefix, up to <code>256</code>.</p>
+      <p>These 26 letters are everything snap can output. With more than 26 options, each option gets its own yes/no question over the same shared prefix, up to <code>256</code>.</p>
     </div>
   </div>
 </section>
@@ -1038,8 +1037,8 @@ footer { padding: 56px 0 64px; }
 <section id="security" aria-labelledby="sec-h">
   <div class="wrap">
     <div class="head">
-      <h2 id="sec-h">Prompt injection needs a voice. snap doesn't have one.</h2>
-      <p class="sub">Injection works by getting a model to produce text you didn't intend: a leaked system prompt, a smuggled tool call, a link your UI renders. snap never produces text. What leaves the engine is a probability over options you wrote, in a JSON shape the server builds, not the model.</p>
+      <h2 id="sec-h">No text channel for prompt injection.</h2>
+      <p class="sub">Injection works by getting a model to produce text you didn’t intend: a leaked system prompt, a smuggled tool call, a link your UI renders. snap never produces text. What leaves the engine is a probability over options you wrote, in a JSON shape the server builds, not the model.</p>
     </div>
 
     <div class="threats">
@@ -1047,34 +1046,34 @@ footer { padding: 56px 0 64px; }
         <thead><tr><th scope="col">Attack</th><th scope="col">LLM that generates text</th><th scope="col">snap</th></tr></thead>
         <tbody>
           <tr>
-            <th scope="row">Exfiltrate data through the response</th>
+            <th scope="row">Data exfiltration through the response</th>
             <td><span class="mk x"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Possible. The response is free text.</span></td>
             <td><span class="mk ok"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.8 9.2l2.2 2.2 4.2-4.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>No text channel. Answers are numbers keyed by your option names.</span></td>
           </tr>
           <tr>
-            <th scope="row">Smuggle a tool call or command</th>
+            <th scope="row">A smuggled tool call or command</th>
             <td><span class="mk x"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Possible. The model writes the call.</span></td>
             <td><span class="mk ok"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.8 9.2l2.2 2.2 4.2-4.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Nothing to execute. Your code maps a decided option to an action you wrote.</span></td>
           </tr>
           <tr>
-            <th scope="row">Leak the system prompt or context</th>
+            <th scope="row">A leaked system prompt or context</th>
             <td><span class="mk x"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Possible. It can be asked to repeat itself.</span></td>
             <td><span class="mk ok"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.8 9.2l2.2 2.2 4.2-4.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Nothing is generated for it to leak into.</span></td>
           </tr>
           <tr>
-            <th scope="row">Inject markup or links downstream</th>
+            <th scope="row">Markup or links injected downstream</th>
             <td><span class="mk x"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Possible. Output gets rendered in a UI or an email.</span></td>
             <td><span class="mk ok"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.8 9.2l2.2 2.2 4.2-4.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>The response schema is fixed by the server.</span></td>
           </tr>
           <tr>
-            <th scope="row">Break the output format</th>
+            <th scope="row">A broken output format</th>
             <td><span class="mk x"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Handled with validators, repair and retries.</span></td>
-            <td><span class="mk ok"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.8 9.2l2.2 2.2 4.2-4.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Can't happen. The model doesn't write the response.</span></td>
+            <td><span class="mk ok"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.8 9.2l2.2 2.2 4.2-4.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Can’t happen. The model doesn’t write the response.</span></td>
           </tr>
           <tr class="residual">
-            <th scope="row">Argue the model toward a different answer</th>
+            <th scope="row">Persuasion toward a different answer</th>
             <td><span class="mk x"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6.5 6.5l5 5M11.5 6.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Possible, and invisible in the output.</span></td>
-            <td><span class="mk mid"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 9h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>Still possible, but bounded and measurable. Text in the state can only move probability between your options. It shows up as split <code>confidence</code> or low <code>coverage</code>, and <code>allow_abstain</code> gives it a way out. Threshold on it and route to a human.</span></span></td>
+            <td><span class="mk mid"><svg viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 9h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>Still possible, but limited and measurable. Text in the state can only shift probability between your options. That shows up as split <code>confidence</code> or low <code>coverage</code>, and <code>allow_abstain</code> lets the model say it can’t tell. Set a threshold and send those cases to a person.</span></span></td>
           </tr>
         </tbody>
       </table>
@@ -1083,19 +1082,19 @@ footer { padding: 56px 0 64px; }
     <div class="deploy">
       <div>
         <h3>On your hardware</h3>
-        <p>A laptop, a VM, a Kubernetes pod or an air-gapped rack. One binary with llama.cpp compiled in, including a fully static Linux build. No Python, no runtime to patch.</p>
+        <p>A single binary with llama.cpp built in, the same on a laptop, a VM, a Kubernetes pod or an air-gapped rack. There’s also a fully static Linux build, with no Python and no runtime to keep patched.</p>
       </div>
       <div>
         <h3>No data egress</h3>
-        <p>No API key, no telemetry, no third party processing your records. Weights are a GGUF on disk; after the first download snap runs offline. The daily release check prints to stderr and turns off with <code>SNAP_NO_UPDATE_CHECK=1</code>.</p>
+        <p>There’s no API key, no telemetry and no third party handling your records. The weights are a GGUF file on disk, and after the first download snap runs offline. A daily check for new releases prints to stderr, and <code>SNAP_NO_UPDATE_CHECK=1</code> turns it off.</p>
       </div>
       <div>
         <h3>Auditable by design</h3>
-        <p>Same input, same distribution. Log the full probability map with every decision, replay it later, and read <code>x_snap</code> for exactly what the engine did.</p>
+        <p>The same input always gives the same distribution. You can log the full probabilities with every decision, replay it later, and check <code>x_snap</code> to see exactly what the engine did.</p>
       </div>
       <div>
         <h3>Open source</h3>
-        <p>MIT-licensed Rust you can read end to end. Models come from a tested list, and calibration files refuse to load against a different model or prompt version.</p>
+        <p>It’s MIT-licensed Rust you can read end to end. Models come from a tested list, and a calibration file won’t load with a different model or prompt version than the one it was fitted on.</p>
       </div>
     </div>
   </div>
@@ -1105,25 +1104,25 @@ footer { padding: 56px 0 64px; }
 <section id="benchmarks" class="band" aria-labelledby="bench-h">
   <div class="wrap">
     <div class="head">
-      <h2 id="bench-h">Measured on the same weights.</h2>
-      <p class="sub">Apple M1 Max, Metal, in-process <code>snap bench --requests 20</code>, p50. Every number reproduces with <code>snap bench</code> and <code>snap evaluate eval/*.jsonl</code>.</p>
+      <h2 id="bench-h">Latency and accuracy on the same weights.</h2>
+      <p class="sub">All numbers are medians of <code>snap bench --requests 20</code> on an Apple M1 Max with Metal, and every one is reproducible with <code>snap bench</code> and <code>snap evaluate eval/*.jsonl</code>.</p>
     </div>
 
     <div class="race">
       <div class="race-h">
-        <h3>snap vs Ollama 0.34.3 · same MiniCPM5-2B weights, same machine, a never-seen state per request, p50 of 15</h3>
+        <h3>snap vs Ollama 0.34.3, same weights, same machine</h3>
         <div class="legend"><span><i class="o3"></i>Ollama, JSON + probabilities</span><span><i class="o2"></i>Ollama, JSON answers</span><span><i class="o"></i>Ollama, one letter each</span><span><i class="s"></i>snap</span></div>
       </div>
       <div class="rrow"><span class="w">1 question</span><div class="rbars"><div class="rb o3"><i style="--v:100.0"></i><span>898 ms · 69 tokens</span></div><div class="rb o2"><i style="--v:18.1"></i><span>163 ms · 9 tokens</span></div><div class="rb o"><i style="--v:6.8"></i><span>61 ms · 1 token</span></div><div class="rb s"><i style="--v:6.1"></i><span>54 ms · 0 tokens</span></div></div><span class="delta">−11%</span></div>
       <div class="rrow"><span class="w">4 questions</span><div class="rbars"><div class="rb o3"><i style="--v:100.0"></i><span>3704 ms · 282 tokens</span></div><div class="rb o2"><i style="--v:9.2"></i><span>342 ms · 26 tokens</span></div><div class="rb o"><i style="--v:6.9"></i><span>257 ms · 4 tokens</span></div><div class="rb s"><i style="--v:3.6"></i><span>135 ms · 0 tokens</span></div></div><span class="delta">−48%</span></div>
       <div class="rrow"><span class="w">8 questions</span><div class="rbars"><div class="rb o3"><i style="--v:100.0"></i><span>7874 ms · 562 tokens</span></div><div class="rb o2"><i style="--v:9.3"></i><span>732 ms · 50 tokens</span></div><div class="rb o"><i style="--v:6.4"></i><span>504 ms · 8 tokens</span></div><div class="rb s"><i style="--v:3.3"></i><span>263 ms · 0 tokens</span></div></div><span class="delta">−48%</span></div>
       <div class="rrow"><span class="w">5 KB state, 1 question</span><div class="rbars"><div class="rb o3"><i style="--v:100.0"></i><span>3872 ms · 73 tokens</span></div><div class="rb o2"><i style="--v:70.7"></i><span>2738 ms · 8 tokens</span></div><div class="rb o"><i style="--v:68.4"></i><span>2650 ms · 1 token</span></div><div class="rb s"><i style="--v:57.5"></i><span>2226 ms · 0 tokens</span></div></div><span class="delta">−16%</span></div>
-      <p class="note" style="margin-top:14px">The delta is snap against Ollama's fastest mode in that row. One letter per question is Ollama's floor: text to parse, no probabilities, one request per question (asked for <code>"A,C,B"</code> in one reply, it stopped early). JSON is what a pipeline actually wires, under a schema; with probabilities it carries what a snap answer does, written token by token. Each engine ran its requests back to back; reproduce with <code>eval/vs_ollama.py</code>.</p>
+      <p class="note" style="margin-top:14px">Both engines run MiniCPM5-2B on the same machine, every request uses data neither has seen, and times are the median of 15 runs. The percentage compares snap with Ollama’s fastest option in each row, which is always one letter per question: the quickest Ollama can go, but it gives you text to parse, no probabilities, and one request per question (when we asked for all the letters in one reply, it stopped early). JSON under a schema is what a pipeline actually uses, and with probabilities it carries the same information as a snap answer, written one token at a time. You can reproduce it with <code>eval/vs_ollama.py</code>.</p>
     </div>
 
     <div class="tables">
       <div class="tcard">
-        <h3>Latency · questions share one state prefix</h3>
+        <h3>Latency with a shared state</h3>
         <div class="tbl-wrap"><table class="t">
           <thead><tr><th>scenario</th><th>minicpm5-2b</th><th>spark-4b</th><th>qwen3.8-4b</th></tr></thead>
           <tbody>
@@ -1135,19 +1134,19 @@ footer { padding: 56px 0 64px; }
             <tr><td>4 KB state, 1 question</td><td class="m">1364 ms</td><td class="m">2476 ms</td><td class="m">2164 ms</td></tr>
           </tbody>
         </table></div>
-        <p class="note">Every prompt of a request decodes as one shared-prefix trie in a single batched call, on every architecture — qwen's hybrid runs 17 parallel sequences instead of 65. A startup probe picks the path.</p>
+        <p class="note">All the prompts in a request are decoded in one batched call that shares their common prefix, on every architecture; the direct row decodes each question on its own, for comparison. Qwen’s hybrid architecture runs 17 parallel sequences instead of 65, and snap picks the right path at startup.</p>
       </div>
       <div class="tcard">
-        <h3>Accuracy · eval/core (52 cases) · eval/edge (19)</h3>
+        <h3>Accuracy · eval/cases — base vs edge tiers</h3>
         <div class="tbl-wrap"><table class="t">
-          <thead><tr><th>model</th><th>core</th><th>edge</th><th>ms/case</th></tr></thead>
+          <thead><tr><th>model</th><th>base</th><th>edge</th><th>ms/case</th></tr></thead>
           <tbody>
             <tr><td>qwen3.8-4b <small class="note">Q4_K_M</small></td><td class="m hi"><span class="acc-bar"><i style="--v:94.2"></i></span>94.2%</td><td class="m hi">79.0%</td><td class="m">~210</td></tr>
             <tr><td>spark-4b <small class="note">Q8_0</small></td><td class="m"><span class="acc-bar"><i style="--v:92.3"></i></span>92.3%</td><td class="m hi">79.0%</td><td class="m">~180</td></tr>
             <tr><td>minicpm5-2b <small class="note">Q4_K_M</small></td><td class="m"><span class="acc-bar"><i style="--v:80.8"></i></span>80.8%</td><td class="m">57.9%</td><td class="m">~95</td></tr>
           </tbody>
         </table></div>
-        <p class="note">Raw probabilities are uncalibrated. <code>snap calibrate</code> fits one temperature per question type on your labeled cases, bound to the model and prompt version, and prints ECE before and after.</p>
+        <p class="note">Raw probabilities aren’t calibrated. <code>snap calibrate</code> fits one temperature per question type on your labeled cases, ties it to the model and prompt version, and prints the calibration error (ECE) before and after.</p>
       </div>
     </div>
   </div>
@@ -1157,15 +1156,14 @@ footer { padding: 56px 0 64px; }
 <section id="api" class="ink" aria-labelledby="api-h">
   <div class="wrap api">
     <div>
-      <h2 id="api-h">Drop-in Jev. One endpoint.</h2>
-      <p class="sub" style="margin-top:24px">snap speaks Jev's wire format on <code>POST /v1/systemone</code>. If a client already talks to Jev, point it at a local <code>snap serve</code> and it keeps working unchanged.</p>
-      <p class="sub">Extensions are optional fields a Jev client can ignore, and defaults preserve Jev semantics. Answers add <code>status</code>, <code>confidence</code>, <code>coverage</code> and the full <code>probabilities</code> on top of the Jev shape.</p>
+      <h2 id="api-h">A drop-in replacement for Jev.</h2>
+      <p class="sub" style="margin-top:24px">Same request and response format as Jev, so a client written for Jev works with a local snap server, unchanged. The additions are optional fields a Jev client can ignore: status, confidence, coverage and the full probabilities on every answer.</p>
       <div class="types">
-        <div><code>noul</code><span>Yes or no. Returns <code>noul</code> (P of yes) and <code>boolean</code>.</span></div>
-        <div><code>choice</code><span>One of your options, 2 to 256. Returns the key and every option's probability.</span></div>
-        <div><code>score</code><span>Ordered levels. Returns the winning <code>level</code> and an expected <code>score</code> in [0, 1].</span></div>
-        <div><code>numeric</code><span>A value in <code>{min, max}</code>, read over anchors plus below/above range.</span></div>
-        <div><code>allow_abstain</code><span>Adds an <code>__abstain__</code> slot, so "not enough information" is an answer.</span></div>
+        <div><code>noul</code><span>Yes or no, with the probability of yes.</span></div>
+        <div><code>choice</code><span>One of 2 to 256 options, with a probability for each.</span></div>
+        <div><code>score</code><span>An ordered level, with an expected score between 0 and 1.</span></div>
+        <div><code>numeric</code><span>A number in your range, read from anchor values.</span></div>
+        <div><code>allow_abstain</code><span>An extra answer for “not enough information”.</span></div>
       </div>
       <div class="links">
         <a class="btn ghost" href="https://github.com/emnlmn/snap/blob/main/openapi.yaml">OpenAPI spec</a>
@@ -1175,32 +1173,46 @@ footer { padding: 56px 0 64px; }
     <div>
       <div class="win" aria-label="Recorded request and response">
         <div class="win-h"><b>POST</b><span class="path">/v1/systemone</span><span class="r">request</span></div>
-<pre>{ <span class="k">"state"</span>: <span class="s">"My payouts have been failing
-           for 3 days."</span>,
+<pre>{
+  <span class="k">"state"</span>: <span class="s">"My payouts have been failing for 3 days."</span>,
   <span class="k">"questions"</span>: {
-    <span class="k">"urgent"</span>: { <span class="k">"type"</span>: <span class="s">"noul"</span>,
-                <span class="k">"instructions"</span>: <span class="s">"SLA breach?"</span> },
-    <span class="k">"team"</span>:   { <span class="k">"type"</span>: <span class="s">"choice"</span>,
-                <span class="k">"criteria"</span>: {
-                  <span class="k">"billing"</span>:   <span class="s">"payments, refunds"</span>,
-                  <span class="k">"technical"</span>: <span class="s">"bugs, outages"</span> } } } }</pre>
-        <div class="win-h div"><span class="ok">200 OK</span><span>0 output tokens</span><span class="r">response</span></div>
-<pre>{ <span class="k">"answers"</span>: {
-    <span class="k">"urgent"</span>: { <span class="k">"type"</span>: <span class="s">"noul"</span>, <span class="k">"status"</span>: <span class="s">"decided"</span>,
-                <span class="k">"noul"</span>: <span class="n">0.7285</span>, <span class="k">"boolean"</span>: <span class="b">true</span>,
-                <span class="k">"confidence"</span>: <span class="n">0.4571</span>,
-                <span class="k">"coverage"</span>: <span class="n">0.9993</span> },
-    <span class="k">"team"</span>:   { <span class="k">"type"</span>: <span class="s">"choice"</span>, <span class="k">"status"</span>: <span class="s">"decided"</span>,
-                <span class="k">"choice"</span>: <span class="s">"billing"</span>,
-                <span class="k">"probabilities"</span>: {
-                  <span class="k">"billing"</span>: <span class="n">0.9828</span>,
-                  <span class="k">"technical"</span>: <span class="n">0.0172</span> } } },
-  <span class="k">"usage"</span>:  { <span class="k">"input_tokens"</span>: <span class="n">54</span> },
-  <span class="k">"x_snap"</span>: { <span class="k">"layout"</span>: <span class="s">"question_first"</span>,
-              <span class="k">"decoded_items"</span>: <span class="n">2</span>,
-              <span class="k">"total_ms"</span>: <span class="n">73.8</span> } }</pre>
+    <span class="k">"urgent"</span>: {
+      <span class="k">"type"</span>: <span class="s">"noul"</span>,
+      <span class="k">"instructions"</span>: <span class="s">"SLA breach?"</span>
+    },
+    <span class="k">"team"</span>: {
+      <span class="k">"type"</span>: <span class="s">"choice"</span>,
+      <span class="k">"criteria"</span>: {
+        <span class="k">"billing"</span>: <span class="s">"payments, refunds"</span>,
+        <span class="k">"technical"</span>: <span class="s">"bugs, outages"</span>
+      }
+    }
+  }
+}</pre>
+        <div class="win-h div"><span class="ok">200 OK</span><span class="r">response</span></div>
+<pre>{
+  <span class="k">"answers"</span>: {
+    <span class="k">"urgent"</span>: {
+      <span class="k">"type"</span>: <span class="s">"noul"</span>,
+      <span class="k">"status"</span>: <span class="s">"decided"</span>,
+      <span class="k">"noul"</span>: <span class="n">0.7285</span>,
+      <span class="k">"boolean"</span>: <span class="b">true</span>,
+      <span class="k">"confidence"</span>: <span class="n">0.4571</span>,
+      <span class="k">"coverage"</span>: <span class="n">0.9993</span>
+    },
+    <span class="k">"team"</span>: {
+      <span class="k">"type"</span>: <span class="s">"choice"</span>,
+      <span class="k">"status"</span>: <span class="s">"decided"</span>,
+      <span class="k">"choice"</span>: <span class="s">"billing"</span>,
+      <span class="k">"probabilities"</span>: {
+        <span class="k">"billing"</span>: <span class="n">0.9828</span>,
+        <span class="k">"technical"</span>: <span class="n">0.0172</span>
+      }
+    }
+  }
+}</pre>
       </div>
-      <p class="note">Recorded on minicpm5-2b, response abridged. snap is an independent implementation; Jev itself is a hosted model in early access.</p>
+      <p class="note">A real response from minicpm5-2b, without the usage and x_snap fields.</p>
     </div>
   </div>
 </section>
@@ -1209,23 +1221,23 @@ footer { padding: 56px 0 64px; }
 <section id="compare" aria-labelledby="cmp-h">
   <div class="wrap">
     <div class="head">
-      <h2 id="cmp-h">Where snap sits.</h2>
-      <p class="sub">The two natural comparisons: Jev, the hosted original, and <a href="https://github.com/TheoLeeCJ/SemIf">SemIf</a>, the open research scorer.</p>
+      <h2 id="cmp-h">snap next to Jev and SemIf.</h2>
+      <p class="sub">The two closest projects are Jev, the hosted original, and <a href="https://github.com/TheoLeeCJ/SemIf">SemIf</a>, an open research scorer.</p>
     </div>
     <div class="cmp">
-      <table>
-        <thead><tr><th scope="col"><span class="sr">Capability</span></th><th scope="col" class="me">snap</th><th scope="col">Jev</th><th scope="col">SemIf</th></tr></thead>
+      <table role="table">
+        <thead><tr role="row"><th role="columnheader" scope="col"><span class="sr">Capability</span></th><th role="columnheader" scope="col" class="me">snap</th><th role="columnheader" scope="col">Jev</th><th role="columnheader" scope="col">SemIf</th></tr></thead>
         <tbody>
-          <tr><th scope="row">Runs</th><td class="me">Locally, one Rust binary</td><td>Hosted service</td><td>Locally, Python, WebGPU demo</td></tr>
-          <tr><th scope="row">Open weights</th><td class="me"><span class="y"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 7.4l2.8 2.8 6.2-6.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>GGUF</span></td><td><span class="no"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 7h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>No</span></td><td><span class="y"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 7.4l2.8 2.8 6.2-6.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Qwen</span></td></tr>
-          <tr><th scope="row">Jev-style HTTP API</th><td class="me"><span class="y"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 7.4l2.8 2.8 6.2-6.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Yes</span></td><td>The original</td><td><span class="no"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 7h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>CLI only</span></td></tr>
-          <tr><th scope="row">Numeric answers</th><td class="me"><span class="y"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2.5 7.4l2.8 2.8 6.2-6.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Yes</span></td><td><span class="no"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 7h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>No</span></td><td><span class="no"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3.5 7h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>No</span></td></tr>
-          <tr><th scope="row">Calibrated probabilities</th><td class="me"><code>snap calibrate</code></td><td>Claimed</td><td>Per-workload temperature</td></tr>
-          <tr><th scope="row"><a href="https://evals.typesafe.ai">TypeSafe public eval</a></th><td class="me">66% · 2.6B model</td><td>~88%</td><td>n/a</td></tr>
+          <tr role="row"><th role="rowheader" scope="row">Deployment</th><td role="cell" class="me">Local, one Rust binary</td><td role="cell">Hosted service</td><td role="cell">Local Python, WebGPU demo</td></tr>
+          <tr role="row"><th role="rowheader" scope="row">Open weights</th><td role="cell" class="me y">GGUF</td><td role="cell" class="no">No</td><td role="cell" class="y">Qwen</td></tr>
+          <tr role="row"><th role="rowheader" scope="row">Jev-compatible HTTP API</th><td role="cell" class="me y">Yes</td><td role="cell" class="y">The original</td><td role="cell" class="no">CLI only</td></tr>
+          <tr role="row"><th role="rowheader" scope="row">Numeric answers</th><td role="cell" class="me y">Yes</td><td role="cell" class="no">No</td><td role="cell" class="no">No</td></tr>
+          <tr role="row"><th role="rowheader" scope="row">Calibrated probabilities</th><td role="cell" class="me y">Per question type</td><td role="cell">Claimed</td><td role="cell" class="y">Per workload</td></tr>
+          <tr role="row"><th role="rowheader" scope="row">TypeSafe public eval</th><td role="cell" class="me">73% on a 4B model</td><td role="cell">~88%, self-reported</td><td role="cell" class="no">Not reported</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="note cmp-note">Jev column from its public description; SemIf from its repo. The eval row is agreement with the published consensus on the 373 public decisions; reproduce with <code>eval/typesafe_public.py</code>. Jev's ~88% is its reported number.</p>
+    <p class="note cmp-note">The Jev column comes from its public description and the SemIf column from its repository. The <a href="https://evals.typesafe.ai">TypeSafe</a> row is agreement with the published consensus on its 373 public decisions, reproducible with <code>eval/typesafe_public.py</code>.</p>
   </div>
 </section>
 
@@ -1233,55 +1245,31 @@ footer { padding: 56px 0 64px; }
 <section id="start" class="ink" aria-labelledby="start-h">
   <div class="wrap">
     <div class="head">
-      <h2 id="start-h">Three commands to your first decision.</h2>
+      <h2 id="start-h">Three steps to your first decision.</h2>
       <p class="sub">The first run downloads the model once (1.5 to 4 GB). After that, everything runs offline on your machine.</p>
     </div>
     <div class="start">
       <div class="sstep">
-        <div class="sstep-h"><span class="n">1</span><h3>Install</h3><p>One binary. Homebrew on macOS, a tarball everywhere else.</p></div>
+        <div class="sstep-h"><span class="n">1</span><h3>Install</h3><p>A single binary: Homebrew on macOS, a tarball everywhere else.</p></div>
         <div class="plat" role="tablist" aria-label="Platform">
           <button class="seg" role="tab" aria-selected="true" aria-pressed="true" data-plat="mac">macOS</button>
           <button class="seg" role="tab" aria-selected="false" aria-pressed="false" data-plat="linux">Linux</button>
           <button class="seg" role="tab" aria-selected="false" aria-pressed="false" data-plat="win">Windows</button>
           <button class="seg" role="tab" aria-selected="false" aria-pressed="false" data-plat="src">Source</button>
         </div>
-        <pre id="install-pre"></pre>
-        <div class="sstep-f"><button class="copy" data-copy="plat">copy</button></div>
+        <div class="sstep-cmd"><pre id="install-pre"></pre><button class="copy" data-copy="plat">copy</button></div>
       </div>
       <div class="sstep">
-        <div class="sstep-h"><span class="n">2</span><h3>Serve</h3><p>Pick a model from the tested set. The playground ships inside the binary.</p></div>
-<pre><span class="p">$ </span>snap serve --model qwen3.8-4b
-<span class="c"># → http://localhost:8018/playground</span></pre>
-        <div class="sstep-f"><button class="copy" data-copy="serve">copy</button></div>
+        <div class="sstep-h"><span class="n">2</span><h3>Serve</h3><p>The default model on port 8018, or any other from the tested set with <code>--model</code>.</p></div>
+        <div class="sstep-cmd"><pre><span class="p">$ </span>snap serve</pre><button class="copy" data-copy="serve">copy</button></div>
       </div>
-      <div class="sstep">
-        <div class="sstep-h"><span class="n">3</span><h3>Ask</h3><p>Every question about the state, in one request.</p></div>
-<pre><span class="p">$ </span>curl -s localhost:8018/v1/systemone -d '{
-  "state": "Checkout has been down for an hour.",
-  "questions": {
-    "urgent": {"type": "noul"},
-    "team": {"type": "choice",
-      "criteria": ["billing", "technical"]}}}'</pre>
-        <div class="sstep-f"><button class="copy" data-copy="ask">copy</button></div>
+      <div class="sstep go">
+        <div class="sstep-h"><span class="n">3</span><h3>Ask</h3><p>The playground, built into the binary: questions in a form, answers with their full distributions, and the request as cURL.</p></div>
+        <div class="sstep-cmd"><pre>localhost:8018/playground</pre><a class="copy open" href="http://localhost:8018/playground" target="_blank" rel="noopener">Open</a></div>
       </div>
     </div>
-    <div class="platforms">
-      <span><b>macOS</b> arm64 · Metal</span>
-      <span><b>Linux</b> x86_64 · x86-64-v3 · aarch64 · musl static · Vulkan</span>
-      <span><b>Source</b> cargo build · CUDA · ROCm · Vulkan · Metal</span>
-    </div>
+    <p class="platforms">Prebuilt for macOS on Apple Silicon, Linux x86_64 and aarch64 (including a fully static build and Vulkan) and Windows x86_64. From source: CUDA, ROCm, Vulkan and Metal.</p>
 
-    <div class="close">
-      <h2>Stop parsing. Start deciding.</h2>
-      <div class="close-get">
-        <div class="cmd big inst">
-          <code><span class="p">$ </span><span class="os-cmd">brew install emnlmn/snap/snap</span></code>
-          <button class="cp" data-copy="install"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.8"/><path d="M10.5 3.2V3a1.5 1.5 0 0 0-1.5-1.5H3.8A1.5 1.5 0 0 0 2.3 3v5.2a1.5 1.5 0 0 0 1.5 1.5h.2"/></svg><span class="cp-t">Copy</span><span class="cp-ok">Copied</span></button>
-        </div>
-        <a class="btn primary dl" href="https://github.com/emnlmn/snap/releases/latest" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8.5M4.5 7 8 10.5 11.5 7M2.5 13.5h11"/></svg>Download for Windows · x86_64</a>
-        <p class="micro">No account, no API key. <a href="https://github.com/emnlmn/snap">Star snap on GitHub</a> to follow releases.</p>
-      </div>
-    </div>
   </div>
 </section>
 
@@ -1304,12 +1292,12 @@ footer { padding: 56px 0 64px; }
       </div>
       <div>
         <h3 class="foot-h">Project</h3>
-        <ul><li><a href="https://github.com/emnlmn/snap">GitHub</a></li><li><a href="https://opensource.org/license/mit">MIT license</a></li><li><a href="https://github.com/TheoLeeCJ/SemIf">SemIf</a></li></ul>
+        <ul><li><a href="https://github.com/emnlmn/snap">GitHub</a></li><li><a href="https://opensource.org/license/mit">MIT license</a></li></ul>
       </div>
     </div>
     <div class="legal">
       <span>snap is open source under the MIT license.</span>
-      <span>Jev is a hosted product of its own authors; snap is an independent, wire-compatible implementation.</span>
+      <span>Jev is a hosted product made by its own authors; snap is an independent implementation of the same API.</span>
     </div>
   </div>
 </footer>
@@ -1322,8 +1310,6 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
   || new URLSearchParams(location.search).has('still');
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const pf = p => p >= .99995 ? '1.00' : p <= .00005 ? '.00' : p.toFixed(4).replace(/0+$/, '').replace(/^0/, '');
-const TYPE = { noul: 'noul', choice: 'choice', score: 'score', numeric: 'numeric' };
 
 function hl(obj) {
   return esc(JSON.stringify(obj, null, 2)).replace(
@@ -1346,7 +1332,7 @@ let cur = 'support', raf = 0, timers = [], anims = [], auto = true, hovering = f
 function paint(name) {
   const c = DATA[name];
   el.state.innerHTML = hl(c.state);
-  el.once.innerHTML = `<b>${c.shared}</b> tokens, decoded once for all ${c.qs.length}`;
+  el.once.innerHTML = `<b>${c.shared}</b> tokens, decoded once for all ${c.qs.length} questions`;
   el.ans.innerHTML = c.qs.map((q, i) => {
     const w = winIdx(q);
     const segs = q.p.map((p, j) => `<i class="${j === w ? 'w' : ''}${p < .005 ? ' z' : ''}" style="--p:${p}"></i>`).join('');
@@ -1467,64 +1453,60 @@ new IntersectionObserver(es => {
 
 /* ---------------- use cases ---------------- */
 const UC = [
-  { id: 'support', t: 'Support & ops triage', s: 'Route, prioritize and price every ticket before a human opens it.',
-    d: 'One request per ticket answers routing, urgency, churn risk and whether a refund is due. The model decides, your code computes: the amount comes from billing, and a threshold decides what gets automated and what reaches a person.',
-    show: ['route', 'urgent', 'churn_risk', 'refund_due'],
-    wire: '<span class="kw">if</span> a[<span class="s">"refund_due"</span>][<span class="s">"noul"</span>] &gt; <span class="n">0.9</span>:\n    refund(invoice.duplicate_charge)  <span class="c"># the amount is billing\'s, not the model\'s</span>\n<span class="kw">else</span>:\n    assign(ticket, <span class="s">"billing-review"</span>)  <span class="c"># .57 lands here</span>' },
+  { id: 'support', t: 'Support & ops triage', s: 'Routing, urgency, churn risk and refund checks for every ticket, before a person opens it.',
+    show: ['route', 'urgent', 'churn_risk', 'refund_due'] },
   { id: 'agent', t: 'Agent guardrails', s: 'A typed checkpoint between an agent\u2019s plan and its tool call.',
-    d: 'Before a call runs, ask whether it matches what the user asked, what it could break and what to do next. The gate returns one of the actions you defined, never text an agent could use to talk its way past it.',
-    show: ['allow', 'matches_intent', 'blast_radius', 'action'],
-    wire: '<span class="kw">if</span> a[<span class="s">"action"</span>][<span class="s">"choice"</span>] != <span class="s">"execute"</span>:\n    <span class="kw">return</span> pause_for_review(call, a)' },
+    show: ['allow', 'matches_intent', 'blast_radius', 'action'] },
   { id: 'moderation', t: 'Moderation & compliance', s: 'Policy labels with a confidence you can put a threshold on.',
-    d: 'Classify messages, listings or documents against your policy, flag fraud signals and pick an action. Each decision logs with its full distribution and replays identically for audit.',
-    show: ['policy', 'action', 'scam_risk'],
-    wire: '<span class="kw">if</span> a[<span class="s">"policy"</span>][<span class="s">"choice"</span>] != <span class="s">"none"</span>:\n    hold(msg, evidence=a[<span class="s">"policy"</span>][<span class="s">"probabilities"</span>])' },
-  { id: 'search', t: 'Search & reranking', s: 'Rerank retrieval hits by what actually answers the query.',
-    d: 'Send the query as state and your top-k candidates as options: the distribution is the ranking. Past 26 candidates, each one gets its own yes/no probe over the shared query, up to 256.',
-    show: ['best', 'intent', 'needs_recent'],
-    wire: 'p = a[<span class="s">"best"</span>][<span class="s">"probabilities"</span>]\nranked = sorted(hits, key=<span class="kw">lambda</span> h: p[h.id], reverse=<span class="kw">True</span>)' },
-  { id: 'judge', t: 'Evals & LLM-as-judge', s: 'Grade model outputs with probabilities, not a 1 to 10 guess.',
-    d: 'Score faithfulness, correctness and error type for each sample in one call. Average the probabilities across a test set, bin by confidence, and calibrate the judge on your own labels.',
-    show: ['faithful', 'correctness', 'error_type'],
-    wire: 'faithfulness = mean(r[<span class="s">"answers"</span>][<span class="s">"faithful"</span>][<span class="s">"noul"</span>] <span class="kw">for</span> r <span class="kw">in</span> runs)' },
-  { id: 'labeling', t: 'Labeling & enrichment', s: 'Turn a backlog of free text into typed columns.',
-    d: 'Segment leads, qualify intent, flag requirements. Scores and nouls carry a probability, so borderline leads stay visible instead of being silently rounded away.',
-    show: ['intent', 'segment', 'on_prem', 'decision_maker'],
-    wire: 'row |= {<span class="s">"segment"</span>: a[<span class="s">"segment"</span>][<span class="s">"choice"</span>],\n        <span class="s">"intent"</span>: a[<span class="s">"intent"</span>][<span class="s">"score"</span>]}' },
+    show: ['policy', 'action', 'scam_risk'] },
+  { id: 'search', t: 'Search & reranking', s: 'Retrieval hits reranked by what actually answers the query.',
+    show: ['best', 'intent', 'needs_recent'] },
+  { id: 'judge', t: 'Evals & LLM-as-judge', s: 'Grades for model outputs with probabilities, not a 1 to 10 guess.',
+    show: ['faithful', 'correctness', 'error_type'] },
+  { id: 'labeling', t: 'Labeling & enrichment', s: 'Typed columns from a backlog of free text.',
+    show: ['intent', 'segment', 'on_prem', 'decision_maker'] },
 ];
+
+const hum = v => String(v).replace(/_(?=[a-z])/g, ' ');
+const pct = p => p > .995 ? '>99%' : p < .005 ? '<1%' : Math.round(p * 100) + '%';
+// the state as the fields it holds: lists one item per line, a nested object's
+// leaves labelled under its top-level key ("proposed call · bucket")
+const fields = (o, top = '') => Object.entries(o).flatMap(([k, v]) =>
+  v && typeof v === 'object' && !Array.isArray(v) ? fields(v, top || k) : [[top ? `${top} · ${k}` : k, v]]);
+const stateHTML = o => fields(o).map(([k, v]) => `<div><dt>${esc(hum(k))}</dt><dd>${Array.isArray(v) ? v.map(x => `<span>${esc(x)}</span>`).join('')
+  : v === '' ? '<span class="e">empty</span>' : esc(v)}</dd></div>`).join('');
 
 function distHTML(q) {
   const w = winIdx(q);
   const st = q.s !== 'decided' ? `<span class="st">${esc(q.s.replace('_', ' '))}</span>` : '';
-  const head = `<div class="dist-h"><code>${esc(q.n)}</code><span class="t">${TYPE[q.t]}</span>${st}<span class="v">${esc(q.a)}</span></div>`;
+  const head = `<div class="dist-h"><span class="q">${esc(q.ask)}</span>${st}<span class="v">${esc(hum(q.a))}</span></div>`;
   if (q.t === 'numeric') {
-    const bars = q.p.map((p, j) => `<i class="${j === w ? 'w' : ''}" data-h="${Math.max(p, .04)}" title="${esc(q.o[j])}: ${pf(p)}"></i>`).join('');
+    const bars = q.p.map((p, j) => `<i class="${j === w ? 'w' : ''}" data-h="${Math.max(p, .04)}" title="${esc(q.o[j])}: ${pct(p)}"></i>`).join('');
     return `<div class="dist">${head}<div class="hist-l" aria-hidden="true">${bars}</div><div class="axis"><span>below ${q.min}</span><span>${q.min}</span><span>${q.max}</span><span>above</span></div></div>`;
   }
   let idx = q.p.map((p, j) => j);
-  const extra = idx.length > 4 ? idx.length - 4 : 0;
-  if (extra) idx = idx.sort((a, b) => q.p[b] - q.p[a]).slice(0, 4);
-  const label = j => q.d && q.t === 'choice' && q.o[j].startsWith('doc_') ? `${q.o[j]} ${q.d[j]}` : q.o[j];
-  const rows = idx.map(j => `<div class="bar${j === w ? ' w' : ''}"><span class="l" title="${esc(label(j))}">${esc(label(j))}</span><span class="tr"><i data-w="${q.p[j]}"></i></span><span class="p">${pf(q.p[j])}</span></div>`).join('');
-  return `<div class="dist">${head}<div class="bars">${rows}</div>${extra ? `<p class="more">+${extra} more options below .01</p>` : ''}</div>`;
+  const order = idx.sort((a, b) => q.p[b] - q.p[a]), hidden = order.slice(4);
+  if (hidden.length) idx = order.slice(0, 4);
+  const label = j => q.d && q.t === 'choice' && q.o[j].startsWith('doc_') ? q.d[j] : hum(q.o[j]);
+  const rows = idx.map(j => `<div class="bar${j === w ? ' w' : ''}"><span class="l" title="${esc(label(j))}">${esc(label(j))}</span><span class="tr"><i data-w="${q.p[j]}"></i></span><span class="p">${pct(q.p[j])}</span></div>`).join('');
+  const more = hidden.length ? `<p class="more">${hidden.length} more option${hidden.length > 1 ? 's' : ''}${hidden.every(j => q.p[j] < .01) ? ', each under 1%' : ''}</p>` : '';
+  return `<div class="dist">${head}<div class="bars">${rows}</div>${more}</div>`;
 }
 
 function ucRender(i, animate) {
   const u = UC[i], c = DATA[u.id];
   $$('.uc-tab').forEach((t, j) => { t.setAttribute('aria-selected', j === i); t.tabIndex = j === i ? 0 : -1; });
   const qs = u.show.map(n => c.qs.find(q => q.n === n));
-  const questions = c.qs.map(q => `<li><code>${esc(q.n)}</code><span class="t">${TYPE[q.t]}</span><br>${esc(q.ask)}</li>`).join('');
   $('#uc-panel').innerHTML = `
     <div class="uc-top">
       <h3>${esc(u.t)}</h3>
-      <p>${esc(u.d)}</p>
+      <p>${esc(u.s)}</p>
       <div class="uc-stat"><b>${c.ms.toFixed(0)} ms</b>${c.qs.length} answers, one pass</div>
     </div>
     <div class="uc-grid">
-      <div class="uc-req"><p class="lbl">state</p><pre class="json">${hl(c.state)}</pre><p class="lbl" style="margin-top:18px">questions</p><ul class="uc-qs">${questions}</ul></div>
-      <div class="uc-res"><p class="lbl">response${qs.length < c.qs.length ? `, ${qs.length} of ${c.qs.length} answers` : ''}</p>${qs.map(distHTML).join('')}</div>
-    </div>
-    <div class="uc-wire"><p class="lbl">wire it</p><pre>${u.wire}</pre></div>`;
+      <div class="uc-req"><p class="lbl">state</p><dl class="uc-state">${stateHTML(c.state)}</dl></div>
+      <div class="uc-res"><p class="lbl">${qs.length < c.qs.length ? `${qs.length} of ${c.qs.length} answers` : 'answers'}</p>${qs.map(distHTML).join('')}</div>
+    </div>`;
   $('#uc-panel').setAttribute('aria-labelledby', 'uc-t-' + i);
   const grow = () => {
     $$('#uc-panel .tr i').forEach(b => b.style.width = (b.dataset.w * 100) + '%');
@@ -1590,7 +1572,7 @@ function rcBuild() {
   RC.gn.textContent = rv.name; RC.gm.textContent = rv.model; RC.vl.textContent = `${rv.name} writes`;
   const x = o.ms / sn;
   RC.delta.textContent = `${x >= 10 ? Math.round(x) : x.toFixed(1)}× faster`;
-  RC.mid.textContent = `snap done, ${rv.name} still going`;
+  RC.mid.textContent = `snap is done, ${rv.name} is still working`;
   RC.sr.textContent = `${rcN} question${rcN > 1 ? 's' : ''} about one state: snap answered in ${sn} ms; ${rv.name} (${rv.model}) writing ${rcV === 'json-snap' ? 'answers and probabilities' : 'answers'} as JSON took ${o.ms} ms for ${o.gen_tokens} tokens. Both measured.`;
   $$('.rc-seg [data-o]').forEach(b => b.setAttribute('aria-pressed', b.dataset.o === rcO));
   $$('.rc-seg [data-n]').forEach(b => b.setAttribute('aria-pressed', +b.dataset.n === rcN));
@@ -1683,9 +1665,9 @@ if (!reduced) new IntersectionObserver(es => {
 // and copying it promotes the next step (serve) wherever it shows.
 const REL = 'https://github.com/emnlmn/snap/releases/latest/download/';
 const OS = {
-  mac: { cmd: 'brew install emnlmn/snap/snap', then: 'snap serve --model qwen3.8-4b' },
-  linux: { cmd: `mkdir -p ~/snap && curl -L ${REL}snap-linux-x86_64.tar.gz | tar xz -C ~/snap`, then: '~/snap/snap serve --model qwen3.8-4b' },
-  win: { dl: `${REL}snap-windows-x86_64.tar.gz`, then: '.\\snap serve --model qwen3.8-4b' },
+  mac: { cmd: 'brew install emnlmn/snap/snap', then: 'snap serve' },
+  linux: { cmd: `mkdir -p ~/snap && curl -L ${REL}snap-linux-x86_64.tar.gz | tar xz -C ~/snap`, then: '~/snap/snap serve' },
+  win: { dl: `${REL}snap-windows-x86_64.tar.gz`, then: '.\\snap serve' },
 };
 const INSTALL = {
   mac: { html: '<span class="p">$ </span>brew install emnlmn/snap/snap', text: 'brew install emnlmn/snap/snap' },
@@ -1697,8 +1679,7 @@ const INSTALL = {
     text: 'git clone https://github.com/emnlmn/snap && cd snap\nmake setup && make build' },
 };
 const COPY = {
-  serve: 'snap serve --model qwen3.8-4b',
-  ask: `curl -s localhost:8018/v1/systemone -d '{\n  "state": "Checkout has been down for an hour.",\n  "questions": {\n    "urgent": {"type": "noul"},\n    "team": {"type": "choice",\n      "criteria": ["billing", "technical"]}}}'`,
+  serve: 'snap serve',
 };
 let os = 'mac', plat = 'mac', got = false;
 const dock = $('#dock'), dockGo = $('.dock-go', dock), dockCmd = $('.dock-cmd', dock);
