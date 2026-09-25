@@ -149,6 +149,48 @@ h3 { font-weight: 640; font-size: 18px; line-height: 1.3; letter-spacing: -.01em
 .top .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 .top .btn { height: 38px; padding: 0 14px; font-size: 14px; border-radius: 9px; }
 .gh svg { fill: currentColor; }
+.top nav { position: relative; }
+.top nav a[aria-current] { color: var(--text); }
+.nav-ind {
+  position: absolute; left: 0; bottom: 1px; height: 2px; width: 100px; border-radius: 1px; transform-origin: left;
+  background: var(--green); transform: translateX(var(--x, 0)) scaleX(var(--s, 0)); opacity: 0;
+  transition: transform .5s var(--ease), opacity .3s, background .35s;
+}
+.nav-ind.on { opacity: 1; }
+/* over an ink band the bar joins the ink zone: the zones never mix */
+.top { transition: background .35s, border-color .35s; }
+.top.on-ink { background: color-mix(in srgb, var(--ink) 86%, transparent); border-bottom-color: var(--ink-line); }
+.top.on-ink .brand, .top.on-ink .brand:hover { color: #fff; }
+.top.on-ink nav a { color: var(--ink-faint); }
+.top.on-ink nav a:hover { color: var(--ink-text); background: rgba(234, 237, 231, .06); }
+.top.on-ink nav a[aria-current] { color: #fff; }
+.top.on-ink .nav-ind { background: var(--ink-text); }
+.top.on-ink .btn.ghost { background: transparent; border-color: var(--ink-hi); color: var(--ink-text); }
+.top.on-ink .btn.ghost:hover { border-color: var(--ink-soft); color: #fff; }
+.top.on-ink .btn.primary { background: var(--lime); color: var(--ink); }
+.top.on-ink .btn.primary:hover { background: #cdf585; }
+.top.on-ink :focus-visible { outline-color: var(--lime); }
+/* the install CTA follows the reader: once the hero command scrolls away,
+   "Get snap" opens into the same copyable command, right-anchored */
+.dock { position: relative; height: 38px; width: var(--dw, auto); flex: none; transition: width .55s var(--ease); } /* once per toggle, one nav item: not per frame */
+.dock-go, .dock-cmd { position: absolute; top: 0; right: 0; transition: opacity .3s, transform .45s var(--ease), clip-path .55s var(--ease), background .35s, border-color .35s; }
+.dock-cmd {
+  display: flex; align-items: center; gap: 4px; height: 38px; width: min(21.5rem, calc(100vw - 170px));
+  padding: 0 3px 0 12px; border: 1px solid var(--line-hi); border-radius: 11px; background: var(--white);
+  opacity: 0; pointer-events: none; clip-path: inset(0 0 0 calc(100% - 96px) round 11px);
+}
+.dock-cmd code {
+  flex: 1; min-width: 0; font-size: 12.5px; color: var(--soft); white-space: nowrap; overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, #000 82%, transparent); mask-image: linear-gradient(90deg, #000 82%, transparent);
+}
+.dock-cmd .p { color: var(--green); }
+.dock .cp { height: 30px; padding: 0 12px; border-radius: 7px; font-size: 14px; }
+.dock.docked .dock-cmd { opacity: 1; pointer-events: auto; clip-path: inset(0 round 11px); }
+.dock.docked .dock-go { opacity: 0; transform: scale(.96); pointer-events: none; }
+.top.on-ink .dock-cmd { background: var(--ink-3); border-color: var(--ink-hi); }
+.top.on-ink .dock-cmd code { color: var(--ink-text); }
+.top.on-ink .dock-cmd .p { color: var(--lime); }
+.top.on-ink .cp { background: var(--lime); color: var(--ink); }
 
 /* ---------- hero ---------- */
 .hero { padding: 92px 0 40px; overflow: hidden; }
@@ -177,7 +219,50 @@ h3 { font-weight: 640; font-size: 18px; line-height: 1.3; letter-spacing: -.01em
   transition: background .15s, color .15s;
 }
 .copy:hover { background: var(--paper-2); color: var(--text); }
-.micro { margin-top: 14px; font-size: 13.5px; color: var(--faint); }
+.micro { font-size: 13.5px; color: var(--faint); }
+.micro a { color: var(--muted); }
+.get { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.get-os { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; font-size: 14px; color: var(--muted); }
+.get-os > span { margin-right: 8px; }
+.get-os button {
+  height: 30px; padding: 0 11px; border: 0; border-radius: 8px; background: transparent;
+  font: 500 14px var(--sans); color: var(--muted); cursor: pointer; transition: color .15s, background .15s, box-shadow .15s;
+}
+.get-os button:hover { color: var(--text); background: rgba(17, 22, 17, .05); }
+.get-os button[aria-pressed="true"] { color: var(--text); background: var(--white); box-shadow: inset 0 0 0 1px var(--line-hi); }
+.cmd.big { max-width: none; padding: 6px 6px 6px 18px; border-radius: 16px; border-color: var(--line-hi); }
+.cmd.big code { font-size: 14.5px; line-height: 48px; color: var(--text); }
+.cmd.over code { -webkit-mask-image: linear-gradient(90deg, #000 86%, transparent); mask-image: linear-gradient(90deg, #000 86%, transparent); }
+.cp {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  height: 46px; padding: 0 18px; border: 0; border-radius: 11px; background: var(--green); color: #fff;
+  font: 620 15px var(--sans); cursor: pointer; transition: background .18s, color .18s, transform .18s var(--ease);
+}
+.cp:hover { background: var(--green-deep); }
+.cp:active { transform: translateY(1px); }
+.cp svg { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.cp .cp-ok, .cp.ok .cp-t { display: none; }
+.cp.ok .cp-ok { display: inline; }
+.dl { justify-self: start; height: 56px; padding: 0 22px; font-size: 16px; border-radius: 16px; }
+.dl svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* the step after install is always in view; copying the install lights it */
+.then {
+  display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 3px 5px 3px 18px;
+  border-radius: 11px; font-size: 14px; color: var(--muted); transition: background .5s var(--ease);
+}
+.then b { flex: none; font-weight: 600; color: var(--faint); transition: color .3s; }
+.then code { flex: 1; min-width: 0; font-size: 13px; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.then .copy { background: transparent; }
+.then .copy:hover { background: var(--paper-2); }
+.got .then { background: var(--wash); }
+.got .then b { color: var(--green-deep); }
+.ink .cmd { background: var(--ink-3); border-color: var(--ink-hi); }
+.ink .cmd code { color: var(--ink-text); }
+.ink .cmd .p { color: var(--lime); }
+.ink .cp { background: var(--lime); color: var(--ink); }
+.ink .cp:hover { background: #cdf585; }
+.ink .micro { color: var(--ink-faint); }
+.ink .micro a { color: var(--ink-soft); }
 
 /* ---------- console (hero demo) ---------- */
 .stage { margin-top: 64px; position: relative; }
@@ -273,6 +358,11 @@ h3 { font-weight: 640; font-size: 18px; line-height: 1.3; letter-spacing: -.01em
 .a-leg span { white-space: nowrap; }
 .a-leg b { font-weight: 500; color: var(--ink-soft); }
 .a-leg .w, .a-leg .w b { color: var(--lime); }
+.a-st {
+  display: inline-block; margin-left: 10px; padding: 1px 7px; vertical-align: 3px; border-radius: 7px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--heat) 45%, transparent);
+  font: 500 12px/1.5 var(--mono); letter-spacing: 0; color: var(--heat);
+}
 .pending .a-val { opacity: 0; transform: translateY(6px); filter: blur(4px); }
 .pending .a-leg { opacity: 0; }
 .pending .a-dist i { flex-grow: 1 !important; margin-left: 0; background: var(--ink-line); }
@@ -330,6 +420,7 @@ section { padding: 128px 0; }
 .dist-h { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
 .dist-h code { font-size: 13px; font-weight: 600; color: var(--text); }
 .dist-h .t { font: 12px var(--mono); color: var(--faint); }
+.dist-h .st { font: 500 12px var(--mono); color: var(--amber); }
 .dist-h .v { margin-left: auto; font-weight: 640; font-size: 15px; color: var(--green-deep); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
 .bars { display: grid; gap: 4px; }
 .bar { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr) 40px; gap: 12px; align-items: center; }
@@ -351,62 +442,99 @@ section { padding: 128px 0; }
 .uc-wire .kw { color: var(--mint); }
 .uc-wire .s { color: var(--sand); }
 .uc-wire .c { color: var(--ink-faint); }
+.uc-wire .n { color: var(--mint); }
 
-/* ---------- how it works ---------- */
-.duel { border: 1px solid var(--ink-line); border-radius: 18px; background: var(--ink-2); overflow: hidden; }
-.duel-cols, .lane { display: grid; grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1.05fr) minmax(0, 2.1fr) minmax(0, 1.05fr) minmax(0, 1.25fr); }
-.duel-cols { border-bottom: 1px solid var(--ink-line); }
-.duel-cols span { padding: 14px 16px; font: 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); }
-.lane { align-items: stretch; position: relative; }
-.lane + .lane { border-top: 1px solid var(--ink-line); }
-.lane > * { padding: 22px 16px; min-width: 0; }
-.lane-name { display: flex; flex-direction: column; justify-content: center; gap: 4px; }
-.lane-name b { font-weight: 680; font-stretch: 108%; font-size: 17px; color: #fff; letter-spacing: -.01em; }
-.lane-name span { font-size: 13px; color: var(--ink-faint); line-height: 1.35; }
-.cell { display: flex; flex-direction: column; justify-content: center; gap: 8px; position: relative; }
-.cell + .cell::before {
-  content: ""; position: absolute; left: -6px; top: 50%; width: 12px; height: 12px; margin-top: -6px;
-  border-top: 1.5px solid var(--ink-hi); border-right: 1.5px solid var(--ink-hi); transform: rotate(45deg) scale(.6);
+/* ---------- how it works: the race ---------- */
+/* scroll is the clock: .rc is tall, the stage pins under the nav, and the
+   script maps scroll progress onto the measured milliseconds */
+.rc { position: relative; }
+.rc::after { content: ""; display: block; height: 150vh; } /* the scrub distance: in flow, so sticky can use it */
+.rc-stage { position: sticky; top: var(--st, 64px); }
+.rc-stage .head { margin-bottom: 32px; }
+.rc-panel { border: 1px solid var(--ink-line); border-radius: 18px; background: var(--ink-2); }
+.rc-top { display: flex; align-items: center; flex-wrap: wrap; gap: 14px 24px; padding: 16px 24px; border-bottom: 1px solid var(--ink-line); }
+.rc-ctl { display: flex; flex-wrap: wrap; gap: 10px 22px; }
+.rc-opt { display: flex; align-items: center; gap: 10px; }
+.rc-lbl { font-size: 13.5px; color: var(--ink-faint); white-space: nowrap; }
+.rc-seg { display: flex; gap: 2px; padding: 3px; border-radius: 11px; background: var(--ink); box-shadow: inset 0 0 0 1px var(--ink-line); }
+.rc-seg button {
+  height: 32px; min-width: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent;
+  font: 500 13.5px var(--sans); color: var(--ink-soft); cursor: pointer; transition: color .15s, background .15s;
 }
-.box {
-  border: 1px solid var(--ink-hi); border-radius: 10px; padding: 10px 12px; background: var(--ink);
-  font: 12px/1.45 var(--mono); color: var(--ink-soft); transition: border-color .25s, color .25s, box-shadow .25s;
+.rc-seg button:hover { color: #fff; }
+.rc-seg button[aria-pressed="true"] { background: var(--ink-3); color: #fff; box-shadow: inset 0 0 0 1px var(--ink-hi); }
+/* one slot, three states: the hint, snap already done while the rival works, the verdict */
+.rc-slot { margin-left: auto; display: grid; justify-items: end; align-items: center; font: 13px var(--mono); color: var(--ink-soft); }
+.rc-slot > * { grid-area: 1 / 1; white-space: nowrap; transition: opacity .3s, transform .45s var(--ease); }
+.rc-hint { color: var(--ink-faint); display: inline-flex; align-items: center; gap: 8px; }
+.rc-hint svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; animation: nudge 1.6s var(--ease) infinite; }
+@keyframes nudge { 0%, 100% { transform: translateY(-2px); } 50% { transform: translateY(2px); } }
+.rc-mid, .rc-delta { opacity: 0; transform: translateY(6px); }
+.rc-delta { font-weight: 640; font-size: 24px; letter-spacing: -.02em; color: var(--lime); }
+.rc.go .rc-hint, .rc.fin .rc-mid { opacity: 0; transform: translateY(-4px); }
+.rc.mid .rc-mid, .rc.fin .rc-delta { opacity: 1; transform: none; }
+.rc-lanes { padding: 0 24px; }
+.rc-lane { display: grid; grid-template-columns: 11rem minmax(0, 1fr) 9.5rem; gap: 10px 28px; align-items: center; padding: 20px 0; border-bottom: 1px solid var(--ink-line); }
+.rc-name { grid-row: 1 / span 2; align-self: start; }
+.rc-name b { display: block; font-weight: 680; font-stretch: 108%; font-size: 17px; color: #fff; letter-spacing: -.01em; }
+.rc-name span { display: block; margin-top: 2px; font-size: 13px; color: var(--ink-faint); }
+.rc-name .rc-tok { margin-top: 8px; font: 12.5px var(--mono); color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.rc-track { position: relative; height: 52px; }
+.rc-b {
+  position: absolute; top: 0; bottom: 0; left: calc(var(--x) * 1%); width: calc(var(--w) * 1% - 2px);
+  border-radius: 7px; background: var(--ink-3); overflow: hidden;
 }
-.box b { color: var(--ink-text); font-weight: 600; }
-.box.on { border-color: currentColor; }
-.gen .box.on { color: var(--heat); box-shadow: 0 0 0 3px color-mix(in srgb, var(--heat) 14%, transparent); }
-.read .box.on { color: var(--lime); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lime) 14%, transparent); }
-.box.on b { color: inherit; }
-.model { text-align: center; }
-.model .k { display: block; margin-top: 4px; font: 600 20px/1 var(--mono); color: #fff; font-variant-numeric: tabular-nums; }
-.model .u { display: block; margin-top: 4px; font-size: 12px; color: var(--ink-faint); }
-.gen .model.tick { color: var(--heat); border-color: var(--heat); }
-.stream { font: 12px/1.9 var(--mono); color: var(--ink-soft); min-height: 118px; word-break: break-all; }
-.stream span { padding: 1px 1px; border-radius: 3px; }
-.stream span:nth-child(odd) { background: color-mix(in srgb, var(--heat) 16%, transparent); }
-.stream span:nth-child(even) { background: color-mix(in srgb, var(--heat) 8%, transparent); }
-.stream .caret { display: inline-block; width: 7px; height: 14px; background: var(--heat); vertical-align: -2px; margin-left: 2px; animation: blink 1s steps(2) infinite; }
-@keyframes blink { 50% { opacity: 0; } }
-.cnt { font: 12px var(--mono); color: var(--ink-faint); }
-.cnt b { color: var(--ink-text); font-weight: 600; font-variant-numeric: tabular-nums; }
-.logits { display: flex; align-items: flex-end; gap: 1px; height: 96px; }
-.logits i { flex: 1; background: var(--ink-hi); border-radius: 1px 1px 0 0; transition: opacity .4s, background .3s; min-width: 1px; }
-.logits i.L { background: var(--ink-soft); position: relative; }
-.logits.lit i.L { background: var(--lime); }
-.logits.masked i:not(.L) { opacity: .12; }
-.letters { display: flex; justify-content: space-between; font: 12px var(--mono); color: var(--ink-faint); }
-.steps-mini { display: flex; flex-direction: column; gap: 6px; }
-.out-dist .bar { grid-template-columns: 64px minmax(0, 1fr) 30px; gap: 8px; }
-.out-dist .bar .l { font-size: 12px; color: var(--ink-faint); }
-.out-dist .bar .tr { height: 6px; background: var(--ink-line); }
-.out-dist .bar .tr i { background: var(--ink-hi); }
-.out-dist .bar.w .l, .out-dist .bar.w .p { color: var(--lime); }
-.out-dist .bar.w .tr i { background: var(--lime); }
-.out-dist .bar .p { font-size: 12px; color: var(--ink-faint); }
-.out-str { font: 600 15px var(--mono); color: var(--ink-text); }
-.dim { opacity: .28; transition: opacity .4s; }
-.dim.on, .done .dim { opacity: 1; }
-.duel-foot { display: flex; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; padding: 14px 16px; border-top: 1px solid var(--ink-line); }
+.rc-b::after, .rc-b i::after {
+  content: ""; position: absolute; inset: 0; background: var(--f);
+  transform: scaleX(var(--k, 0)); transform-origin: left;
+}
+.rc-b span { position: absolute; left: 9px; top: 50%; translate: 0 -50%; z-index: 1; font: 500 12px var(--mono); color: var(--ink-text); white-space: nowrap; }
+.gen .ov { --f: var(--ink-hi); }
+.gen .st { --f: color-mix(in srgb, var(--heat) 36%, var(--ink-2)); }
+.gen .tk { --f: var(--heat); }
+.read .bt { background: none; display: flex; flex-direction: column; gap: 1px; min-width: 3px; }
+.read .bt i { position: relative; flex: 1; border-radius: 2px; background: var(--ink-3); overflow: hidden; --f: var(--mint); }
+.rc-ph { position: absolute; top: -10px; bottom: -10px; left: calc(var(--t, 0) * 1%); width: 2px; margin-left: -1px; border-radius: 1px; background: #fff; }
+/* the finish: each lane keeps its own clock, stopped and coloured when it arrives */
+.rc-time { justify-self: end; display: flex; align-items: baseline; gap: 5px; font: 640 26px/1 var(--mono); color: #fff; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.rc-time small { font-size: 13px; font-weight: 500; color: var(--ink-faint); letter-spacing: 0; }
+.rc-time svg { align-self: center; width: 16px; height: 16px; margin-right: 4px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0; transform: translateX(-6px); transition: opacity .3s, transform .45s var(--ease); }
+.rc-lane.done .rc-time svg { opacity: 1; transform: none; }
+.read.done .rc-time { color: var(--lime); }
+.gen.done .rc-time { color: var(--heat); }
+/* what each lane hands back: snap's distributions land whole, the rival's JSON types out */
+.rc-out, .rc-stream { grid-column: 2; height: 3.3em; font: 12px/1.65 var(--mono); }
+.rc-out { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 3px 20px; color: var(--lime); opacity: 0; transform: translateY(4px); transition: opacity .3s, transform .45s var(--ease); }
+.read.done .rc-out { opacity: 1; transform: none; }
+.rc-ans { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.rc-ans small { font-size: 12px; color: var(--ink-soft); }
+.rc-mini { display: flex; gap: 1px; width: 40px; height: 6px; }
+.rc-mini i { flex: var(--p) 1 0; min-width: 0; border-radius: 1px; background: var(--ink-hi); transform: scaleX(0); transform-origin: left; transition: transform .45s var(--ease); }
+.rc-mini i.w { background: var(--lime); }
+.read.done .rc-mini i { transform: none; }
+.rc-stream { overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; color: color-mix(in srgb, var(--heat) 75%, var(--ink-text)); word-break: break-all; }
+.rc-stream span::after { content: ""; display: inline-block; width: 7px; height: 13px; margin-left: 2px; vertical-align: -2px; background: var(--heat); }
+.gen:not(.writing) .rc-stream span::after { display: none; }
+.rc-axis { position: relative; display: grid; grid-template-columns: 11rem minmax(0, 1fr) 9.5rem; gap: 0 28px; align-items: center; padding: 12px 24px 16px; }
+.rc-ticks { grid-column: 2; position: relative; height: 18px; font: 12px var(--mono); color: var(--ink-faint); }
+.rc-ticks span { position: absolute; left: calc(var(--x) * 1%); translate: -50% 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rc-ticks span:first-child { translate: 0 0; }
+.rc-ticks span:last-child { translate: -100% 0; }
+/* the method, one click away instead of under every run */
+.rc-info summary { display: inline-flex; align-items: center; gap: 7px; list-style: none; cursor: pointer; font-size: 13px; color: var(--ink-faint); transition: color .15s; }
+.rc-info summary::-webkit-details-marker { display: none; }
+.rc-info summary:hover, .rc-info[open] summary { color: var(--ink-text); }
+.rc-info summary svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.rc-pop {
+  position: absolute; z-index: 2; left: 24px; bottom: calc(100% - 4px); width: min(34rem, calc(100% - 48px)); padding: 16px 18px;
+  border-radius: 11px; background: var(--ink-3); box-shadow: inset 0 0 0 1px var(--ink-hi), 0 16px 40px rgb(0 0 0 / .5);
+  font-size: 13.5px; line-height: 1.55; color: var(--ink-soft); text-wrap: pretty;
+}
+.rc-pop p + p { margin-top: 8px; }
+.rc-pop code { font-size: 12.5px; color: var(--ink-text); }
+.rc.still::after { display: none; }
+.rc.still .rc-stage { position: static; height: auto; }
+.rc.still .rc-hint { display: none; }
 
 .steps { margin-top: 88px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--ink-line); }
 .step { padding: 32px 28px 0 0; }
@@ -457,9 +585,11 @@ section { padding: 128px 0; }
 .race { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 28px 32px 22px; }
 .race-h { display: flex; justify-content: space-between; align-items: baseline; gap: 12px 24px; flex-wrap: wrap; margin-bottom: 20px; }
 .race-h h3 { font-size: 18px; }
-.legend { display: flex; gap: 18px; font: 12px var(--mono); color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font: 12px var(--mono); color: var(--muted); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 .legend .o { background: var(--line-hi); }
+.legend .o2, .rb.o2 i { background: color-mix(in srgb, var(--muted) 45%, var(--paper)); }
+.legend .o3, .rb.o3 i { background: color-mix(in srgb, var(--muted) 75%, var(--paper)); }
 .legend .s { background: var(--green); }
 .rrow { display: grid; grid-template-columns: minmax(0, 15rem) minmax(0, 1fr) 64px; gap: 8px 24px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
 .rrow:first-of-type { border-top: 0; }
@@ -471,6 +601,7 @@ section { padding: 128px 0; }
 .rb span { font: 12px var(--mono); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .rb.s span { color: var(--text); font-weight: 600; }
 .delta { font: 600 14px var(--mono); color: var(--green-deep); text-align: right; font-variant-numeric: tabular-nums; }
+.delta.lose { color: var(--amber); }
 .tables { margin-top: 28px; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 28px; align-items: start; }
 .tcard { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 24px 28px 20px; }
 .tcard h3 { font-size: 16px; margin-bottom: 14px; }
@@ -533,7 +664,14 @@ table.t { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .sstep-h .n { font: 600 12px var(--mono); color: var(--lime); }
 .sstep-h h3 { margin-top: 8px; font-size: 20px; font-stretch: 106%; }
 .sstep-h p { margin-top: 6px; font-size: 14.5px; color: var(--ink-soft); }
-.sstep .plat { display: flex; gap: 2px; padding: 0 18px; }
+.sstep .plat { display: flex; flex-wrap: wrap; gap: 2px; padding: 0 18px 14px; }
+.seg {
+  height: 30px; padding: 0 11px; border: 0; border-radius: 8px; background: transparent;
+  font: 500 13.5px var(--sans); color: var(--ink-faint); cursor: pointer; transition: color .15s, background .15s;
+}
+.seg:hover { color: var(--ink-text); }
+.seg[aria-selected="true"] { background: var(--ink-3); color: #fff; box-shadow: inset 0 0 0 1px var(--ink-hi); }
+.sstep pre a { color: var(--mint); }
 .sstep pre { margin-top: auto; padding: 16px 22px 18px; border-top: 1px solid var(--ink-line); font: 12.5px/1.75 var(--mono); color: var(--ink-text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .sstep pre .p { color: var(--lime); user-select: none; }
 .sstep pre .c { color: var(--ink-faint); }
@@ -544,7 +682,8 @@ table.t { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .platforms b { color: var(--ink-text); font-weight: 500; }
 .close { margin-top: 120px; padding-top: 72px; border-top: 1px solid var(--ink-line); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px 48px; align-items: end; }
 .close h2 { font-size: clamp(2.2rem, 5vw, 4.4rem); max-width: 14ch; }
-.close .cta { justify-content: flex-end; }
+.close-get { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; width: min(100%, 34rem); }
+.close-get .cta { margin-top: 4px; }
 
 /* ---------- footer ---------- */
 footer { padding: 56px 0 64px; }
@@ -559,11 +698,9 @@ footer { padding: 56px 0 64px; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 1100px) {
-  .duel-cols { display: none; }
-  .lane { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }
-  .lane-name { grid-column: 1 / -1; padding-bottom: 0 !important; }
-  .lane .cell:nth-child(4) { grid-column: 1 / span 2; }
-  .lane .cell:nth-child(2)::before { display: none; }
+  .rc-lane, .rc-axis { grid-template-columns: 10rem minmax(0, 1fr) 8.5rem; column-gap: 20px; }
+  .top nav a { padding: 7px 9px; }
+  .top .gh-t { display: none; }
   .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .step:nth-child(3) { padding-left: 0; border-left: 0; }
   .step:nth-child(n+3) { margin-top: 32px; border-top: 1px solid var(--ink-line); }
@@ -601,13 +738,22 @@ footer { padding: 56px 0 64px; }
   .uc-res { padding: 18px 20px 22px; }
   .uc-wire { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 16px 20px; }
   .bar { grid-template-columns: minmax(0, 8rem) minmax(0, 1fr) 36px; }
-  .lane { grid-template-columns: minmax(0, 1fr); }
-  .lane .cell:nth-child(4) { grid-column: auto; }
-  .lane > * { padding: 14px 16px; }
-  .lane-name { padding-top: 20px !important; }
-  .cell + .cell::before { left: 50%; top: -6px; margin: 0 0 0 -6px; transform: rotate(135deg) scale(.6); }
-  .lane .cell:nth-child(2)::before { display: none; }
-  .stream { min-height: 0; }
+  .rc::after { height: 120vh; }
+  .rc-top { padding: 14px 16px; }
+  .rc-slot { margin-left: 0; justify-items: start; }
+  .rc-lanes { padding: 0 16px; }
+  /* name and clock share a row; the bar and what it hands back run full width under them */
+  .rc-lane { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 14px 0; }
+  .rc-name { display: contents; }
+  .rc-name span, .rc-name .rc-tok { grid-row: 2; margin: 0; }
+  .rc-name .rc-tok { justify-self: end; }
+  .rc-time { grid-area: 1 / 2; font-size: 22px; }
+  .rc-track { grid-area: 3 / 1 / 4 / -1; height: 40px; }
+  .rc-out, .rc-stream { grid-area: 4 / 1 / 5 / -1; }
+  .rc-out { height: auto; min-height: 3.3em; }
+  .rc-axis { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 10px 16px 14px; }
+  .rc-ticks { grid-column: 1; }
+  .rc-pop { left: 16px; width: calc(100% - 32px); }
   .steps { grid-template-columns: minmax(0, 1fr); margin-top: 64px; }
   .step, .step + .step { padding: 28px 0 0; border-left: 0; }
   .step + .step { margin-top: 28px; border-top: 1px solid var(--ink-line); }
@@ -628,7 +774,7 @@ footer { padding: 56px 0 64px; }
   .cmp table { min-width: 560px; }
   .start { grid-template-columns: minmax(0, 1fr); }
   .close { margin-top: 88px; padding-top: 56px; }
-  .close .cta { justify-content: flex-start; }
+  .close-get { width: 100%; }
   .foot { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .foot > div:first-child { grid-column: 1 / -1; }
 }
@@ -637,7 +783,9 @@ footer { padding: 56px 0 64px; }
   .a-leg { grid-column: 1; }
   .clock { font-size: 28px; }
   .c-foot { padding: 16px 20px; }
-  .top .btn.primary { display: none; }
+  .brand { margin-right: 10px; }
+  .docked .brand span { display: none; }
+  .rc-seg button { padding: 0 9px; font-size: 13px; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
@@ -658,13 +806,20 @@ footer { padding: 56px 0 64px; }
       <a href="#security">Security</a>
       <a href="#benchmarks">Benchmarks</a>
       <a href="#api">API</a>
+      <i class="nav-ind" aria-hidden="true"></i>
     </nav>
     <div class="right">
       <a class="btn ghost gh" href="https://github.com/emnlmn/snap" aria-label="snap on GitHub">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
         <span class="gh-t">GitHub</span>
       </a>
-      <a class="btn primary" href="#start">Get snap</a>
+      <div class="dock" id="dock">
+        <a class="btn primary dock-go" href="#get">Get snap</a>
+        <div class="dock-cmd" inert>
+          <code><span class="p">$ </span><span class="dock-t">brew install emnlmn/snap/snap</span></code>
+          <button class="cp" data-copy="dock"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.8"/><path d="M10.5 3.2V3a1.5 1.5 0 0 0-1.5-1.5H3.8A1.5 1.5 0 0 0 2.3 3v5.2a1.5 1.5 0 0 0 1.5 1.5h.2"/></svg><span class="cp-t">Copy</span><span class="cp-ok">Copied</span></button>
+        </div>
+      </div>
     </div>
   </div>
 </header>
@@ -677,12 +832,20 @@ footer { padding: 56px 0 64px; }
     <h1 id="hero-h">Ask everything. Generate nothing.</h1>
     <div class="hero-row">
       <p class="lede">snap is a decision engine for LLM pipelines. Send one state with <b>every question you have about it</b> and get back typed answers, each with its full probability distribution, from a single pass over the model. Nothing is generated, so there is nothing to parse, retry or sanitize.</p>
-      <div>
-        <div class="cmd">
-          <code id="hero-cmd"><span class="p">$ </span><span id="hero-cmd-t">brew install emnlmn/snap/snap</span></code>
-          <button class="copy" data-copy="hero">copy</button>
+      <div class="get" id="get">
+        <div class="get-os" role="group" aria-label="Your platform">
+          <span>Install for</span>
+          <button data-os="mac" aria-pressed="true">macOS</button>
+          <button data-os="linux" aria-pressed="false">Linux</button>
+          <button data-os="win" aria-pressed="false">Windows</button>
         </div>
-        <p class="micro">Open source (MIT) · runs on your hardware · Jev wire-compatible</p>
+        <div class="cmd big inst">
+          <code><span class="p">$ </span><span class="os-cmd">brew install emnlmn/snap/snap</span></code>
+          <button class="cp" data-copy="install"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.8"/><path d="M10.5 3.2V3a1.5 1.5 0 0 0-1.5-1.5H3.8A1.5 1.5 0 0 0 2.3 3v5.2a1.5 1.5 0 0 0 1.5 1.5h.2"/></svg><span class="cp-t">Copy</span><span class="cp-ok">Copied</span></button>
+        </div>
+        <a class="btn primary dl" href="https://github.com/emnlmn/snap/releases/latest" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8.5M4.5 7 8 10.5 11.5 7M2.5 13.5h11"/></svg>Download for Windows · x86_64</a>
+        <p class="then"><b>then</b><code class="os-then">snap serve --model qwen3.8-4b</code><button class="copy" data-copy="then">copy</button></p>
+        <p class="micro">Open source (MIT) · runs on your hardware · Jev wire-compatible · <a href="https://github.com/emnlmn/snap/releases/latest">all downloads</a></p>
       </div>
     </div>
 
@@ -739,58 +902,73 @@ footer { padding: 56px 0 64px; }
 <!-- ======================= HOW IT WORKS ======================= -->
 <section id="how" class="ink" aria-labelledby="how-h">
   <div class="wrap">
-    <div class="head">
-      <h2 id="how-h">A chat model writes its answer. snap reads it.</h2>
-      <div>
-        <p class="sub">At every step, a language model scores every token in its vocabulary as the possible next one. Those scores are the <b>logits</b>. Chat inference picks a token, appends it and runs the model again, once per token, until there is enough text for you to parse.</p>
-        <p class="sub" style="margin-top:14px">snap asks each question so that the answer is a single letter, runs the model once, and reads the scores of those letters directly.</p>
+    <div class="rc" id="rc">
+      <div class="rc-stage">
+        <div class="head">
+          <h2 id="how-h">A chat model writes its answer. snap reads it.</h2>
+          <div>
+            <p class="sub">At every step, a language model scores every token in its vocabulary as the possible next one. Those scores are the <b>logits</b>. Chat inference picks a token, appends it and runs the model again, once per token, until there is enough text for you to parse.</p>
+            <p class="sub" style="margin-top:14px">snap asks each question so that the answer is a single letter, runs the model once, and reads the scores of those letters directly.</p>
+          </div>
+        </div>
+        <figure class="rc-panel">
+          <div class="rc-top">
+            <div class="rc-ctl">
+              <div class="rc-opt"><span class="rc-lbl" id="rc-l-o">snap vs</span>
+                <div class="rc-seg" role="group" aria-labelledby="rc-l-o">
+                  <button data-o="ollama" aria-pressed="true">Ollama</button>
+                  <button data-o="openai" aria-pressed="false">OpenAI</button>
+                </div>
+              </div>
+              <div class="rc-opt"><span class="rc-lbl" id="rc-l-n">questions</span>
+                <div class="rc-seg" role="group" aria-labelledby="rc-l-n">
+                  <button data-n="1" aria-pressed="false">1</button>
+                  <button data-n="4" aria-pressed="true">4</button>
+                  <button data-n="8" aria-pressed="false">8</button>
+                </div>
+              </div>
+              <div class="rc-opt"><span class="rc-lbl" id="rc-l-v">Ollama writes</span>
+                <div class="rc-seg" role="group" aria-labelledby="rc-l-v">
+                  <button data-v="json-answers" aria-pressed="false">answers</button>
+                  <button data-v="json-snap" aria-pressed="true">+ probabilities</button>
+                </div>
+              </div>
+            </div>
+            <span class="rc-slot" aria-hidden="true">
+              <span class="rc-hint">scroll to run the race<svg viewBox="0 0 12 12"><path d="M3 4.5 6 7.5 9 4.5"/></svg></span>
+              <span class="rc-mid" id="rc-mid"></span>
+              <span class="rc-delta" id="rc-delta"></span>
+            </span>
+          </div>
+          <div class="rc-lanes" aria-hidden="true">
+            <div class="rc-lane read">
+              <div class="rc-name"><b>snap</b><span>MiniCPM5-2B</span><span class="rc-tok">0 tokens</span></div>
+              <div class="rc-track" id="rc-read"></div>
+              <span class="rc-time"><svg viewBox="0 0 16 16"><path d="M4 14V2.5M4 3h7.5l-1.8 3 1.8 3H4"/></svg><b id="rc-ts">0.0</b><small>ms</small></span>
+              <div class="rc-out" id="rc-out"></div>
+            </div>
+            <div class="rc-lane gen">
+              <div class="rc-name"><b id="rc-gn">Ollama</b><span id="rc-gm">MiniCPM5-2B</span><span class="rc-tok" id="rc-tok"></span></div>
+              <div class="rc-track" id="rc-gen"></div>
+              <span class="rc-time"><svg viewBox="0 0 16 16"><path d="M4 14V2.5M4 3h7.5l-1.8 3 1.8 3H4"/></svg><b id="rc-tg">0.0</b><small>ms</small></span>
+              <p class="rc-stream"><span id="rc-stream"></span></p>
+            </div>
+          </div>
+          <div class="rc-axis">
+            <details class="rc-info">
+              <summary><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.4v3.6M8 5v.1"/></svg>How we measured</summary>
+              <div class="rc-pop">
+                <p>snap and Ollama 0.34.3 run the same MiniCPM5-2B weights on one Apple M1 Max; OpenAI runs gpt-5.6-luna with reasoning off. Same prompt, same JSON schema, and a state no engine has seen before, on every request.</p>
+                <p>Times are medians of 15 requests (OpenAI: 5). The bars are each engine's measured phases; the JSON is a reply the model actually wrote, replayed at its measured pace.</p>
+                <p>Reproduce with <code>eval/vs_ollama.py</code> and <code>eval/vs_openai.py</code>. Every workload and mode: <a href="#benchmarks">Benchmarks</a>.</p>
+              </div>
+            </details>
+            <div class="rc-ticks" id="rc-ticks" aria-hidden="true"></div>
+          </div>
+          <figcaption class="sr" id="rc-sr" aria-live="polite"></figcaption>
+        </figure>
       </div>
     </div>
-
-    <figure class="duel" id="duel" aria-label="Schematic: generating a JSON answer token by token versus reading the answer from one row of logits">
-      <div class="duel-cols" aria-hidden="true">
-        <span></span><span>input</span><span>model</span><span>what comes out</span><span>then</span><span>what you get</span>
-      </div>
-      <div class="lane gen">
-        <div class="lane-name"><b>Generate, then parse</b><span>chat completion with JSON output</span></div>
-        <div class="cell"><div class="box" data-g="in"><b>ticket</b> + 4 questions + "reply in JSON"</div></div>
-        <div class="cell"><div class="box model" id="gen-model">forward pass<span class="k" id="gen-passes">0</span><span class="u">one per token</span></div></div>
-        <div class="cell">
-          <div class="stream" id="gen-stream" aria-hidden="true"></div>
-          <span class="cnt"><b id="gen-toks">0</b> tokens generated</span>
-        </div>
-        <div class="cell steps-mini">
-          <div class="box dim" data-g="parse">parse JSON</div>
-          <div class="box dim" data-g="val">validate schema</div>
-          <div class="box dim" data-g="retry">retry if broken</div>
-        </div>
-        <div class="cell dim" data-g="out">
-          <span class="out-str">"route": "auth"</span>
-          <span class="cnt">a string, no probability</span>
-        </div>
-      </div>
-      <div class="lane read">
-        <div class="lane-name"><b>Read the answer</b><span>snap</span></div>
-        <div class="cell"><div class="box" data-r="in"><b>ticket</b> + 4 questions, options lettered A, B, C…</div></div>
-        <div class="cell"><div class="box model" id="read-model">forward pass<span class="k" id="read-passes">0</span><span class="u">all questions, batched</span></div></div>
-        <div class="cell">
-          <div class="logits" id="logits" aria-hidden="true"></div>
-          <div class="letters" aria-hidden="true"><span>logits over the vocabulary</span></div>
-          <span class="cnt"><b id="read-toks">0</b> tokens generated</span>
-        </div>
-        <div class="cell steps-mini">
-          <div class="box dim" data-r="mask">keep letters A–D</div>
-          <div class="box dim" data-r="soft">softmax</div>
-        </div>
-        <div class="cell dim out-dist" data-r="out">
-          <div class="bars" id="read-dist"></div>
-        </div>
-      </div>
-      <figcaption class="duel-foot">
-        <span class="note">Schematic, not to scale. Measured latencies are under <a href="#benchmarks">Benchmarks</a>.</span>
-        <span class="note">The distribution shown is the recorded <code>route</code> answer from the support ticket above.</span>
-      </figcaption>
-    </figure>
 
     <ol class="steps">
       <li class="step">
@@ -933,16 +1111,14 @@ footer { padding: 56px 0 64px; }
 
     <div class="race">
       <div class="race-h">
-        <h3>snap vs Ollama 0.34.3 · same MiniCPM5-2B weights, same machine, fresh state per request, p50 of 15</h3>
-        <div class="legend"><span><i class="o"></i>Ollama</span><span><i class="s"></i>snap</span></div>
+        <h3>snap vs Ollama 0.34.3 · same MiniCPM5-2B weights, same machine, a never-seen state per request, p50 of 15</h3>
+        <div class="legend"><span><i class="o3"></i>Ollama, JSON + probabilities</span><span><i class="o2"></i>Ollama, JSON answers</span><span><i class="o"></i>Ollama, one letter each</span><span><i class="s"></i>snap</span></div>
       </div>
-      <div class="rrow"><span class="w">1 question</span><div class="rbars"><div class="rb"><i style="--v:7.9"></i><span>149 ms</span></div><div class="rb s"><i style="--v:2.7"></i><span>51 ms</span></div></div><span class="delta">−66%</span></div>
-      <div class="rrow"><span class="w">4 questions, one request each</span><div class="rbars"><div class="rb"><i style="--v:27.7"></i><span>523 ms</span></div><div class="rb s"><i style="--v:6.7"></i><span>126 ms</span></div></div><span class="delta">−76%</span></div>
-      <div class="rrow"><span class="w">8 questions, one request each</span><div class="rbars"><div class="rb"><i style="--v:42.2"></i><span>796 ms</span></div><div class="rb s"><i style="--v:13.7"></i><span>258 ms</span></div></div><span class="delta">−68%</span></div>
-      <div class="rrow"><span class="w">4 questions, combined prompt</span><div class="rbars"><div class="rb"><i style="--v:30.3"></i><span>571 ms</span></div><div class="rb s"><i style="--v:6.7"></i><span>126 ms</span></div></div><span class="delta">−78%</span></div>
-      <div class="rrow"><span class="w">8 questions, combined prompt</span><div class="rbars"><div class="rb"><i style="--v:38.8"></i><span>731 ms</span></div><div class="rb s"><i style="--v:13.7"></i><span>258 ms</span></div></div><span class="delta">−65%</span></div>
-      <div class="rrow"><span class="w">4 KB state, 1 question</span><div class="rbars"><div class="rb"><i style="--v:73"></i><span>1376 ms</span></div><div class="rb s"><i style="--v:69.2"></i><span>1304 ms</span></div></div><span class="delta">−5%</span></div>
-      <p class="note" style="margin-top:14px">Combined prompt is Ollama's best case for N questions, and it answers <code>"A,C,B"</code> as text to parse, with no probabilities.</p>
+      <div class="rrow"><span class="w">1 question</span><div class="rbars"><div class="rb o3"><i style="--v:100.0"></i><span>898 ms · 69 tokens</span></div><div class="rb o2"><i style="--v:18.1"></i><span>163 ms · 9 tokens</span></div><div class="rb o"><i style="--v:6.8"></i><span>61 ms · 1 token</span></div><div class="rb s"><i style="--v:6.1"></i><span>54 ms · 0 tokens</span></div></div><span class="delta">−11%</span></div>
+      <div class="rrow"><span class="w">4 questions</span><div class="rbars"><div class="rb o3"><i style="--v:100.0"></i><span>3704 ms · 282 tokens</span></div><div class="rb o2"><i style="--v:9.2"></i><span>342 ms · 26 tokens</span></div><div class="rb o"><i style="--v:6.9"></i><span>257 ms · 4 tokens</span></div><div class="rb s"><i style="--v:3.6"></i><span>135 ms · 0 tokens</span></div></div><span class="delta">−48%</span></div>
+      <div class="rrow"><span class="w">8 questions</span><div class="rbars"><div class="rb o3"><i style="--v:100.0"></i><span>7874 ms · 562 tokens</span></div><div class="rb o2"><i style="--v:9.3"></i><span>732 ms · 50 tokens</span></div><div class="rb o"><i style="--v:6.4"></i><span>504 ms · 8 tokens</span></div><div class="rb s"><i style="--v:3.3"></i><span>263 ms · 0 tokens</span></div></div><span class="delta">−48%</span></div>
+      <div class="rrow"><span class="w">5 KB state, 1 question</span><div class="rbars"><div class="rb o3"><i style="--v:100.0"></i><span>3872 ms · 73 tokens</span></div><div class="rb o2"><i style="--v:70.7"></i><span>2738 ms · 8 tokens</span></div><div class="rb o"><i style="--v:68.4"></i><span>2650 ms · 1 token</span></div><div class="rb s"><i style="--v:57.5"></i><span>2226 ms · 0 tokens</span></div></div><span class="delta">−16%</span></div>
+      <p class="note" style="margin-top:14px">The delta is snap against Ollama's fastest mode in that row. One letter per question is Ollama's floor: text to parse, no probabilities, one request per question (asked for <code>"A,C,B"</code> in one reply, it stopped early). JSON is what a pipeline actually wires, under a schema; with probabilities it carries what a snap answer does, written token by token. Each engine ran its requests back to back; reproduce with <code>eval/vs_ollama.py</code>.</p>
     </div>
 
     <div class="tables">
@@ -1066,10 +1242,11 @@ footer { padding: 56px 0 64px; }
         <div class="plat" role="tablist" aria-label="Platform">
           <button class="seg" role="tab" aria-selected="true" aria-pressed="true" data-plat="mac">macOS</button>
           <button class="seg" role="tab" aria-selected="false" aria-pressed="false" data-plat="linux">Linux</button>
+          <button class="seg" role="tab" aria-selected="false" aria-pressed="false" data-plat="win">Windows</button>
           <button class="seg" role="tab" aria-selected="false" aria-pressed="false" data-plat="src">Source</button>
         </div>
         <pre id="install-pre"></pre>
-        <div class="sstep-f"><button class="copy" data-copy="install">copy</button></div>
+        <div class="sstep-f"><button class="copy" data-copy="plat">copy</button></div>
       </div>
       <div class="sstep">
         <div class="sstep-h"><span class="n">2</span><h3>Serve</h3><p>Pick a model from the tested set. The playground ships inside the binary.</p></div>
@@ -1096,9 +1273,13 @@ footer { padding: 56px 0 64px; }
 
     <div class="close">
       <h2>Stop parsing. Start deciding.</h2>
-      <div class="cta">
-        <a class="btn primary" href="https://github.com/emnlmn/snap/releases/latest">Download snap</a>
-        <a class="btn ghost" href="https://github.com/emnlmn/snap">Star on GitHub</a>
+      <div class="close-get">
+        <div class="cmd big inst">
+          <code><span class="p">$ </span><span class="os-cmd">brew install emnlmn/snap/snap</span></code>
+          <button class="cp" data-copy="install"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.8"/><path d="M10.5 3.2V3a1.5 1.5 0 0 0-1.5-1.5H3.8A1.5 1.5 0 0 0 2.3 3v5.2a1.5 1.5 0 0 0 1.5 1.5h.2"/></svg><span class="cp-t">Copy</span><span class="cp-ok">Copied</span></button>
+        </div>
+        <a class="btn primary dl" href="https://github.com/emnlmn/snap/releases/latest" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8.5M4.5 7 8 10.5 11.5 7M2.5 13.5h11"/></svg>Download for Windows · x86_64</a>
+        <p class="micro">No account, no API key. <a href="https://github.com/emnlmn/snap">Star snap on GitHub</a> to follow releases.</p>
       </div>
     </div>
   </div>
@@ -1134,7 +1315,7 @@ footer { padding: 56px 0 64px; }
 </footer>
 
 <script>
-const DATA = {"support":{"state":{"ticket":"#48213","subject":"Charged twice, locked out before board demo","body":"Billed twice (EUR 1,240 each). Nobody can log in since this morning; board demo at 3pm."},"qs":[{"n":"route","t":"choice","ask":"Which team takes this first?","o":["billing","auth","technical","sales"],"d":["invoices, payments, refunds","login, SSO, lockouts","bugs, outages","pricing, upgrades"],"p":[0.004368,0.995207,0.000403,2.2e-05],"a":"auth","c":0.9936,"s":"decided"},{"n":"urgent","t":"noul","ask":"Must this be handled within the hour?","o":["yes","no"],"d":null,"p":[0.774166,0.225834],"a":"yes","c":0.5483,"s":"decided"},{"n":"churn_risk","t":"score","ask":"How likely is this customer to cancel?","o":["none","low","elevated","high"],"d":null,"p":[0.000148,0.052431,0.785598,0.161823],"a":"elevated","c":0.7141,"s":"decided"},{"n":"refund_eur","t":"numeric","ask":"Refund owed, EUR","o":["< 0","0","310","620","930","1240","1550","> 1550"],"d":null,"p":[0.001632,0.030247,0.084493,0.037688,0.008166,0.587102,0.243552,0.007119],"a":"1,173","min":0,"max":1550,"step":310,"c":0.5281,"s":"decided"}],"ms":239.5,"input":232,"shared":93,"raw":{"answers":{"route":{"confidence":0.9936,"status":"decided","coverage":1.0,"type":"choice","choice":"auth","probabilities":{"billing":0.004368,"auth":0.995207,"technical":0.000403,"sales":2.2e-05}},"urgent":{"confidence":0.5483,"status":"decided","coverage":0.9984,"type":"noul","noul":0.774166,"boolean":true,"choice":"yes"},"churn_risk":{"confidence":0.7141,"status":"decided","coverage":1.0,"type":"score","score":0.703,"level":2,"probabilities":{"none":0.000148,"low":0.052431,"elevated":0.785598,"high":0.161823}},"refund_eur":{"confidence":0.5281,"status":"decided","coverage":0.9986,"type":"numeric","value":1172.93097,"probabilities":{"0":0.030247,"310":0.084493,"620":0.037688,"930":0.008166,"1240":0.587102,"1550":0.243552,"__below__":0.001632,"__above__":0.007119}}},"model":"snap-minicpm5-2.6b-15","usage":{"input_tokens":232},"x_snap":{"layout":"state_first","decoded_items":4,"prompt_tokens":602,"cached_head_tokens":40,"shared_prefix_tokens":93,"cache_hits":4,"cache_misses":0,"waves":1,"decode_ms":235.2,"total_ms":239.5}}},"agent":{"state":{"run":"run_7f3a","user_request":"Clean up the staging bucket, old test uploads.","proposed_call":{"tool":"s3.delete_objects","args":{"bucket":"acme-prod-uploads","prefix":""}}},"qs":[{"n":"allow","t":"noul","ask":"Safe to execute without human review?","o":["yes","no"],"d":null,"p":[0.037496,0.962504],"a":"no","c":0.925,"s":"decided"},{"n":"matches_intent","t":"noul","ask":"Does the call target what the user asked?","o":["yes","no"],"d":null,"p":[0.020444,0.979556],"a":"no","c":0.9591,"s":"decided"},{"n":"blast_radius","t":"score","ask":"Impact if the call is wrong","o":["none, read-only","reversible write","destructive, one resource","irreversible, production-wide"],"d":null,"p":[3.6e-05,0.061211,0.354007,0.584746],"a":"irreversible","c":0.4463,"s":"decided"},{"n":"action","t":"choice","ask":"What should the orchestrator do?","o":["execute","ask_user","block"],"d":["run the call","pause and ask","refuse and log"],"p":[0.236666,0.755938,0.007396],"a":"ask_user","c":0.6339,"s":"decided"}],"ms":180.2,"input":177,"shared":96,"raw":{"answers":{"allow":{"confidence":0.925,"status":"decided","coverage":0.9981,"type":"noul","noul":0.037496,"boolean":false,"choice":"no"},"matches_intent":{"confidence":0.9591,"status":"decided","coverage":0.946,"type":"noul","noul":0.020444,"boolean":false,"choice":"no"},"blast_radius":{"confidence":0.4463,"status":"decided","coverage":1.0,"type":"score","score":0.8412,"level":3,"probabilities":{"none, read-only":3.6e-05,"reversible write":0.061211,"destructive, one resource":0.354007,"irreversible, production-wide":0.584746}},"action":{"confidence":0.6339,"status":"decided","coverage":1.0,"type":"choice","choice":"ask_user","probabilities":{"execute":0.236666,"ask_user":0.755938,"block":0.007396}}},"model":"snap-minicpm5-2.6b-15","usage":{"input_tokens":177},"x_snap":{"layout":"state_first","decoded_items":4,"prompt_tokens":559,"cached_head_tokens":40,"shared_prefix_tokens":96,"cache_hits":4,"cache_misses":0,"waves":1,"decode_ms":175.8,"total_ms":180.2}}},"incident":{"state":{"page":"INC-2291","deploys":["payments-api v4.12 at 18:05"],"alerts":["checkout p95 300ms to 2.1s since 18:07","payment success 99.1% to 96.8%"]},"qs":[{"n":"severity","t":"score","ask":"Incident severity","o":["sev4, cosmetic","sev3, minor","sev2, degraded","sev1, outage or revenue loss"],"d":null,"p":[0.000833,0.000669,0.070365,0.928133],"a":"sev1","c":0.9042,"s":"decided"},{"n":"page_now","t":"noul","ask":"Page the on-call engineer now?","o":["yes","no"],"d":null,"p":[0.980142,0.019858],"a":"yes","c":0.9603,"s":"decided"},{"n":"likely_cause","t":"choice","ask":"Most likely cause","o":["recent_deploy","capacity","dependency"],"d":["a change shipped just before","resource exhaustion","third-party provider"],"p":[0.074803,0.820007,0.10519],"a":"capacity","c":0.73,"s":"decided"},{"n":"rollback","t":"noul","ask":"Roll back the payments-api deploy first?","o":["yes","no"],"d":null,"p":[0.921764,0.078236],"a":"yes","c":0.8435,"s":"decided"}],"ms":180.8,"input":179,"shared":106,"raw":{"answers":{"severity":{"confidence":0.9042,"status":"decided","coverage":1.0,"type":"score","score":0.9753,"level":3,"probabilities":{"sev4, cosmetic":0.000833,"sev3, minor":0.000669,"sev2, degraded":0.070365,"sev1, outage or revenue loss":0.928133}},"page_now":{"confidence":0.9603,"status":"decided","coverage":0.9952,"type":"noul","noul":0.980142,"boolean":true,"choice":"yes"},"likely_cause":{"confidence":0.73,"status":"decided","coverage":1.0,"type":"choice","choice":"capacity","probabilities":{"recent_deploy":0.074803,"capacity":0.820007,"dependency":0.10519}},"rollback":{"confidence":0.8435,"status":"decided","coverage":0.9991,"type":"noul","noul":0.921764,"boolean":true,"choice":"yes"}},"model":"snap-minicpm5-2.6b-15","usage":{"input_tokens":179},"x_snap":{"layout":"state_first","decoded_items":4,"prompt_tokens":601,"cached_head_tokens":40,"shared_prefix_tokens":106,"cache_hits":4,"cache_misses":0,"waves":1,"decode_ms":176.5,"total_ms":180.8}}},"moderation":{"state":{"listing":"L-90412","message":"iPhone 15 Pro, sealed, $300. No app checkout, fees are crazy. Pay in USDT, I ship today. Text me: +1 415 555 0134"},"qs":[{"n":"policy","t":"choice","ask":"Which policy is violated, if any?","o":["none","off_platform_payment","scam","harassment"],"d":["no violation","pay outside the platform","fraud or bait pricing","abuse or threats"],"p":[0.028178,0.695855,0.263712,0.012255],"a":"off_platform_payment","c":0.5945,"s":"decided"},{"n":"action","t":"choice","ask":"Moderation action","o":["allow","hold","remove"],"d":["deliver as is","hold for review","remove and warn"],"p":[0.004833,0.920588,0.074579],"a":"hold","c":0.8809,"s":"decided"},{"n":"scam_risk","t":"noul","ask":"Does this look like a scam or fraud attempt?","o":["yes","no"],"d":null,"p":[0.897555,0.102445],"a":"yes","c":0.7951,"s":"decided"}],"ms":154.3,"input":136,"shared":95,"raw":{"answers":{"policy":{"confidence":0.5945,"status":"decided","coverage":1.0,"type":"choice","choice":"off_platform_payment","probabilities":{"none":0.028178,"off_platform_payment":0.695855,"scam":0.263712,"harassment":0.012255}},"action":{"confidence":0.8809,"status":"decided","coverage":0.9995,"type":"choice","choice":"hold","probabilities":{"allow":0.004833,"hold":0.920588,"remove":0.074579}},"scam_risk":{"confidence":0.7951,"status":"decided","coverage":0.9964,"type":"noul","noul":0.897555,"boolean":true,"choice":"yes"}},"model":"snap-minicpm5-2.6b-15","usage":{"input_tokens":136},"x_snap":{"layout":"state_first","decoded_items":3,"prompt_tokens":419,"cached_head_tokens":40,"shared_prefix_tokens":95,"cache_hits":3,"cache_misses":0,"waves":1,"decode_ms":150.9,"total_ms":154.3}}},"search":{"state":{"query":"how do I rotate an API key without downtime?"},"qs":[{"n":"best","t":"choice","ask":"Which document best answers the query?","o":["doc_118","doc_342","doc_077","doc_205","doc_411","doc_019"],"d":["Rotating API keys with zero downtime","Revoking a compromised key","Rate limits per key","Creating your first key","Rotating webhook secrets","SSO and SCIM setup"],"p":[0.999977,1.3e-05,1e-06,3e-06,6e-06,0.0],"a":"doc_118","c":1.0,"s":"decided"},{"n":"intent","t":"choice","ask":"What is the user trying to do?","o":["how_to","troubleshoot","security_incident","billing"],"d":["learn a task","fix something broken","respond to a leak","plans, invoices"],"p":[0.788039,0.211446,0.000481,3.3e-05],"a":"how_to","c":0.7174,"s":"decided"},{"n":"needs_recent","t":"noul","ask":"Does the answer depend on current API versions?","o":["yes","no"],"d":null,"p":[0.801808,0.198192],"a":"yes","c":0.6036,"s":"decided"}],"ms":178.3,"input":170,"shared":59,"raw":{"answers":{"best":{"confidence":1.0,"status":"decided","coverage":1.0,"type":"choice","choice":"doc_118","probabilities":{"doc_118":0.999977,"doc_342":1.3e-05,"doc_077":1e-06,"doc_205":3e-06,"doc_411":6e-06,"doc_019":0.0}},"intent":{"confidence":0.7174,"status":"decided","coverage":1.0,"type":"choice","choice":"how_to","probabilities":{"how_to":0.788039,"troubleshoot":0.211446,"security_incident":0.000481,"billing":3.3e-05}},"needs_recent":{"confidence":0.6036,"status":"decided","coverage":0.9967,"type":"noul","noul":0.801808,"boolean":true,"choice":"yes"}},"model":"snap-minicpm5-2.6b-15","usage":{"input_tokens":170},"x_snap":{"layout":"state_first","decoded_items":3,"prompt_tokens":345,"cached_head_tokens":40,"shared_prefix_tokens":59,"cache_hits":3,"cache_misses":0,"waves":1,"decode_ms":175.0,"total_ms":178.3}}},"judge":{"state":{"question":"Refund window for annual plans?","context":"Full refund within 30 days of purchase, then pro-rated monthly.","answer":"Full refund within 60 days."},"qs":[{"n":"faithful","t":"noul","ask":"Is the answer fully supported by the context?","o":["yes","no"],"d":null,"p":[0.001716,0.998284],"a":"no","c":0.9966,"s":"decided"},{"n":"correctness","t":"score","ask":"How correct is the answer?","o":["wrong","partially correct","mostly correct","fully correct"],"d":null,"p":[0.824154,0.037805,0.002909,0.135132],"a":"wrong","c":0.7655,"s":"decided"},{"n":"error_type","t":"choice","ask":"Main error","o":["none","wrong_number","missing_info","unsupported_claim"],"d":["no error","contradicts a figure","omits stated info","adds a claim"],"p":[0.001383,0.700029,0.063109,0.235479],"a":"wrong_number","c":0.6,"s":"decided"}],"ms":152.9,"input":131,"shared":82,"raw":{"answers":{"faithful":{"confidence":0.9966,"status":"decided","coverage":0.9925,"type":"noul","noul":0.001716,"boolean":false,"choice":"no"},"correctness":{"confidence":0.7655,"status":"decided","coverage":1.0,"type":"score","score":0.1497,"level":0,"probabilities":{"wrong":0.824154,"partially correct":0.037805,"mostly correct":0.002909,"fully correct":0.135132}},"error_type":{"confidence":0.6,"status":"decided","coverage":1.0,"type":"choice","choice":"wrong_number","probabilities":{"none":0.001383,"wrong_number":0.700029,"missing_info":0.063109,"unsupported_claim":0.235479}}},"model":"snap-minicpm5-2.6b-15","usage":{"input_tokens":131},"x_snap":{"layout":"state_first","decoded_items":3,"prompt_tokens":375,"cached_head_tokens":40,"shared_prefix_tokens":82,"cache_hits":3,"cache_misses":0,"waves":1,"decode_ms":149.6,"total_ms":152.9}}},"labeling":{"state":{"lead":"inbound #5530","form":"Head of Data at a 1,200-person logistics company. ~2M shipment exceptions a month, on-prem only. Can we talk pricing?"},"qs":[{"n":"intent","t":"score","ask":"Buying intent","o":["browsing","researching","evaluating","ready to buy"],"d":null,"p":[0.001165,0.005322,0.269418,0.724095],"a":"ready to buy","c":0.6321,"s":"decided"},{"n":"segment","t":"choice","ask":"Company segment","o":["smb","mid_market","enterprise"],"d":["under 100 employees","100 to 1,000","over 1,000"],"p":[0.000149,0.022803,0.977049],"a":"enterprise","c":0.9656,"s":"decided"},{"n":"on_prem","t":"noul","ask":"Requires on-premise deployment?","o":["yes","no"],"d":null,"p":[0.806649,0.193351],"a":"yes","c":0.6133,"s":"decided"},{"n":"decision_maker","t":"noul","ask":"Is the writer likely the decision maker?","o":["yes","no"],"d":null,"p":[0.814397,0.185603],"a":"yes","c":0.6288,"s":"decided"}],"ms":176.8,"input":168,"shared":88,"raw":{"answers":{"intent":{"confidence":0.6321,"status":"decided","coverage":1.0,"type":"score","score":0.9055,"level":3,"probabilities":{"browsing":0.001165,"researching":0.005322,"evaluating":0.269418,"ready to buy":0.724095}},"segment":{"confidence":0.9656,"status":"decided","coverage":1.0,"type":"choice","choice":"enterprise","probabilities":{"smb":0.000149,"mid_market":0.022803,"enterprise":0.977049}},"on_prem":{"confidence":0.6133,"status":"decided","coverage":0.9981,"type":"noul","noul":0.806649,"boolean":true,"choice":"yes"},"decision_maker":{"confidence":0.6288,"status":"decided","coverage":0.9979,"type":"noul","noul":0.814397,"boolean":true,"choice":"yes"}},"model":"snap-minicpm5-2.6b-15","usage":{"input_tokens":168},"x_snap":{"layout":"state_first","decoded_items":4,"prompt_tokens":518,"cached_head_tokens":40,"shared_prefix_tokens":88,"cache_hits":4,"cache_misses":0,"waves":1,"decode_ms":172.4,"total_ms":176.8}}}};
+const DATA = {"support":{"state":{"ticket":"#48213","subject":"Charged twice, locked out before board demo","body":"Billed twice (EUR 1,240 each). Nobody can log in since this morning; board demo at 3pm."},"qs":[{"n":"route","t":"choice","ask":"Which team takes this first?","o":["billing","auth","technical","sales"],"d":["invoices, payments, refunds","login, SSO, lockouts","bugs, outages","pricing, upgrades"],"p":[0.00432,0.995264,0.000394,2.2e-05],"a":"auth","c":0.9937,"s":"decided"},{"n":"urgent","t":"noul","ask":"Must this be handled within the hour?","o":["yes","no"],"d":null,"p":[0.771216,0.228784],"a":"yes","c":0.5424,"s":"decided"},{"n":"churn_risk","t":"score","ask":"How likely is this customer to cancel?","o":["none","low","elevated","high"],"d":null,"p":[0.000146,0.051903,0.784352,0.163599],"a":"elevated","c":0.7125,"s":"decided"},{"n":"refund_due","t":"noul","ask":"Do we owe this customer a refund?","o":["yes","no"],"d":null,"c":0.1335,"s":"contested","p":[0.566769,0.433231],"a":"yes"}],"ms":226.5,"input":233,"shared":93,"raw":{"answers":{"route":{"confidence":0.9937,"status":"decided","coverage":1.0,"type":"choice","choice":"auth","probabilities":{"billing":0.00432,"auth":0.995264,"technical":0.000394,"sales":2.2e-05}},"urgent":{"confidence":0.5424,"status":"decided","coverage":0.9984,"type":"noul","noul":0.771216,"boolean":true,"choice":"yes"},"churn_risk":{"confidence":0.7125,"status":"decided","coverage":1.0,"type":"score","score":0.7038,"level":2,"probabilities":{"none":0.000146,"low":0.051903,"elevated":0.784352,"high":0.163599}},"refund_due":{"confidence":0.1335,"status":"contested","coverage":0.9997,"type":"noul","noul":0.566769,"boolean":true,"choice":"yes"}},"model":"snap-minicpm5-2.6b-15","usage":{"input_tokens":233},"x_snap":{"layout":"state_first","decoded_items":4,"prompt_tokens":552,"cached_head_tokens":40,"shared_prefix_tokens":93,"cache_hits":0,"cache_misses":4,"waves":1,"decode_ms":222.5,"total_ms":226.5}}},"agent":{"state":{"run":"run_7f3a","user_request":"Clean up the staging bucket, old test uploads.","proposed_call":{"tool":"s3.delete_objects","args":{"bucket":"acme-prod-uploads","prefix":""}}},"qs":[{"n":"allow","t":"noul","ask":"Safe to execute without human review?","o":["yes","no"],"d":null,"p":[0.037282,0.962718],"a":"no","c":0.9254,"s":"decided"},{"n":"matches_intent","t":"noul","ask":"Does the call target what the user asked?","o":["yes","no"],"d":null,"p":[0.020534,0.979466],"a":"no","c":0.9589,"s":"decided"},{"n":"blast_radius","t":"score","ask":"Impact if the call is wrong","o":["none, read-only","reversible write","destructive, one resource","irreversible, production-wide"],"d":null,"p":[3.6e-05,0.060997,0.353933,0.585033],"a":"irreversible","c":0.4467,"s":"decided"},{"n":"action","t":"choice","ask":"What should the orchestrator do?","o":["execute","ask_user","block"],"d":["run the call","pause and ask","refuse and log"],"p":[0.23589,0.756871,0.007238],"a":"ask_user","c":0.6353,"s":"decided"}],"ms":232.7,"input":231,"shared":96,"raw":{"answers":{"allow":{"confidence":0.9254,"status":"decided","coverage":0.998,"type":"noul","noul":0.037282,"boolean":false,"choice":"no"},"matches_intent":{"confidence":0.9589,"status":"decided","coverage":0.9466,"type":"noul","noul":0.020534,"boolean":false,"choice":"no"},"blast_radius":{"confidence":0.4467,"status":"decided","coverage":1.0,"type":"score","score":0.8413,"level":3,"probabilities":{"none, read-only":3.6e-05,"reversible write":0.060997,"destructive, one resource":0.353933,"irreversible, production-wide":0.585033}},"action":{"confidence":0.6353,"status":"decided","coverage":1.0,"type":"choice","choice":"ask_user","probabilities":{"execute":0.23589,"ask_user":0.756871,"block":0.007238}}},"model":"snap-minicpm5-2.6b-15","usage":{"input_tokens":231},"x_snap":{"layout":"state_first","decoded_items":4,"prompt_tokens":559,"cached_head_tokens":40,"shared_prefix_tokens":96,"cache_hits":0,"cache_misses":4,"waves":1,"decode_ms":228.7,"total_ms":232.7}}},"incident":{"state":{"page":"INC-2291","deploys":["payments-api v4.12 at 18:05"],"alerts":["checkout p95 300ms to 2.1s since 18:07","payment success 99.1% to 96.8%"]},"qs":[{"n":"severity","t":"score","ask":"Incident severity","o":["sev4, cosmetic","sev3, minor","sev2, degraded","sev1, outage or revenue loss"],"d":null,"p":[0.000819,0.000662,0.06953,0.92899],"a":"sev1","c":0.9053,"s":"decided"},{"n":"page_now","t":"noul","ask":"Page the on-call engineer now?","o":["yes","no"],"d":null,"p":[0.979943,0.020057],"a":"yes","c":0.9599,"s":"decided"},{"n":"likely_cause","t":"choice","ask":"Most likely cause","o":["recent_deploy","capacity","dependency"],"d":["a change shipped just before","resource exhaustion","third-party provider"],"p":[0.074675,0.820014,0.10531],"a":"capacity","c":0.73,"s":"decided"},{"n":"rollback","t":"noul","ask":"Roll back the payments-api deploy first?","o":["yes","no"],"d":null,"p":[0.92057,0.07943],"a":"yes","c":0.8411,"s":"decided"}],"ms":231.6,"input":243,"shared":106,"raw":{"answers":{"severity":{"confidence":0.9053,"status":"decided","coverage":1.0,"type":"score","score":0.9756,"level":3,"probabilities":{"sev4, cosmetic":0.000819,"sev3, minor":0.000662,"sev2, degraded":0.06953,"sev1, outage or revenue loss":0.92899}},"page_now":{"confidence":0.9599,"status":"decided","coverage":0.9952,"type":"noul","noul":0.979943,"boolean":true,"choice":"yes"},"likely_cause":{"confidence":0.73,"status":"decided","coverage":1.0,"type":"choice","choice":"capacity","probabilities":{"recent_deploy":0.074675,"capacity":0.820014,"dependency":0.10531}},"rollback":{"confidence":0.8411,"status":"decided","coverage":0.9991,"type":"noul","noul":0.92057,"boolean":true,"choice":"yes"}},"model":"snap-minicpm5-2.6b-15","usage":{"input_tokens":243},"x_snap":{"layout":"state_first","decoded_items":4,"prompt_tokens":601,"cached_head_tokens":40,"shared_prefix_tokens":106,"cache_hits":0,"cache_misses":4,"waves":1,"decode_ms":227.1,"total_ms":231.6}}},"moderation":{"state":{"listing":"L-90412","message":"iPhone 15 Pro, sealed, $300. No app checkout, fees are crazy. Pay in USDT, I ship today. Text me: +1 415 555 0134"},"qs":[{"n":"policy","t":"choice","ask":"Which policy is violated, if any?","o":["none","off_platform_payment","scam","harassment"],"d":["no violation","pay outside the platform","fraud or bait pricing","abuse or threats"],"p":[0.017232,0.278443,0.651579,0.052746],"a":"scam","c":0.5354,"s":"decided"},{"n":"action","t":"choice","ask":"Moderation action","o":["allow","hold","remove"],"d":["deliver as is","hold for review","remove and warn"],"p":[0.018933,0.972779,0.008288],"a":"hold","c":0.9592,"s":"decided"},{"n":"scam_risk","t":"noul","ask":"Does this look like a scam or fraud attempt?","o":["yes","no"],"d":null,"p":[0.901319,0.098681],"a":"yes","c":0.8026,"s":"decided"}],"ms":293.1,"input":295,"shared":42,"raw":{"answers":{"policy":{"confidence":0.5354,"status":"decided","coverage":1.0,"type":"choice","choice":"scam","probabilities":{"none":0.017232,"off_platform_payment":0.278443,"scam":0.651579,"harassment":0.052746}},"action":{"confidence":0.9592,"status":"decided","coverage":0.9995,"type":"choice","choice":"hold","probabilities":{"allow":0.018933,"hold":0.972779,"remove":0.008288}},"scam_risk":{"confidence":0.8026,"status":"decided","coverage":0.9994,"type":"noul","noul":0.901319,"boolean":true,"choice":"yes"}},"model":"snap-minicpm5-2.6b-15","usage":{"input_tokens":295},"x_snap":{"layout":"question_first","decoded_items":3,"prompt_tokens":419,"cached_head_tokens":40,"shared_prefix_tokens":42,"cache_hits":0,"cache_misses":3,"waves":1,"decode_ms":288.6,"total_ms":293.1}}},"search":{"state":{"query":"how do I rotate an API key without downtime?"},"qs":[{"n":"best","t":"choice","ask":"Which document best answers the query?","o":["doc_118","doc_342","doc_077","doc_205","doc_411","doc_019"],"d":["Rotating API keys with zero downtime","Revoking a compromised key","Rate limits per key","Creating your first key","Rotating webhook secrets","SSO and SCIM setup"],"p":[0.999296,5.5e-05,8.8e-05,0.000538,2.1e-05,0.0],"a":"doc_118","c":0.9992,"s":"decided"},{"n":"intent","t":"choice","ask":"What is the user trying to do?","o":["how_to","troubleshoot","security_incident","billing"],"d":["learn a task","fix something broken","respond to a leak","plans, invoices"],"p":[0.848622,0.117275,0.026011,0.008093],"a":"how_to","c":0.7982,"s":"decided"},{"n":"needs_recent","t":"noul","ask":"Does the answer depend on current API versions?","o":["yes","no"],"d":null,"p":[0.682712,0.317288],"a":"yes","c":0.3654,"s":"decided"}],"ms":101.9,"input":90,"shared":42,"raw":{"answers":{"best":{"confidence":0.9992,"status":"decided","coverage":1.0,"type":"choice","choice":"doc_118","probabilities":{"doc_118":0.999296,"doc_342":5.5e-05,"doc_077":8.8e-05,"doc_205":0.000538,"doc_411":2.1e-05,"doc_019":0.0}},"intent":{"confidence":0.7982,"status":"decided","coverage":1.0,"type":"choice","choice":"how_to","probabilities":{"how_to":0.848622,"troubleshoot":0.117275,"security_incident":0.026011,"billing":0.008093}},"needs_recent":{"confidence":0.3654,"status":"decided","coverage":0.9903,"type":"noul","noul":0.682712,"boolean":true,"choice":"yes"}},"model":"snap-minicpm5-2.6b-15","usage":{"input_tokens":90},"x_snap":{"layout":"question_first","decoded_items":3,"prompt_tokens":345,"cached_head_tokens":40,"shared_prefix_tokens":42,"cache_hits":3,"cache_misses":0,"waves":1,"decode_ms":97.5,"total_ms":101.9}}},"judge":{"state":{"question":"Refund window for annual plans?","context":"Full refund within 30 days of purchase, then pro-rated monthly.","answer":"Full refund within 60 days."},"qs":[{"n":"faithful","t":"noul","ask":"Is the answer fully supported by the context?","o":["yes","no"],"d":null,"p":[0.001724,0.998276],"a":"no","c":0.9966,"s":"decided"},{"n":"correctness","t":"score","ask":"How correct is the answer?","o":["wrong","partially correct","mostly correct","fully correct"],"d":null,"p":[0.82346,0.038177,0.002958,0.135406],"a":"wrong","c":0.7646,"s":"decided"},{"n":"error_type","t":"choice","ask":"Main error","o":["none","wrong_number","missing_info","unsupported_claim"],"d":["no error","contradicts a figure","omits stated info","adds a claim"],"p":[0.001383,0.699597,0.062824,0.236196],"a":"wrong_number","c":0.5995,"s":"decided"}],"ms":183.5,"input":171,"shared":82,"raw":{"answers":{"faithful":{"confidence":0.9966,"status":"decided","coverage":0.9926,"type":"noul","noul":0.001724,"boolean":false,"choice":"no"},"correctness":{"confidence":0.7646,"status":"decided","coverage":1.0,"type":"score","score":0.1501,"level":0,"probabilities":{"wrong":0.82346,"partially correct":0.038177,"mostly correct":0.002958,"fully correct":0.135406}},"error_type":{"confidence":0.5995,"status":"decided","coverage":1.0,"type":"choice","choice":"wrong_number","probabilities":{"none":0.001383,"wrong_number":0.699597,"missing_info":0.062824,"unsupported_claim":0.236196}}},"model":"snap-minicpm5-2.6b-15","usage":{"input_tokens":171},"x_snap":{"layout":"state_first","decoded_items":3,"prompt_tokens":375,"cached_head_tokens":40,"shared_prefix_tokens":82,"cache_hits":0,"cache_misses":3,"waves":1,"decode_ms":180.4,"total_ms":183.5}}},"labeling":{"state":{"lead":"inbound #5530","form":"Head of Data at a 1,200-person logistics company. ~2M shipment exceptions a month, on-prem only. Can we talk pricing?"},"qs":[{"n":"intent","t":"score","ask":"Buying intent","o":["browsing","researching","evaluating","ready to buy"],"d":null,"p":[0.001171,0.005367,0.269609,0.723853],"a":"ready to buy","c":0.6318,"s":"decided"},{"n":"segment","t":"choice","ask":"Company segment","o":["smb","mid_market","enterprise"],"d":["under 100 employees","100 to 1,000","over 1,000"],"p":[0.000149,0.023286,0.976566],"a":"enterprise","c":0.9648,"s":"decided"},{"n":"on_prem","t":"noul","ask":"Requires on-premise deployment?","o":["yes","no"],"d":null,"p":[0.806072,0.193928],"a":"yes","c":0.6121,"s":"decided"},{"n":"decision_maker","t":"noul","ask":"Is the writer likely the decision maker?","o":["yes","no"],"d":null,"p":[0.81554,0.18446],"a":"yes","c":0.6311,"s":"decided"}],"ms":200.2,"input":214,"shared":88,"raw":{"answers":{"intent":{"confidence":0.6318,"status":"decided","coverage":1.0,"type":"score","score":0.9054,"level":3,"probabilities":{"browsing":0.001171,"researching":0.005367,"evaluating":0.269609,"ready to buy":0.723853}},"segment":{"confidence":0.9648,"status":"decided","coverage":1.0,"type":"choice","choice":"enterprise","probabilities":{"smb":0.000149,"mid_market":0.023286,"enterprise":0.976566}},"on_prem":{"confidence":0.6121,"status":"decided","coverage":0.9981,"type":"noul","noul":0.806072,"boolean":true,"choice":"yes"},"decision_maker":{"confidence":0.6311,"status":"decided","coverage":0.9979,"type":"noul","noul":0.81554,"boolean":true,"choice":"yes"}},"model":"snap-minicpm5-2.6b-15","usage":{"input_tokens":214},"x_snap":{"layout":"state_first","decoded_items":4,"prompt_tokens":518,"cached_head_tokens":40,"shared_prefix_tokens":88,"cache_hits":0,"cache_misses":4,"waves":1,"decode_ms":196.5,"total_ms":200.2}}}};
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -1170,7 +1351,8 @@ function paint(name) {
     const w = winIdx(q);
     const segs = q.p.map((p, j) => `<i class="${j === w ? 'w' : ''}${p < .005 ? ' z' : ''}" style="--p:${p}"></i>`).join('');
     const leg = q.o.map((o, j) => q.p[j] < .01 && j !== w ? '' : `<span class="${j === w ? 'w' : ''}">${esc(o)} <b>${p2(q.p[j])}</b></span>`).join('');
-    return `<li class="a-row" tabindex="0" data-i="${i}" aria-label="${esc(`${q.ask} ${q.a}, ${p2(q.p[w])}`)}"><p class="a-ask">${esc(q.ask)}</p><span class="a-val">${esc(q.a)}</span><span class="a-dist" aria-hidden="true">${segs}</span><span class="a-leg" aria-hidden="true">${leg}</span></li>`;
+    const st = q.s !== 'decided' ? `<span class="a-st">${esc(q.s.replace('_', ' '))}</span>` : '';
+    return `<li class="a-row" tabindex="0" data-i="${i}" aria-label="${esc(`${q.ask} ${q.a}, ${p2(q.p[w])}${q.s !== 'decided' ? `, ${q.s}` : ''}`)}"><p class="a-ask">${esc(q.ask)}</p><span class="a-val">${esc(q.a)}${st}</span><span class="a-dist" aria-hidden="true">${segs}</span><span class="a-leg" aria-hidden="true">${leg}</span></li>`;
   }).join('');
   el.json.innerHTML = hl(c.raw);
   $$('.a-row', el.ans).forEach(r => {
@@ -1286,9 +1468,9 @@ new IntersectionObserver(es => {
 /* ---------------- use cases ---------------- */
 const UC = [
   { id: 'support', t: 'Support & ops triage', s: 'Route, prioritize and price every ticket before a human opens it.',
-    d: 'One request per ticket answers routing, urgency, churn risk and refund amount together. Thresholds decide what gets automated and what reaches a person.',
-    show: ['route', 'urgent', 'churn_risk', 'refund_eur'],
-    wire: '<span class="kw">if</span> a[<span class="s">"urgent"</span>][<span class="s">"boolean"</span>] <span class="kw">and</span> a[<span class="s">"route"</span>][<span class="s">"choice"</span>] == <span class="s">"auth"</span>:\n    page(<span class="s">"auth-oncall"</span>, ticket)' },
+    d: 'One request per ticket answers routing, urgency, churn risk and whether a refund is due. The model decides, your code computes: the amount comes from billing, and a threshold decides what gets automated and what reaches a person.',
+    show: ['route', 'urgent', 'churn_risk', 'refund_due'],
+    wire: '<span class="kw">if</span> a[<span class="s">"refund_due"</span>][<span class="s">"noul"</span>] &gt; <span class="n">0.9</span>:\n    refund(invoice.duplicate_charge)  <span class="c"># the amount is billing\'s, not the model\'s</span>\n<span class="kw">else</span>:\n    assign(ticket, <span class="s">"billing-review"</span>)  <span class="c"># .57 lands here</span>' },
   { id: 'agent', t: 'Agent guardrails', s: 'A typed checkpoint between an agent\u2019s plan and its tool call.',
     d: 'Before a call runs, ask whether it matches what the user asked, what it could break and what to do next. The gate returns one of the actions you defined, never text an agent could use to talk its way past it.',
     show: ['allow', 'matches_intent', 'blast_radius', 'action'],
@@ -1313,7 +1495,8 @@ const UC = [
 
 function distHTML(q) {
   const w = winIdx(q);
-  const head = `<div class="dist-h"><code>${esc(q.n)}</code><span class="t">${TYPE[q.t]}</span><span class="v">${esc(q.a)}</span></div>`;
+  const st = q.s !== 'decided' ? `<span class="st">${esc(q.s.replace('_', ' '))}</span>` : '';
+  const head = `<div class="dist-h"><code>${esc(q.n)}</code><span class="t">${TYPE[q.t]}</span>${st}<span class="v">${esc(q.a)}</span></div>`;
   if (q.t === 'numeric') {
     const bars = q.p.map((p, j) => `<i class="${j === w ? 'w' : ''}" data-h="${Math.max(p, .04)}" title="${esc(q.o[j])}: ${pf(p)}"></i>`).join('');
     return `<div class="dist">${head}<div class="hist-l" aria-hidden="true">${bars}</div><div class="axis"><span>below ${q.min}</span><span>${q.min}</span><span>${q.max}</span><span>above</span></div></div>`;
@@ -1362,22 +1545,126 @@ $$('.uc-tab').forEach((t, i) => {
 });
 ucRender(0, false);
 
-/* ---------------- how it works: the duel ---------------- */
-const route = DATA.support.qs.find(q => q.n === 'route');
-$('#read-dist').innerHTML = route.o.map((o, j) => {
-  const w = j === winIdx(route);
-  return `<div class="bar${w ? ' w' : ''}"><span class="l">${String.fromCharCode(65 + j)} ${esc(o)}</span><span class="tr"><i style="width:${Math.max(route.p[j], .02) * 100}%"></i></span><span class="p">${pf(route.p[j])}</span></div>`;
-}).join('');
+/* ---------------- how it works: the race ---------------- */
+// Scroll is the clock. The stage pins and scrolling advances time over what
+// eval/vs_ollama.py measured (same weights, same machine, same requests):
+// Ollama writing its answer as JSON, snap reading it. Ollama's phases are its
+// own prompt_eval / eval timings and the text is a response it wrote, replayed
+// at the measured pace. VS is generated from the report, not typed.
+const VS = {"1":{"snap_ms":54.4,"dists":[[[0.4396,0.3017,0.034,0.2132,0.0114],0]],"json-answers":{"ms":162.6,"prefill_ms":65.0,"gen_ms":84.6,"gen_tokens":9,"text":"{\"q0\": \"c1\"}"},"json-snap":{"ms":898.2,"prefill_ms":79.4,"gen_ms":803.6,"gen_tokens":69,"text":"{\"q0\": {\"choice\": \"c1\", \"confidence\": 0.95, \"probabilities\": {\"c0\": 0.05, \"c1\": 0.95, \"c2\": 0.00, \"c3\": 0.00, \"c4\": 0.00}}}"}},"4":{"snap_ms":134.6,"dists":[[[0.4392,0.2979,0.0385,0.2136,0.0107],0],[[0.4287,0.3331,0.0443,0.1849,0.009],0],[[0.3791,0.3279,0.0604,0.2184,0.0143],0],[[0.3008,0.2961,0.0731,0.3095,0.0204],3]],"json-answers":{"ms":341.9,"prefill_ms":67.2,"gen_ms":260.5,"gen_tokens":26,"text":"{\"q0\":\"c4\",\"q1\":\"c4\",\"q2\":\"c4\",\"q3\":\"c4\"}"},"json-snap":{"ms":3703.6,"prefill_ms":84.1,"gen_ms":3598.5,"gen_tokens":282,"text":"{\"q0\": {\"choice\": \"c3\", \"confidence\": 0.5, \"probabilities\": {\"c0\": 0.1, \"c1\": 0.1, \"c2\": 0.1, \"c3\": 0.5, \"c4\": 0.1}}, \"q1\": {\"choice\": \"c3\", \"confidence\": 0.5, \"probabilities\": {\"c0\": 0.1, \"c1\": 0.1, \"c2\": 0.1, \"c3\": 0.5, \"c4\": 0.1}}, \"q2\": {\"choice\": \"c3\", \"confidence\": 0.5, \"probabilities\": {\"c0\": 0.1, \"c1\": 0.1, \"c2\": 0.1, \"c3\": 0.5, \"c4\": 0.1}}, \"q3\": {\"choice\": \"c3\", \"confidence\": 0.5, \"probabilities\": {\"c0\": 0.1, \"c1\": 0.1, \"c2\": 0.1, \"c3\": 0.5, \"c4\": 0.1}}}"}},"8":{"snap_ms":263.0,"dists":[[[0.4235,0.3133,0.0393,0.212,0.0119],0],[[0.4139,0.3475,0.0453,0.1837,0.0096],0],[[0.3681,0.3415,0.0619,0.2137,0.0148],0],[[0.2811,0.3078,0.0805,0.3048,0.0257],1],[[0.2689,0.2192,0.1117,0.3888,0.0114],3],[[0.2745,0.2547,0.0524,0.3943,0.0241],3],[[0.2726,0.2812,0.0818,0.3361,0.0284],3],[[0.2829,0.3057,0.0512,0.3386,0.0215],3]],"json-answers":{"ms":731.6,"prefill_ms":87.8,"gen_ms":615.3,"gen_tokens":50,"text":"{\"q0\":\"c4\",\"q1\":\"c4\",\"q2\":\"c4\",\"q3\":\"c4\",\"q4\":\"c4\",\"q5\":\"c4\",\"q6\":\"c4\",\"q7\":\"c4\"}"},"json-snap":{"ms":7873.9,"prefill_ms":104.0,"gen_ms":7740.9,"gen_tokens":562,"text":"{\"q0\": {\"choice\": \"c3\", \"confidence\": 0.3, \"probabilities\": {\"c0\": 0.1, \"c1\": 0.1, \"c2\": 0.1, \"c3\": 0.5, \"c4\": 0.1}}, \"q1\": {\"choice\": \"c3\", \"confidence\": 0.5, \"probabilities\": {\"c0\": 0.1, \"c1\": 0.1, \"c2\": 0.1, \"c3\": 0.5, \"c4\": 0.1}}, \"q2\": {\"choice\": \"c3\", \"confidence\": 0.4, \"probabilities\": {\"c0\": 0.2, \"c1\": 0.1, \"c2\": 0.1, \"c3\": 0.4, \"c4\": 0.2}}, \"q3\": {\"choice\": \"c3\", \"confidence\": 0.5, \"probabilities\": {\"c0\": 0.2, \"c1\": 0.1, \"c2\": 0.1, \"c3\": 0.4, \"c4\": 0.2}}, \"q4\": {\"choice\": \"c3\", \"confidence\": 0.5, \"probabilities\": {\"c0\": 0.2, \"c1\": 0.1, \"c2\": 0.1, \"c3\": 0.4, \"c4\": 0.2}}, \"q5\": {\"choice\": \"c3\", \"confidence\": 0.5, \"probabilities\": {\"c0\": 0.2, \"c1\": 0.1, \"c2\": 0.1, \"c3\": 0.4, \"c4\": 0.2}}, \"q6\": {\"choice\": \"c3\", \"confidence\": 0.5, \"probabilities\": {\"c0\": 0.2, \"c1\": 0.1, \"c2\": 0.1, \"c3\": 0.4, \"c4\": 0.2}}, \"q7\": {\"choice\": \"c3\", \"confidence\": 0.5, \"probabilities\": {\"c0\": 0.2, \"c1\": 0.1, \"c2\": 0.1, \"c3\": 0.4, \"c4\": 0.2}}}"}}};
+const API = {"1":{"json-answers":{"ms":1170.0,"gen_ms":60.5,"gen_tokens":13,"text":"{\"q0\":\"c0\"}"},"json-snap":{"ms":1676.6,"gen_ms":220.9,"gen_tokens":60,"text":"{\"q0\":{\"choice\":\"c1\",\"confidence\":0.98,\"probabilities\":{\"c0\":0.005,\"c1\":0.98,\"c2\":0.005,\"c3\":0.001,\"c4\":0.009}}}"}},"4":{"json-answers":{"ms":1235.4,"gen_ms":152.0,"gen_tokens":31,"text":"{\"q0\":\"c1\",\"q1\":\"c1\",\"q2\":\"c1\",\"q3\":\"c1\"}"},"json-snap":{"ms":2828.5,"gen_ms":1294.4,"gen_tokens":219,"text":"{\"q0\":{\"choice\":\"c1\",\"confidence\":0.86,\"probabilities\":{\"c0\":0.08,\"c1\":0.86,\"c2\":0.03,\"c3\":0.0,\"c4\":0.03}},\"q1\":{\"choice\":\"c1\",\"confidence\":0.86,\"probabilities\":{\"c0\":0.08,\"c1\":0.86,\"c2\":0.03,\"c3\":0.0,\"c4\":0.03}},\"q2\":{\"choice\":\"c1\",\"confidence\":0.86,\"probabilities\":{\"c0\":0.08,\"c1\":0.86,\"c2\":0.03,\"c3\":0.0,\"c4\":0.03}},\"q3\":{\"choice\":\"c1\",\"confidence\":0.86,\"probabilities\":{\"c0\":0.08,\"c1\":0.86,\"c2\":0.03,\"c3\":0.0,\"c4\":0.03}}}"}},"8":{"json-answers":{"ms":2012.9,"gen_ms":304.3,"gen_tokens":55,"text":"{\"q0\":\"c1\",\"q1\":\"c1\",\"q2\":\"c1\",\"q3\":\"c1\",\"q4\":\"c1\",\"q5\":\"c1\",\"q6\":\"c1\",\"q7\":\"c1\"}"},"json-snap":{"ms":3707.1,"gen_ms":2510.1,"gen_tokens":431,"text":"{\"q0\":{\"choice\":\"c1\",\"confidence\":0.96,\"probabilities\":{\"c0\":0.01,\"c1\":0.96,\"c2\":0.01,\"c3\":0.0,\"c4\":0.02}},\"q1\":{\"choice\":\"c1\",\"confidence\":0.96,\"probabilities\":{\"c0\":0.01,\"c1\":0.96,\"c2\":0.01,\"c3\":0.0,\"c4\":0.02}},\"q2\":{\"choice\":\"c1\",\"confidence\":0.96,\"probabilities\":{\"c0\":0.01,\"c1\":0.96,\"c2\":0.01,\"c3\":0.0,\"c4\":0.02}},\"q3\":{\"choice\":\"c1\",\"confidence\":0.96,\"probabilities\":{\"c0\":0.01,\"c1\":0.96,\"c2\":0.01,\"c3\":0.0,\"c4\":0.02}},\"q4\":{\"choice\":\"c1\",\"confidence\":0.96,\"probabilities\":{\"c0\":0.01,\"c1\":0.96,\"c2\":0.01,\"c3\":0.0,\"c4\":0.02}},\"q5\":{\"choice\":\"c1\",\"confidence\":0.96,\"probabilities\":{\"c0\":0.01,\"c1\":0.96,\"c2\":0.01,\"c3\":0.0,\"c4\":0.02}},\"q6\":{\"choice\":\"c1\",\"confidence\":0.96,\"probabilities\":{\"c0\":0.01,\"c1\":0.96,\"c2\":0.01,\"c3\":0.0,\"c4\":0.02}},\"q7\":{\"choice\":\"c1\",\"confidence\":0.96,\"probabilities\":{\"c0\":0.01,\"c1\":0.96,\"c2\":0.01,\"c3\":0.0,\"c4\":0.02}}}"}}};
+// who snap races; a new rival is one entry with the same measured shape
+const RIVALS = {
+  ollama: { name: 'Ollama', model: 'MiniCPM5-2B', runs: VS },
+  openai: { name: 'OpenAI', model: 'gpt-5.6-luna', runs: API },
+};
+const rc = $('#rc'), RC = { read: $('#rc-read'), gen: $('#rc-gen'), out: $('#rc-out'), stream: $('#rc-stream'), ts: $('#rc-ts'), tg: $('#rc-tg'),
+  tok: $('#rc-tok'), gn: $('#rc-gn'), gm: $('#rc-gm'), vl: $('#rc-l-v'), ticks: $('#rc-ticks'), mid: $('#rc-mid'), delta: $('#rc-delta'), sr: $('#rc-sr') };
+let rcO = 'ollama', rcN = 4, rcV = 'json-snap', rcRun = null, rcF = reduced ? 1 : 0, rcShown = -1, rcBlocks = [], rcRaf = 0;
 
-// illustrative vocabulary row: fixed pseudo-random heights, four option letters marked
+// tick step from 1/2/2.5/5 × 10^k, about six ticks, a little room past the rival's bar
+function rcAxis(ol) {
+  const raw = ol / 6, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(v => v >= raw);
+  return { step, max: Math.ceil(ol * 1.04 / step) * step };
+}
+
+function rcBuild() {
+  const rv = RIVALS[rcO], o = rv.runs[rcN][rcV], { snap_ms: sn, dists } = VS[rcN];
+  const { step, max } = rcAxis(o.ms), pc = ms => ms / max * 100;
+  const fits = (ms, txt) => pc(ms) / 100 * RC.gen.clientWidth > txt.length * 7.5 + 18 ? `<span>${txt}</span>` : '';
+  // the rival's measured phases: what comes before its prompt (Ollama's setup, or
+  // the API's wait for a first token, network and queue included), the prompt
+  // when the engine reports it, then the writing
+  const pre = o.prefill_ms || 0, g0 = Math.max(pre, o.ms - o.gen_ms), w = g0 - pre;
+  rcRun = { ol: o.ms, sn, g0, tok: o.gen_tokens, text: o.text.replace(/\s+/g, ' ') };
+  const blocks = [];
+  const blk = (cls, a, b, inner = '') => { blocks.push({ a, b }); return `<div class="rc-b ${cls}" style="--x:${pc(a)};--w:${pc(b - a)}">${inner}</div>`; };
+  const ph = '<i class="rc-ph"></i>';
+  RC.read.innerHTML = blk('bt', 0, sn, dists.map(() => '<i></i>').join('')) + ph;
+  RC.gen.innerHTML = blk('ov', 0, w, fits(w, pre ? 'setup' : 'waiting')) + (pre ? blk('st', w, g0, fits(pre, 'prompt')) : '')
+    + blk('tk', g0, o.ms, fits(o.ms - g0, 'writing JSON')) + ph;
+  RC.out.innerHTML = dists.map(([p, win]) => `<span class="rc-ans"><span class="rc-mini">${p.map((v, j) => `<i class="${j === win ? 'w' : ''}" style="--p:${v}"></i>`).join('')}</span>c${win} <small>${Math.round(p[win] * 100)}%</small></span>`).join('');
+  const lbl = v => max >= 1000 ? `${v / 1000} s` : `${v} ms`;
+  RC.ticks.innerHTML = Array.from({ length: max / step + 1 }, (_, i) => `<span style="--x:${pc(i * step)}">${lbl(i * step)}</span>`).join('');
+  RC.gn.textContent = rv.name; RC.gm.textContent = rv.model; RC.vl.textContent = `${rv.name} writes`;
+  const x = o.ms / sn;
+  RC.delta.textContent = `${x >= 10 ? Math.round(x) : x.toFixed(1)}× faster`;
+  RC.mid.textContent = `snap done, ${rv.name} still going`;
+  RC.sr.textContent = `${rcN} question${rcN > 1 ? 's' : ''} about one state: snap answered in ${sn} ms; ${rv.name} (${rv.model}) writing ${rcV === 'json-snap' ? 'answers and probabilities' : 'answers'} as JSON took ${o.ms} ms for ${o.gen_tokens} tokens. Both measured.`;
+  $$('.rc-seg [data-o]').forEach(b => b.setAttribute('aria-pressed', b.dataset.o === rcO));
+  $$('.rc-seg [data-n]').forEach(b => b.setAttribute('aria-pressed', +b.dataset.n === rcN));
+  $$('.rc-seg [data-v]').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === rcV));
+  const els = $$('.rc-b', rc);
+  rcBlocks = blocks.map((b, i) => ({ ...b, el: els[i] }));
+  rcShown = -1; rcPaint();
+}
+
+function rcPaint() {
+  const r = rcRun, t = rcF * r.ol;
+  if (Math.abs(t - rcShown) < .05) return;
+  rcShown = t;
+  const { max } = rcAxis(r.ol), cl = v => Math.min(1, Math.max(0, v));
+  for (const b of rcBlocks) b.el.style.setProperty('--k', (b.b > b.a ? cl((t - b.a) / (b.b - b.a)) : +(t >= b.b)).toFixed(4));
+  $$('.rc-ph', rc).forEach(p => p.style.setProperty('--t', t / max * 100));
+  const k = cl((t - r.g0) / (r.ol - r.g0)), snapDone = t >= r.sn - .01, genDone = t >= r.ol - .01;
+  RC.ts.textContent = (snapDone ? r.sn : t).toFixed(1);
+  RC.tg.textContent = (genDone ? r.ol : t).toFixed(1);
+  const tok = `${Math.round(k * r.tok)} / ${r.tok} tokens`;
+  if (RC.tok.textContent !== tok) RC.tok.textContent = tok;
+  const txt = r.text.slice(0, Math.round(k * r.text.length));
+  if (RC.stream.textContent !== txt) RC.stream.textContent = txt;
+  $('.rc-lane.gen').classList.toggle('writing', k > 0 && k < 1);
+  $('.rc-lane.read').classList.toggle('done', snapDone);
+  $('.rc-lane.gen').classList.toggle('done', genDone);
+  rc.classList.toggle('go', t > .5);
+  rc.classList.toggle('mid', snapDone && !genDone);
+  rc.classList.toggle('fin', genDone);
+}
+
+// scroll progress through the pinned span; a short lead-in before the clock
+// starts and a hold after it stops, so both ends read as still frames
+const rcStage = $('.rc-stage', rc);
+let rcSt = 64;
+function rcGoal() {
+  if (reduced) return 1;
+  const span = rc.offsetHeight - rcStage.offsetHeight;
+  const p = span > 0 ? (rcSt - rc.getBoundingClientRect().top) / span : 1;
+  return Math.min(1, Math.max(0, (p - .1) / .72));
+}
+// pin centred under the nav when the stage fits, bottom-aligned when it doesn't
+function rcFit() {
+  const avail = innerHeight - 64, h = rcStage.offsetHeight;
+  rcSt = h <= avail ? 64 + (avail - h) / 2 : innerHeight - h - 16;
+  rcStage.style.setProperty('--st', rcSt + 'px');
+}
+let rcW = 0;
+addEventListener('resize', () => { rcFit(); if (RC.gen.clientWidth !== rcW) { rcW = RC.gen.clientWidth; rcBuild(); } });
+document.fonts?.ready.then(rcBuild);
+new ResizeObserver(rcFit).observe(rcStage);
+function rcTick() {
+  const g = rcGoal();
+  rcF += (g - rcF) * .2;
+  if (Math.abs(g - rcF) < 1e-4) rcF = g;
+  rcPaint();
+  rcRaf = requestAnimationFrame(rcTick);
+}
+$$('.rc-seg [data-o]').forEach(b => b.addEventListener('click', () => { rcO = b.dataset.o; rcBuild(); }));
+$$('.rc-seg [data-n]').forEach(b => b.addEventListener('click', () => { rcN = +b.dataset.n; rcBuild(); }));
+const rcInfo = $('.rc-info', rc);
+addEventListener('click', e => { if (rcInfo.open && !rcInfo.contains(e.target)) rcInfo.open = false; });
+addEventListener('keydown', e => { if (e.key === 'Escape') rcInfo.open = false; });
+$$('.rc-seg [data-v]').forEach(b => b.addEventListener('click', () => { rcV = b.dataset.v; rcBuild(); }));
+if (reduced) rc.classList.add('still');
+rcBuild(); rcFit(); rcW = RC.gen.clientWidth;
+if (!reduced) new IntersectionObserver(es => {
+  cancelAnimationFrame(rcRaf);
+  if (es.some(e => e.isIntersecting)) rcRaf = requestAnimationFrame(rcTick);
+}).observe(rc);
+
+// step 4 figure: many logits -> four letters -> distribution (illustrative)
 (() => {
   let s = 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
-  const n = 72, L = { 14: 'A', 31: 'B', 47: 'C', 60: 'D' };
-  $('#logits').innerHTML = Array.from({ length: n }, (_, i) => {
-    const h = i === 31 ? 100 : L[i] ? 18 + rnd() * 10 : 8 + Math.pow(rnd(), 2.2) * 62;
-    return `<i class="${L[i] ? 'L' : ''}" style="height:${h.toFixed(1)}%"></i>`;
-  }).join('');
-  // step 4 figure: many logits -> four letters -> distribution
   const g = [];
   for (let i = 0; i < 40; i++) { const h = 6 + Math.pow(rnd(), 2) * 44; g.push(`<rect x="${14 + i * 2.6}" y="${86 - h}" width="1.6" height="${h}" fill="#333d35"/>`); }
   [[24, 18], [40, 64], [58, 16], [76, 12]].forEach(([x, h]) => g.push(`<rect x="${x}" y="${86 - h}" width="2.2" height="${h}" fill="#b8ec5f"/>`));
@@ -1390,73 +1677,22 @@ $('#read-dist').innerHTML = route.o.map((o, j) => {
   $('#fig-read').innerHTML = g.join('');
 })();
 
-const GEN_TOKENS = ['{"', 'route', '":', ' "', 'auth', '",', ' "', 'urg', 'ent', '":', ' true', ',', ' "', 'ch', 'urn', '_risk', '":', ' "', 'high', '",', ' "', 'ref', 'und', '_e', 'ur', '":', ' ', '124', '0', ',', ' "', 'needs', '_human', '":', ' true', ',', ' "', 'sent', 'iment', '":', ' "', 'fr', 'ustr', 'ated', '"}'];
-const duel = $('#duel');
-const D = {
-  stream: $('#gen-stream'), gp: $('#gen-passes'), gt: $('#gen-toks'), gm: $('#gen-model'),
-  rp: $('#read-passes'), rt: $('#read-toks'), rm: $('#read-model'), logits: $('#logits'),
+/* ---------------- install: one command per platform, everywhere ---------------- */
+// The conversion is "install command copied", so the command is the CTA:
+// detected per OS, the same in the hero, the nav dock and the closing band,
+// and copying it promotes the next step (serve) wherever it shows.
+const REL = 'https://github.com/emnlmn/snap/releases/latest/download/';
+const OS = {
+  mac: { cmd: 'brew install emnlmn/snap/snap', then: 'snap serve --model qwen3.8-4b' },
+  linux: { cmd: `mkdir -p ~/snap && curl -L ${REL}snap-linux-x86_64.tar.gz | tar xz -C ~/snap`, then: '~/snap/snap serve --model qwen3.8-4b' },
+  win: { dl: `${REL}snap-windows-x86_64.tar.gz`, then: '.\\snap serve --model qwen3.8-4b' },
 };
-let dt = [], duelOn = false, duelLoop = false;
-const at = (ms, f) => dt.push(setTimeout(f, ms));
-const on = (sel, v = true) => $$(sel, duel).forEach(e => e.classList.toggle('on', v));
-
-function duelReset() {
-  dt.forEach(clearTimeout); dt = [];
-  duel.classList.remove('done');
-  D.stream.innerHTML = '';
-  D.gp.textContent = D.gt.textContent = D.rp.textContent = D.rt.textContent = '0';
-  D.logits.classList.remove('lit', 'masked');
-  on('.box', false); on('.dim', false); on('.model', false);
-}
-function duelFinal() {
-  duelReset();
-  D.stream.innerHTML = GEN_TOKENS.map(t => `<span>${esc(t)}</span>`).join('');
-  D.gp.textContent = GEN_TOKENS.length + 1; D.gt.textContent = GEN_TOKENS.length;
-  D.rp.textContent = '1'; D.logits.classList.add('lit', 'masked');
-  duel.classList.add('done');
-}
-function duelPlay() {
-  duelReset();
-  const step = 95;
-  // read lane
-  at(100, () => on('[data-r="in"]'));
-  at(420, () => { D.rm.classList.add('on'); D.rp.textContent = '1'; });
-  at(800, () => D.logits.classList.add('lit'));
-  at(1250, () => { D.logits.classList.add('masked'); on('[data-r="mask"]'); });
-  at(1600, () => on('[data-r="soft"]'));
-  at(1900, () => on('[data-r="out"]'));
-  // generate lane
-  at(100, () => on('[data-g="in"]'));
-  at(420, () => { D.gm.classList.add('on'); D.gp.textContent = '1'; D.stream.innerHTML = '<span class="caret"></span>'; });
-  GEN_TOKENS.forEach((t, i) => at(700 + i * step, () => {
-    const caret = D.stream.lastElementChild;
-    const s = document.createElement('span'); s.textContent = t;
-    D.stream.insertBefore(s, caret);
-    D.gp.textContent = i + 2; D.gt.textContent = i + 1;
-    D.gm.classList.add('tick'); setTimeout(() => D.gm.classList.remove('tick'), step * .5);
-  }));
-  const end = 700 + GEN_TOKENS.length * step;
-  at(end + 100, () => { const c = D.stream.querySelector('.caret'); if (c) c.remove(); on('[data-g="parse"]'); });
-  at(end + 450, () => on('[data-g="val"]'));
-  at(end + 800, () => on('[data-g="retry"]'));
-  at(end + 1150, () => on('[data-g="out"]'));
-  at(end + 4200, () => { if (duelLoop) duelPlay(); });
-}
-if (reduced) duelFinal();
-else {
-  duelFinal();
-  new IntersectionObserver(es => {
-    const v = es.some(e => e.isIntersecting);
-    if (v && !duelOn) { duelOn = true; duelLoop = true; duelPlay(); }
-    if (!v && duelOn) { duelOn = false; duelLoop = false; duelFinal(); }
-  }, { threshold: .45 }).observe(duel);
-}
-
-/* ---------------- install + copy ---------------- */
 const INSTALL = {
   mac: { html: '<span class="p">$ </span>brew install emnlmn/snap/snap', text: 'brew install emnlmn/snap/snap' },
-  linux: { html: '<span class="p">$ </span>mkdir -p ~/snap && curl -sL https://github.com/emnlmn/snap/releases/latest/download/snap-linux-x86_64.tar.gz | tar xz -C ~/snap\n<span class="p">$ </span>ln -sf ~/snap/snap ~/.local/bin/snap',
-    text: 'mkdir -p ~/snap && curl -sL https://github.com/emnlmn/snap/releases/latest/download/snap-linux-x86_64.tar.gz | tar xz -C ~/snap\nln -sf ~/snap/snap ~/.local/bin/snap' },
+  linux: { html: `<span class="p">$ </span>mkdir -p ~/snap && curl -L ${REL}snap-linux-x86_64.tar.gz | tar xz -C ~/snap\n<span class="p">$ </span>ln -sf ~/snap/snap ~/.local/bin/snap`,
+    text: `mkdir -p ~/snap && curl -L ${REL}snap-linux-x86_64.tar.gz | tar xz -C ~/snap\nln -sf ~/snap/snap ~/.local/bin/snap` },
+  win: { html: `<span class="c"># download, unpack, run from that folder</span>\n<a href="${REL}snap-windows-x86_64.tar.gz">snap-windows-x86_64.tar.gz</a>\n<span class="p">&gt; </span>tar xzf snap-windows-x86_64.tar.gz`,
+    text: `${REL}snap-windows-x86_64.tar.gz` },
   src: { html: '<span class="p">$ </span>git clone https://github.com/emnlmn/snap && cd snap\n<span class="p">$ </span>make setup && make build <span class="c"># → ./target/release/snap</span>',
     text: 'git clone https://github.com/emnlmn/snap && cd snap\nmake setup && make build' },
 };
@@ -1464,32 +1700,107 @@ const COPY = {
   serve: 'snap serve --model qwen3.8-4b',
   ask: `curl -s localhost:8018/v1/systemone -d '{\n  "state": "Checkout has been down for an hour.",\n  "questions": {\n    "urgent": {"type": "noul"},\n    "team": {"type": "choice",\n      "criteria": ["billing", "technical"]}}}'`,
 };
-let plat = 'mac';
+let os = 'mac', plat = 'mac', got = false;
+const dock = $('#dock'), dockGo = $('.dock-go', dock), dockCmd = $('.dock-cmd', dock);
+let docked = false;
+
 function setPlat(p) {
   plat = p;
   $('#install-pre').innerHTML = INSTALL[p].html;
   $$('[data-plat]').forEach(b => { const on = b.dataset.plat === p; b.setAttribute('aria-selected', on); b.setAttribute('aria-pressed', on); });
 }
+function setOS(o) {
+  os = o;
+  $$('[data-os]').forEach(b => b.setAttribute('aria-pressed', b.dataset.os === o));
+  $$('.os-cmd').forEach(e => e.textContent = OS[o].cmd || '');
+  $$('.os-then').forEach(e => e.textContent = OS[o].then);
+  $$('.cmd.inst').forEach(e => { e.hidden = !OS[o].cmd; e.classList.toggle('over', $('code', e).scrollWidth > $('code', e).clientWidth + 1); });
+  $$('.dl').forEach(e => { e.hidden = !OS[o].dl; if (OS[o].dl) e.href = OS[o].dl; });
+  setPlat(o);
+  dockSync();
+}
+function dockSync() {
+  const cmd = docked && !!OS[os].cmd;
+  $('.dock-t', dock).textContent = got ? OS[os].then : OS[os].cmd || '';
+  dock.classList.toggle('docked', cmd);
+  document.body.classList.toggle('docked', cmd);
+  dockCmd.inert = !cmd; dockGo.inert = cmd;
+  if (os === 'win') { dockGo.href = OS.win.dl; dockGo.textContent = 'Download snap'; }
+  else { dockGo.href = '#get'; dockGo.textContent = 'Get snap'; }
+  dock.style.setProperty('--dw', (cmd ? dockCmd : dockGo).offsetWidth + 'px');
+}
+dockGo.addEventListener('click', e => {
+  if (os === 'win') return;
+  e.preventDefault();
+  $('#get').scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
+  setTimeout(() => $('#get .cp').focus({ preventScroll: true }), reduced ? 0 : 450);
+});
+new IntersectionObserver(([e]) => {
+  docked = !e.isIntersecting && e.boundingClientRect.top < 64;
+  dockSync();
+}, { rootMargin: '-64px 0px 0px 0px' }).observe($('#get'));
+addEventListener('resize', dockSync);
+$$('[data-os]').forEach(b => b.addEventListener('click', () => setOS(b.dataset.os)));
 $$('[data-plat]').forEach(b => b.addEventListener('click', () => setPlat(b.dataset.plat)));
+
+// best guess of the visitor's machine; the switcher is one click away
 const uaPlat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
-const isLinux = /linux/i.test(uaPlat) && !/android/i.test(navigator.userAgent);
-setPlat(isLinux ? 'linux' : 'mac');
-const heroCmd = isLinux
-  ? 'mkdir -p ~/snap && curl -sL https://github.com/emnlmn/snap/releases/latest/download/snap-linux-x86_64.tar.gz | tar xz -C ~/snap'
-  : 'brew install emnlmn/snap/snap';
-$('#hero-cmd-t').textContent = heroCmd;
+const guess = /^win/i.test(uaPlat) ? 'win' : /linux|x11/i.test(uaPlat) && !/android/i.test(navigator.userAgent) ? 'linux' : 'mac';
+setOS(guess);
+if (guess === 'linux') navigator.userAgentData?.getHighEntropyValues?.(['architecture'])
+  .then(v => { if (v.architecture === 'arm') { OS.linux.cmd = OS.linux.cmd.replace('x86_64', 'aarch64'); setOS(os); } })
+  .catch(() => {});
 
 $$('[data-copy]').forEach(b => b.addEventListener('click', async () => {
   const k = b.dataset.copy;
-  const text = k === 'hero' ? heroCmd : k === 'install' ? INSTALL[plat].text : COPY[k];
-  try { await navigator.clipboard.writeText(text); b.textContent = 'copied'; }
-  catch { b.textContent = 'select + copy'; }
-  setTimeout(() => b.textContent = 'copy', 1600);
+  const install = k === 'install' || (k === 'dock' && !got);
+  const text = install ? OS[os].cmd : k === 'then' || k === 'dock' ? OS[os].then : k === 'plat' ? INSTALL[plat].text : COPY[k];
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // no clipboard permission: select the command so one keystroke copies it
+    const code = b.parentElement.querySelector('code, pre');
+    if (code) getSelection().selectAllChildren(code);
+    return;
+  }
+  if (b.classList.contains('cp')) { b.classList.add('ok'); setTimeout(() => b.classList.remove('ok'), 1600); }
+  else { b.textContent = 'copied'; setTimeout(() => b.textContent = 'copy', 1600); }
+  if (install && !got) {
+    got = true;
+    document.body.classList.add('got');
+    setTimeout(dockSync, 1200);
+  }
 }));
 
-/* ---------------- nav ---------------- */
-const topbar = $('#top');
-addEventListener('scroll', () => topbar.classList.toggle('scrolled', scrollY > 8), { passive: true });
+/* ---------------- nav: zone and position ---------------- */
+// The bar joins whichever zone it floats over (paper or ink, never mixed),
+// and marks the section being read.
+const topbar = $('#top'), themeMeta = $('meta[name="theme-color"]'), navInd = $('.nav-ind');
+const navLinks = $$('.top nav a'), navSecs = navLinks.map(a => $(a.hash)), inkSecs = $$('section.ink');
+let navQ = 0;
+function navPaint() {
+  navQ = 0;
+  topbar.classList.toggle('scrolled', scrollY > 8);
+  const onInk = inkSecs.some(s => { const r = s.getBoundingClientRect(); return r.top <= 32 && r.bottom > 32; });
+  topbar.classList.toggle('on-ink', onInk);
+  themeMeta.content = onInk ? '#0a0d0b' : '#f4f4ee';
+  const mid = innerHeight * .4;
+  let act = -1;
+  navSecs.forEach((s, i) => { if (s.getBoundingClientRect().top <= mid) act = i; });
+  if (act >= 0 && navSecs[act].getBoundingClientRect().bottom < mid) act = -1;
+  navLinks.forEach((a, i) => i === act ? a.setAttribute('aria-current', 'true') : a.removeAttribute('aria-current'));
+  if (act < 0) return navInd.classList.remove('on');
+  const a = navLinks[act], was = navInd.classList.contains('on');
+  if (!was) navInd.style.transition = 'none';
+  const pad = parseFloat(getComputedStyle(a).paddingLeft);
+  navInd.style.setProperty('--x', a.offsetLeft + pad + 'px');
+  navInd.style.setProperty('--s', (a.offsetWidth - 2 * pad) / 100);
+  if (!was) { navInd.offsetWidth; navInd.style.transition = ''; }
+  navInd.classList.add('on');
+}
+addEventListener('scroll', () => { navQ ||= requestAnimationFrame(navPaint); }, { passive: true });
+addEventListener('resize', navPaint);
+navPaint();
 </script>
 </body>
 </html>
