@@ -92,7 +92,7 @@ components:
 
 snap is a measurement instrument, not a chatbot — the site dresses like one. The reading surface is a warm paper field; wherever the engine itself is on stage (the live console, the pipeline anatomy, the wire format, the installer) the surface drops into a near-black engine room and the accent flips from crocodile green to signal lime. The split is literal: light is where you read about the product, dark is where you watch it work.
 
-The system refuses the dev-tool landing formula (gradient hero, GIF terminal, icon-card grid). Proof replaces decoration: the hero *is* a recorded request resolving, the architecture diagram *is* a timed race between generated tokens and a single logits read, and every number on the page is a value the engine emitted.
+The system refuses the dev-tool landing formula (gradient hero, GIF terminal, icon-card grid). Proof replaces decoration: the hero *is* a recorded request resolving, the how-it-works band *is* a race on measured milliseconds that the reader drives by scrolling, and every number on the page is a value the engine emitted or a benchmark the README reproduces.
 
 **Key Characteristics:**
 - Two zones only: paper for persuasion, ink for machinery — never mixed inside a component
@@ -115,7 +115,7 @@ A warm-paper field with a single green accent; the dark bands run near-black gre
 ### Tertiary
 - **Mint** (`#7fd79b`): secondary data on ink — numbers, booleans, `200 OK` statuses.
 - **Sand** (`#e2b877`): string literals in dark JSON.
-- **Heat** (`#e59a52`): the *conventional* pipeline's highlight color in the generate-vs-read diagram; also the residual-risk amber on light.
+- **Heat** (`#e59a52`): the *conventional* pipeline's color in the race (the rival's lane: waiting and prompt dim, written tokens full heat, its clock at the finish) and the `contested` status chip on ink; also the residual-risk amber on light.
 
 ### Neutral
 - **Paper** (`#f4f4ee`): page background.
@@ -146,7 +146,7 @@ A warm-paper field with a single green accent; the dark bands run near-black gre
 
 ## Layout
 
-1200px container, 28px gutters, 128px section rhythm (88px compact). Two-column section headers (`head`): thesis left, supporting paragraph right, 64px column gap. Section hairline borders separate paper chapters; ink bands are full-bleed color changes, not bordered boxes. Breakpoints: 1100px (duel and step grids reflow), 880px (everything stacks to single column, tab lists become horizontal scroll), 520px (answer rows collapse to two-line cells).
+1200px container, 28px gutters, 128px section rhythm (88px compact). Two-column section headers (`head`): thesis left, supporting paragraph right, 64px column gap. Section hairline borders separate paper chapters; ink bands are full-bleed color changes, not bordered boxes. Breakpoints: 1100px (race columns and step grids tighten), 880px (everything stacks to single column, tab lists become horizontal scroll), 520px (answer rows collapse to two-line cells).
 
 ## Elevation & Depth
 
@@ -181,9 +181,18 @@ Squircle-adjacent: 7px chips and mono cells, 11px buttons and tabs, 16px cards a
 ### The Answer Row (signature component)
 One row per question inside the console: mono name + type tag, a mini histogram of the full option distribution, the decided answer in bold white, and its probability in tabular mono. During playback all histograms hold at the baseline; they rise in the same frame the ms counter lands. Hovering a row expands its option-by-option breakdown in the inspect bar.
 
+### The Race (scroll signature)
+A duel: snap on top, one rival under it, and scroll is the clock; the thesis and the panel pin under the nav together. The rival is picked in the panel (Ollama on the same MiniCPM5-2B weights, or the OpenAI API with gpt-5.6-luna), next to the question count and what the rival writes (answers, or answers + probabilities: what a snap answer carries). Everything comes from `eval/vs_ollama.py` and `eval/vs_openai.py`, generated into the page, never typed. Each lane has its own clock at the right that stops and takes the lane's color at its finish, with a flag: lime for snap, heat for the rival. snap's distributions land whole under its bar the moment it finishes, while the rival's JSON (a reply it actually wrote) types out under its own bar at the measured pace, with a live token count by its name. The top-right slot reads the story in three states: the scroll hint, "snap done, <rival> still going", then the verdict ("28× faster"). The method sits behind a "How we measured" disclosure in the axis row, not under every run. Reduced motion shows the finished frame, unpinned; the stage centers when it fits and bottom-aligns when it doesn't.
+
+### Install CTA
+The conversion is "install command copied", so the command is the CTA, one component in three places: hero (with an `Install for` platform switch, detected), the nav dock, the closing band. Windows swaps the pill for a download button (the release asset). A `then` line under the hero pill always shows the next command; copying the install washes it green, and the dock switches to that next command. The nav's `Get snap` opens into the same pill (right-anchored clip reveal) once the hero pill leaves the viewport.
+
+### Navigation
+The sticky bar joins the zone it floats over: paper translucency on paper, ink translucency with lime primary over ink bands (`theme-color` follows). A 2px indicator, transform-only, slides to the section being read.
+
 ### Inputs / Fields
-- The copyable command pill: white field, mono text, `$` prompt in green, embedded copy button.
-- Copy buttons confirm inline ("copied"), never toast.
+- The copyable command pill: white field (ink-panel inside ink bands), mono text, `$` prompt in the zone accent, embedded crocodile (lime on ink) `Copy` button.
+- Copy buttons confirm inline ("Copied"), never toast; without clipboard permission they select the command instead.
 
 ### Tables
 - Hairline-row tables (threat model, benchmarks, compare) with mono uppercase heads; winners marked by weight and crocodile, not by badges.
