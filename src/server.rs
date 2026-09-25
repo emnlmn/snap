@@ -15,14 +15,18 @@ use serde_json::{json, Value};
 use crate::api::{from_native, SystemoneRequest};
 use crate::engine::Engine;
 
-struct Slot {
-    engine: Engine,
+/// What the resident engine is, readable without waiting on the engine.
+struct Active {
     /// the tested-model spec the engine was built from (e.g. "spark-4b")
     name: String,
+    model_id: String,
 }
 
 struct AppState {
-    slot: Mutex<Slot>,
+    engine: Mutex<Engine>,
+    /// held only for a copy or a swap, never across a request — /healthz and
+    /// GET /v1/models answer while a long decide runs
+    active: Mutex<Active>,
     /// serializes model swaps — only one load at a time
     switch: Mutex<()>,
     n_ctx: i32,
@@ -34,8 +38,11 @@ impl AppState {
     /// The engine survives a panicking request: the lock is taken back
     /// instead of staying poisoned (every request would fail after), and
     /// the KV layer wipes the aborted wave's seqs on its next run.
-    fn slot(&self) -> MutexGuard<'_, Slot> {
-        self.slot.lock().unwrap_or_else(|e| e.into_inner())
+    fn engine(&self) -> MutexGuard<'_, Engine> {
+        self.engine.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    fn active(&self) -> MutexGuard<'_, Active> {
+        self.active.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
@@ -47,17 +54,17 @@ fn err422(e: anyhow::Error) -> (StatusCode, Json<Value>) {
 }
 
 async fn healthz(State(s): State<Arc<AppState>>) -> Json<Value> {
-    let slot = s.slot();
+    let a = s.active();
     Json(json!({
         "status": "ok",
-        "model": slot.engine.model_id,
-        "name": slot.name,
+        "model": a.model_id,
+        "name": a.name,
         "uptime_s": s.started.elapsed().as_secs(),
     }))
 }
 
 async fn models(State(s): State<Arc<AppState>>) -> Json<Value> {
-    let active = s.slot().name.clone();
+    let active = s.active().name.clone();
     Json(json!({
         "object": "list",
         "data": crate::models::MODELS.iter().map(|(n, repo, file)| json!({
@@ -89,8 +96,8 @@ async fn switch_model(
     let name2 = name.clone();
     let model_id = tokio::task::spawn_blocking(move || -> Result<String> {
         let _serial = s2.switch.lock().unwrap_or_else(|e| e.into_inner());
-        if s2.slot().name == name2 {
-            return Ok(s2.slot().engine.model_id.clone());
+        if s2.active().name == name2 {
+            return Ok(s2.active().model_id.clone());
         }
         let path = crate::models::resolve(&name2)?;
         let mut eng = Engine::load(path.to_string_lossy().as_ref(), n_ctx, 1024, n_threads)?;
@@ -98,9 +105,11 @@ async fn switch_model(
             eprintln!("snap: warmup failed: {e}");
         }
         let model_id = eng.model_id.clone();
-        let mut slot = s2.slot();
-        slot.engine = eng;
-        slot.name = name2;
+        *s2.engine() = eng;
+        *s2.active() = Active {
+            name: name2,
+            model_id: model_id.clone(),
+        };
         Ok(model_id)
     })
     .await
@@ -116,7 +125,7 @@ async fn systemone(
     Json(req): Json<SystemoneRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let native = req.to_native();
-    let out = tokio::task::spawn_blocking(move || s.slot().engine.decide(&native))
+    let out = tokio::task::spawn_blocking(move || s.engine().decide(&native))
         .await
         .map_err(|e| err422(anyhow::anyhow!(e)))?
         .map_err(err422)?;
@@ -184,10 +193,11 @@ pub async fn serve(
     port: u16,
 ) -> Result<()> {
     let state = Arc::new(AppState {
-        slot: Mutex::new(Slot {
-            engine,
+        active: Mutex::new(Active {
             name: model.to_string(),
+            model_id: engine.model_id.clone(),
         }),
+        engine: Mutex::new(engine),
         switch: Mutex::new(()),
         n_ctx,
         n_threads,

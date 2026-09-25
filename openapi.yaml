@@ -238,8 +238,7 @@ components:
             question set, so a stream of states answers in state+~20tok/item.
             `auto` picks question_first only when question heads dominate
             the state — warm caches then decode less — and falls back to
-            state_first for abstain-enabled questions or states > 2000 chars
-            with several questions.
+            state_first for abstain-enabled questions or states > 2000 chars.
         expand:
           type: string
           enum: [probes, pages]

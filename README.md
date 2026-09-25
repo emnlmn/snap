@@ -113,7 +113,7 @@ state so the document is encoded with all of them in view. `auto` picks
 `question_first` only when the question heads outweigh the state — the
 case where warm caches win (qf re-decodes the state per question, sf
 decodes it once). It falls back to `state_first` for states > 2000 chars
-with several questions, whenever any question has `allow_abstain` (an
+(even a single question reads a long document better after it), whenever any question has `allow_abstain` (an
 abstain slot read before the evidence primes abstention), or when the
 state is bigger than the heads. `catalog` lists every question (numbered,
 instructions only) before the state, then each item is just a

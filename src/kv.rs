@@ -57,7 +57,9 @@ pub trait Backend: Send {
     fn n_seq(&self) -> usize;
     /// Chat template over (system, user), generation prompt appended.
     fn render(&self, system: &str, user: &str) -> Result<String>;
-    fn tokenize(&self, text: &str) -> Result<Vec<i32>>;
+    /// `special`: parse control-token text (`<|im_end|>`) into control
+    /// tokens — only for template text, never for request content.
+    fn tokenize(&self, text: &str, special: bool) -> Result<Vec<i32>>;
     /// Decode groups in order; `row(g, logits)` fires for each group asking
     /// for logits, while the row is still valid.
     fn decode(
@@ -682,8 +684,27 @@ pub(crate) mod sim {
             Ok(format!("<s>{system}<u>{user}<a>"))
         }
 
-        fn tokenize(&self, text: &str) -> Result<Vec<i32>> {
-            Ok(text.bytes().map(i32::from).collect())
+        /// Bytes; with `special`, the template markers `<s>` `<u>` `<a>` are
+        /// single control tokens 256/257/258, like a real vocab's.
+        fn tokenize(&self, text: &str, special: bool) -> Result<Vec<i32>> {
+            let mut out = Vec::new();
+            let mut rest = text;
+            while let Some(c) = rest.chars().next() {
+                let m = ["<s>", "<u>", "<a>"]
+                    .iter()
+                    .position(|m| rest.starts_with(m));
+                match m {
+                    Some(i) if special => {
+                        out.push(256 + i as i32);
+                        rest = &rest[3..];
+                    }
+                    _ => {
+                        out.extend(rest[..c.len_utf8()].bytes().map(i32::from));
+                        rest = &rest[c.len_utf8()..];
+                    }
+                }
+            }
+            Ok(out)
         }
 
         fn decode(
