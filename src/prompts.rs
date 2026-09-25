@@ -11,7 +11,9 @@ pub const ABOVE: &str = "__above__";
 /// Bump when the prompt format changes: calibration files bind to it.
 /// v3: expanded probes put the candidate last (shared-stem clustering),
 /// Layout::Catalog added, compact_state rendering added.
-pub const PROMPT_VERSION: u32 = 3;
+/// v4: empty choice descriptions show the key, request text tokenized
+/// without special tokens.
+pub const PROMPT_VERSION: u32 = 4;
 
 pub const SYSTEM: &str = "You are a decision engine. Given a state and a question, you evaluate the options and reply with only the letter of the best option. Never explain.";
 
@@ -155,10 +157,21 @@ fn compact_lines(v: &Value, ind: usize, out: &mut String) {
     }
 }
 
+/// Shortest round-trip, deliberately not %g: anchors like
+/// `3.3333333333333335` look noisy, but rounding them to 6 or 3 significant
+/// digits lost 1-3 numeric cases per model on eval/{core,edge} (none gained).
 fn fmt_g(v: f64) -> String {
-    // Python's {a:g}-ish: shortest round-trip; trim a trailing ".0"
-    let s = format!("{v}");
-    s
+    format!("{v}")
+}
+
+/// Choice option label: the description alone — keys are often opaque
+/// (`p0`), and `key — desc` measured worse on eval/core (route-04, pick-05/07
+/// flip on 2B and 4B). An empty description falls back to the key.
+fn option_label(key: &str, desc: &str) -> String {
+    match desc {
+        "" => key.to_string(),
+        d => d.to_string(),
+    }
 }
 
 /// Map a typed question to ordered letter slots.
@@ -170,7 +183,7 @@ pub fn slots_for(q: &Question) -> Vec<Slot> {
         QType::Choice => match q.criteria.as_ref().unwrap() {
             Value::Object(m) => m
                 .iter()
-                .map(|(k, v)| Slot::new(k.clone(), value_text(v)))
+                .map(|(k, v)| Slot::new(k.clone(), option_label(k, &value_text(v))))
                 .collect(),
             Value::Array(a) => a
                 .iter()
@@ -365,6 +378,9 @@ mod tests {
         assert_eq!(s.len(), 2);
         assert_eq!(s[0].key, "a");
         assert_eq!(s[0].text, "desc a");
+        // an empty description still shows the key
+        let s = slots_for(&q(json!({"type": "choice", "criteria": {"refund": ""}})));
+        assert_eq!(s[0].text, "refund");
     }
 
     #[test]

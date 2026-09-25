@@ -231,7 +231,7 @@ impl Backend for Llama {
     }
 
     /// The model's own tokenizer; no BOS added (templates carry their own).
-    fn tokenize(&self, text: &str) -> Result<Vec<i32>> {
+    fn tokenize(&self, text: &str, special: bool) -> Result<Vec<i32>> {
         let vocab = unsafe { sys::llama_model_get_vocab(self.model) };
         let bytes = text.as_bytes();
         let mut cap = (bytes.len() as i32 / 2) + 64;
@@ -245,7 +245,7 @@ impl Backend for Llama {
                     buf.as_mut_ptr(),
                     cap,
                     false,
-                    true, // parse_special: special tokens in the template matter
+                    special,
                 )
             };
             if n >= 0 {

@@ -31,9 +31,10 @@ use crate::schema::{DecideRequest, Expand, Layout, Mode, QType, Question, MAX_SL
 const HEAD_SENTINEL: &str = "\u{1}snap-head\u{1}";
 /// Stands in for the state when measuring where a question_first head ends.
 const STATE_SENTINEL: &str = "\u{1}snap-state\u{1}";
-/// `layout: auto` flips to state_first past this rendered-state length when
-/// several questions share it — the document is decoded once instead of
-/// once per question (snapjudge's threshold, same idea).
+/// `layout: auto` flips to state_first past this rendered-state length:
+/// several questions decode the document once instead of once per question
+/// (snapjudge's threshold), and even a single question reads a long document
+/// better before it (TypeSafe: question_first −11 pts vs state_first).
 const LONG_STATE_CHARS: usize = 2000;
 
 /// One decode unit: a question as written, or a probe/page expanded from an
@@ -52,6 +53,8 @@ pub struct Engine {
     llm: Box<dyn Backend>,
     kv: Kv,
     letter_ids: Vec<Vec<i32>>,
+    /// The template text around the user message: (before, after).
+    frame: (String, String),
     head: Vec<i32>,
     pub model_id: String,
     /// Fitted per-type temperatures (`snap calibrate`); None = T 1.0 everywhere.
@@ -86,12 +89,18 @@ impl Engine {
 
     pub fn new(mut llm: Box<dyn Backend>, model_id: String) -> Result<Self> {
         let letter_ids = letter_ids(&*llm)?;
-        let head = head_tokens(&*llm)?;
+        let prompt = llm.render(prompts::SYSTEM, HEAD_SENTINEL)?;
+        let (pre, post) = prompt
+            .split_once(HEAD_SENTINEL)
+            .context("chat template does not render the user message verbatim")?;
+        let frame = (pre.to_string(), post.to_string());
+        let head = llm.tokenize(&frame.0, true)?;
         let kv = Kv::new(&mut *llm, head.clone())?;
         Ok(Engine {
             llm,
             kv,
             letter_ids,
+            frame,
             head,
             model_id,
             calibration: None,
@@ -146,8 +155,20 @@ impl Engine {
         Ok(())
     }
 
+    /// Only the template's own text may produce control tokens: request
+    /// content is tokenized as plain text, so a `<|im_end|>` inside a state
+    /// stays characters instead of closing the turn.
     fn prompt_tokens(&self, user: &str) -> Result<Vec<i32>> {
-        self.llm.tokenize(&self.llm.render(prompts::SYSTEM, user)?)
+        let full = self.llm.render(prompts::SYSTEM, user)?;
+        let (pre, post) = &self.frame;
+        let body = full
+            .strip_prefix(pre.as_str())
+            .and_then(|b| b.strip_suffix(post.as_str()))
+            .context("chat template does not render the user message verbatim")?;
+        let mut toks = self.llm.tokenize(pre, true)?;
+        toks.extend(self.llm.tokenize(body, false)?);
+        toks.extend(self.llm.tokenize(post, true)?);
+        Ok(toks)
     }
 
     /// Token index where a question_first head ends (STATE begins): render
@@ -376,7 +397,7 @@ impl Engine {
 /// plus every question head (state + Σheads) — qf wins only when the heads
 /// dominate, big rubric questions over a short state (missile game: 13
 /// questions on a 500-char state were 3× slower under qf even with every
-/// head cached). Long documents with several questions and anything with
+/// head cached). Long documents and anything with
 /// an abstain slot go state_first: the `__abstain__` option read before the
 /// evidence primes abstention (measured on eval/edge across the model set).
 fn resolve_layout(layout: Layout, qs: &[&Question], any_abstain: bool, state_len: usize) -> Layout {
@@ -388,9 +409,8 @@ fn resolve_layout(layout: Layout, qs: &[&Question], any_abstain: bool, state_len
         .iter()
         .map(|q| q.instructions.len() + q.criteria.as_ref().map_or(0, |c| c.to_string().len()))
         .sum();
-    let long_multi = n > 1 && state_len > LONG_STATE_CHARS;
     let heads_dominate = n <= 1 || head_sum > (n - 1) * state_len;
-    if any_abstain || long_multi || !heads_dominate {
+    if any_abstain || state_len > LONG_STATE_CHARS || !heads_dominate {
         Layout::StateFirst
     } else {
         Layout::QuestionFirst
@@ -419,18 +439,6 @@ fn read_row(row: &[f32], letters: &[Vec<i32>]) -> (Vec<f64>, f64) {
     (logits, if all > 0.0 { hit / all } else { 0.0 })
 }
 
-/// Tokens of the constant prompt head: everything the template puts before
-/// the user content, minus the last token (BPE may merge across the edge).
-fn head_tokens(llm: &dyn Backend) -> Result<Vec<i32>> {
-    let prompt = llm.render(prompts::SYSTEM, HEAD_SENTINEL)?;
-    let Some((head, _)) = prompt.split_once(HEAD_SENTINEL) else {
-        return Ok(vec![]);
-    };
-    let mut toks = llm.tokenize(head)?;
-    toks.pop();
-    Ok(toks)
-}
-
 /// Token ids per letter, pooling bare and space/newline-prefixed variants.
 fn letter_ids(llm: &dyn Backend) -> Result<Vec<Vec<i32>>> {
     prompts::LETTERS
@@ -439,7 +447,7 @@ fn letter_ids(llm: &dyn Backend) -> Result<Vec<Vec<i32>>> {
             let ch = (b as char).to_string();
             let mut ids = Vec::new();
             for s in [ch.clone(), format!(" {ch}"), format!("\n{ch}")] {
-                if let Ok(t) = llm.tokenize(&s) {
+                if let Ok(t) = llm.tokenize(&s, false) {
                     if t.len() == 1 && !ids.contains(&t[0]) {
                         ids.push(t[0]);
                     }
@@ -710,6 +718,16 @@ mod tests {
     }
 
     #[test]
+    fn request_text_cannot_inject_control_tokens() {
+        let eng = engine(4096, 9, 256);
+        let toks = eng.prompt_tokens("state <a> ends here").unwrap();
+        // the sim's `<a>` (258) opens the assistant turn: only the template's counts
+        assert_eq!(toks.iter().filter(|&&t| t == 258).count(), 1);
+        assert_eq!(*toks.last().unwrap(), 258);
+        assert!(toks.starts_with(&eng.head));
+    }
+
+    #[test]
     fn auto_layout_rules() {
         let q = |instr: &str, abstain: bool| -> Question {
             serde_json::from_value(
@@ -721,6 +739,8 @@ mod tests {
         let auto = |qs: &[&Question], abstain, len| resolve_layout(Layout::Auto, qs, abstain, len);
         // one question: its head is all that recurs
         assert_eq!(auto(&[&short], false, 50), Layout::QuestionFirst);
+        // ...unless the state is a long document
+        assert_eq!(auto(&[&short], false, 2500), Layout::StateFirst);
         // abstain reads better after the evidence
         assert_eq!(auto(&[&short], true, 50), Layout::StateFirst);
         // heads dominate a short state; a long shared document flips it
