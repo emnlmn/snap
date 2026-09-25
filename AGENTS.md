@@ -88,3 +88,10 @@ make serve        # build + run the HTTP server (MODEL=minicpm5-2b default)
   `instances.rs`; never signal pid 0 (unix: whole process group).
 - `.serena/` and `.impeccable/` are local tooling dirs (gitignored).
 - `openapi.yaml` documents the HTTP surface — keep it in sync with server.rs.
+
+## Writing to the user
+
+- Scrivi frasi complete e naturali, come le diresti a voce a un collega
+  italiano, senza tagliarle per sembrare sintetico.
+- Descrivi le cose per quello che sono, con nomi e aggettivi, e usa i verbi
+  solo quando racconti un'azione vera.
