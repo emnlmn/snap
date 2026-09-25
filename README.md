@@ -200,45 +200,48 @@ does. `python3 eval/vs_ollama.py` reproduces the table.
 
 ## Accuracy
 
-`snap evaluate eval/*.jsonl` — accuracy and **balanced accuracy** (mean
-per-class recall) against ground truth, plus the quality of the
-distributions themselves: **Brier score** and **ECE** (expected
-calibration error on the top probability). Cases can ship `variants` —
-paraphrased `state`/`question` fields — and the report adds a
-**consistency** block: answer agreement and mean probability drift,
+`snap evaluate eval/cases.jsonl` — one file, one report: accuracy and
+**balanced accuracy** (mean per-class recall) against ground truth, plus
+the quality of the distributions themselves: **Brier score** and **ECE**
+(expected calibration error on the top probability). Cases can ship
+`variants` — paraphrased `state`/`question` fields — and the report adds
+a **consistency** block: answer agreement and mean probability drift,
 broken down per perturbation kind. SNAP also auto-generates stability
 probes per case — option-order reversal (positional bias), a
 meaning-preserving criterion rewording, and an unrelated-context
 injection — `--no-perturb` skips them. Line format:
-`{"id", "state", "question", "expect", "variants"?}`.
+`{"id", "state", "question", "expect", "variants"?, "requires_abstain"?,
+"layout"?, "expand"?, "compact_state"?}`. Base cases use `<domain>-NN`
+ids, adversarial cases `edge-<stress>-NN` — the tables below split by
+tier.
 
 Measured with the API's own defaults — `layout: auto`, no abstain slot
 unless a case asks for one — i.e. exactly what `/v1/systemone` serves:
 
-| model | core (52) | edge (19) | ms/case |
+| model | base (52) | edge (19) | ms/case |
 |---|---:|---:|---:|
 | qwen3.8-4b Q4_K_M | **94.2%** | **79.0%** | ~210 |
 | spark-4b Q8_0 | 92.3% | **79.0%** | ~180 |
 | minicpm5-2b Q4_K_M | 80.8% | 57.9% | ~95 |
 
 These sets are small: the 95% interval is about ±7–11 points on the 52
-core cases and ±17–20 on the 19 edge cases, so a few points between the
+base cases and ±17–20 on the 19 edge cases, so a few points between the
 4B models is noise.
 
 Distribution quality (lower is better; same runs):
 
-| model | brier core | brier edge | ECE core | ECE edge |
+| model | brier base | brier edge | ECE base | ECE edge |
 |---|---:|---:|---:|---:|
 | qwen3.8-4b Q4_K_M | 0.126 | 0.201 | 0.159 | 0.151 |
 | spark-4b Q8_0 | 0.157 | 0.370 | 0.101 | 0.190 |
 | minicpm5-2b Q4_K_M | 0.300 | 0.627 | 0.079 | 0.281 |
 
 The ECE column is why calibration exists: qwen is *under*confident (73%
-mean confidence at 94% accuracy on core), spark is overconfident where
+mean confidence at 94% accuracy on base), spark is overconfident where
 it's weaker (87% confidence at 79% on edge) — both fixable by
 `snap calibrate`, both invisible to accuracy alone.
 
-Stability on core — how often the answer survives a perturbation that
+Stability on base — how often the answer survives a perturbation that
 shouldn't change it:
 
 | model | options reversed | instruction reworded | unrelated context added |
@@ -288,7 +291,7 @@ your eval cases, collects every emitted distribution with its
 ground-truth target, and fits one temperature per question type:
 
 ```bash
-snap calibrate --model qwen3.8-4b eval/core.jsonl eval/edge.jsonl -o calibration.json
+snap calibrate --model qwen3.8-4b eval/cases.jsonl -o calibration.json
 # fitted on 69 cases (2 skipped)
 #   boolean  T=0.477   choice  T=0.474   numeric  T=1.000   score  T=0.774
 # ece  0.127 raw -> 0.089 in-sample | 0.106 out-of-fold  CI95 [0.055, 0.185]
@@ -385,14 +388,14 @@ snap -p request.json                        # same thing, from a file (stdin wor
 snap serve --model qwen3.8-4b --port 8018   # HTTP server
 snap ps                                   # running servers (pid, model, uptime, state)
 snap stop                                 # stop the one server; --all / --port / --pid for more
-snap evaluate eval/core.jsonl               # accuracy + brier/ece + consistency
-snap calibrate eval/*.jsonl -o cal.json     # fit temperatures -> calibration file
+snap evaluate eval/cases.jsonl              # accuracy + brier/ece + consistency
+snap calibrate eval/cases.jsonl -o cal.json # fit temperatures -> calibration file
 snap bench --requests 20                    # latency/throughput
 ```
 
 `--model` takes a name from `snap models` — the tested set only. A GGUF
 that loads is not a GGUF that answers correctly; new candidates get a
-row in `src/models.rs` after they pass the eval suite.
+row in `src/models.rs` after they pass the eval cases.
 
 `--ctx` (default 8192 tokens ≈ ~6k words) is the KV pool: every prompt —
 state + question + options — must fit in it, and the questions in flight

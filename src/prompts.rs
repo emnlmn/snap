@@ -165,7 +165,7 @@ fn fmt_g(v: f64) -> String {
 }
 
 /// Choice option label: the description alone — keys are often opaque
-/// (`p0`), and `key — desc` measured worse on eval/core (route-04, pick-05/07
+/// (`p0`), and `key — desc` measured worse on eval/cases (route-04, pick-05/07
 /// flip on 2B and 4B). An empty description falls back to the key.
 fn option_label(key: &str, desc: &str) -> String {
     match desc {

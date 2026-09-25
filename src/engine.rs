@@ -399,7 +399,7 @@ impl Engine {
 /// questions on a 500-char state were 3× slower under qf even with every
 /// head cached). Long documents and anything with
 /// an abstain slot go state_first: the `__abstain__` option read before the
-/// evidence primes abstention (measured on eval/edge across the model set).
+/// evidence primes abstention (measured on eval/cases across the model set).
 fn resolve_layout(layout: Layout, qs: &[&Question], any_abstain: bool, state_len: usize) -> Layout {
     if layout != Layout::Auto {
         return layout;

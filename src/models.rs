@@ -1,7 +1,7 @@
 //! Model resolution: the tested set only. A GGUF that *loads* is not a
 //! GGUF that answers correctly — mechanical checks (chat template, single-
 //! token letters) catch some failures at startup, but instruction-following
-//! quality is only proven by running the eval suite. New candidates are
+//! quality is only proven by running the eval cases. New candidates are
 //! added to MODELS, evaluated, and stay if they earn it.
 
 use std::path::PathBuf;
