@@ -69,22 +69,26 @@ impl Engine {
         let stem = path
             .file_stem()
             .map_or_else(|| "model".into(), |s| s.to_string_lossy().into_owned());
-        eprintln!(
-            "loading {} …",
+        eprint!(
+            "snap: loading {} … ",
             path.file_name()
                 .map_or(model_path.into(), |s| s.to_string_lossy())
         );
-        let llama = Llama::load(model_path, n_ctx, n_batch, n_threads)?;
-        let name = llama.meta("general.name").unwrap_or(stem);
-        let quant = llama.meta("general.file_type");
-        let model_id = format!(
-            "snap-{}{}",
-            name.to_lowercase().replace(' ', "-"),
-            quant.map(|q| format!("-{q}")).unwrap_or_default()
-        );
-        let eng = Engine::new(Box::new(llama), model_id)?;
-        eprintln!("ready in {:.1}s", t0.elapsed().as_secs_f32());
-        Ok(eng)
+        let eng = Llama::load(model_path, n_ctx, n_batch, n_threads).and_then(|llama| {
+            let name = llama.meta("general.name").unwrap_or(stem);
+            let quant = llama.meta("general.file_type");
+            let model_id = format!(
+                "snap-{}{}",
+                name.to_lowercase().replace(' ', "-"),
+                quant.map(|q| format!("-{q}")).unwrap_or_default()
+            );
+            Engine::new(Box::new(llama), model_id)
+        });
+        match &eng {
+            Ok(_) => eprintln!("ready in {:.1}s", t0.elapsed().as_secs_f32()),
+            Err(_) => eprintln!("failed"),
+        }
+        eng
     }
 
     pub fn new(mut llm: Box<dyn Backend>, model_id: String) -> Result<Self> {

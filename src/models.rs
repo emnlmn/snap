@@ -50,7 +50,7 @@ pub fn resolve(spec: &str) -> Result<PathBuf> {
         .get(file)
         .is_none()
     {
-        eprintln!("downloading {repo}/{file} from huggingface …");
+        eprintln!("snap: downloading {repo}/{file} from huggingface …");
     }
     let api = hf_hub::api::sync::Api::new().context("hf api init")?;
     api.model(repo.to_string())
