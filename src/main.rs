@@ -187,7 +187,6 @@ fn parse_layout(s: &str) -> std::result::Result<crate::schema::Layout, String> {
 
 /// `snap serve` body — model load + warmup + blocking axum loop.
 fn serve(m: &ModelArgs, host: &str, port: u16) -> Result<()> {
-    eprintln!("snap: loading {} …", m.model);
     let path = models::resolve(&m.model)?;
     let mut eng = engine::Engine::load(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
     if let Some(c) = &m.calibration {

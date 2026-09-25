@@ -221,7 +221,7 @@ pub async fn serve(
         .with_context(|| format!("cannot listen on {host}:{port} — already running?"))?;
     let port = listener.local_addr().map(|a| a.port()).unwrap_or(port);
     crate::instances::bound_port(port);
-    eprintln!("snap serving on http://{host}:{port}");
+    eprintln!("snap: serving {model} on http://{host}:{port}");
     eprintln!("  api         POST /v1/systemone");
     eprintln!("  playground  http://{host}:{port}/playground");
     axum::serve(listener, app)
