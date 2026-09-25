@@ -188,10 +188,8 @@ h3 { font-weight: 640; font-size: 18px; line-height: 1.3; letter-spacing: -.01em
 }
 .c-bar {
   display: flex; align-items: center; gap: 12px;
-  height: 56px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--ink-line);
+  height: 56px; padding: 0 12px; border-bottom: 1px solid var(--ink-line);
 }
-.c-dots { display: flex; gap: 7px; margin-right: 8px; }
-.c-dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-hi); }
 .c-tabs { display: flex; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .c-tabs::-webkit-scrollbar { display: none; }
 .tab {
@@ -200,101 +198,95 @@ h3 { font-weight: 640; font-size: 18px; line-height: 1.3; letter-spacing: -.01em
 }
 .tab:hover { color: var(--ink-text); background: var(--ink-2); }
 .tab[aria-selected="true"] { color: #fff; background: var(--ink-3); box-shadow: inset 0 0 0 1px var(--ink-hi); }
-.c-meta { margin-left: auto; font: 12px var(--mono); color: var(--ink-faint); white-space: nowrap; }
 .c-replay {
-  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px;
-  border: 1px solid var(--ink-hi); border-radius: 9px; background: transparent;
-  font: 500 13px var(--sans); color: var(--ink-text); cursor: pointer; transition: border-color .15s, background .15s;
+  margin-left: auto; flex: none; display: grid; place-items: center; width: 34px; height: 34px;
+  border: 1px solid var(--ink-hi); border-radius: 9px; background: transparent; color: var(--ink-soft);
+  cursor: pointer; transition: border-color .15s, background .15s, color .15s;
 }
-.c-replay:hover { border-color: var(--ink-soft); background: var(--ink-2); }
-.c-replay svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.c-body { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); height: 468px; }
-.c-req { border-right: 1px solid var(--ink-line); display: flex; flex-direction: column; min-height: 0; position: relative; }
-.c-res { display: flex; flex-direction: column; min-height: 0; }
-.c-head {
-  display: flex; align-items: center; gap: 10px; height: 44px; flex: none;
-  padding: 0 20px; border-bottom: 1px solid var(--ink-line);
-  font: 12px var(--mono); color: var(--ink-faint);
+.c-replay:hover { border-color: var(--ink-soft); background: var(--ink-2); color: #fff; }
+.c-replay svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.c-body {
+  display: grid; grid-template-columns: minmax(0, 4.4fr) 112px minmax(0, 7fr);
+  position: relative; min-height: 440px;
 }
-.c-head b { color: var(--lime); font-weight: 600; }
-.c-head .path { color: var(--ink-text); }
-.c-head .ok { color: var(--mint); font-weight: 600; }
-.c-head .right { margin-left: auto; display: flex; gap: 2px; }
-.seg {
-  height: 26px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent;
-  font: 12px var(--mono); color: var(--ink-faint); cursor: pointer;
+.c-label {
+  display: flex; align-items: center; gap: 10px; min-height: 26px; margin: 0 0 12px;
+  font: 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint);
 }
-.seg:hover { color: var(--ink-text); }
-.seg[aria-pressed="true"] { background: var(--ink-3); color: var(--ink-text); }
-.c-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px 18px; position: relative; }
-.c-label { font: 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 8px; }
-.c-label + .c-label, * + .c-label { margin-top: 18px; }
+.c-state { grid-column: 1; padding: 24px 0 24px 24px; display: flex; flex-direction: column; min-width: 0; position: relative; }
+.c-src { position: relative; overflow: hidden; padding: 14px 16px; border-radius: 12px; background: var(--ink-2); box-shadow: inset 0 0 0 1px var(--ink-line); transition: box-shadow .4s; }
+.c-once { margin-top: 12px; font: 12px var(--mono); color: var(--ink-faint); transition: color .4s; }
+.c-once b { color: var(--ink-soft); font-weight: 600; transition: color .4s; }
 .json { font: 12.5px/1.65 var(--mono); color: var(--ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
 .json .k { color: #c9d1c7; }
 .json .s { color: var(--sand); }
 .json .n, .json .b { color: var(--mint); }
-.c-qs { display: grid; gap: 1px; }
-.c-q {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: baseline;
-  padding: 7px 0; border-top: 1px solid var(--ink-line); font-size: 13px;
-}
-.c-q:first-child { border-top: 0; }
-.c-q .qn { font: 500 12.5px var(--mono); color: var(--ink-text); }
-.c-q .qt { font: 12px var(--mono); color: var(--ink-faint); }
-.c-q .qa { grid-column: 1 / -1; color: var(--ink-soft); font-size: 13px; line-height: 1.4; }
-.c-q.lit .qn { color: var(--lime); }
 .scan {
-  position: absolute; left: 0; right: 0; top: 44px; height: 2px; pointer-events: none; opacity: 0;
-  background: linear-gradient(90deg, transparent, var(--lime) 30%, var(--lime) 70%, transparent);
+  position: absolute; left: 0; right: 0; top: 0; height: 56px; pointer-events: none; opacity: 0;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--lime) 14%, transparent));
+  border-bottom: 2px solid var(--lime);
 }
-.running .scan { opacity: .85; animation: scan var(--dur, .7s) linear forwards; }
-@keyframes scan { from { transform: translateY(0); } to { transform: translateY(420px); } }
+.console.prefill .c-src, .console.done .c-src { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lime) 40%, transparent); }
+.console.done .c-once, .console.prefill .c-once { color: var(--ink-soft); }
+.console.done .c-once b, .console.prefill .c-once b { color: var(--lime); }
 
-.answers { display: grid; }
+.c-fan { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; transition: opacity .3s; }
+.c-fan path { fill: none; stroke-linecap: round; }
+.c-fan .th { stroke: var(--ink-hi); stroke-width: 1.5; transition: stroke .3s, stroke-width .3s; }
+.c-fan .cm { stroke: var(--lime); stroke-width: 2.5; opacity: 0; filter: drop-shadow(0 0 4px color-mix(in srgb, var(--lime) 70%, transparent)); }
+.c-fan circle { fill: var(--ink); stroke: var(--ink-hi); stroke-width: 1.5; transition: fill .3s, stroke .3s; }
+.console.done .c-fan .th { stroke: color-mix(in srgb, var(--lime) 34%, var(--ink-hi)); }
+.console.done .c-fan circle, .console.prefill .c-fan circle.o { fill: var(--lime); stroke: var(--lime); }
+.c-fan .th.hot { stroke: var(--lime) !important; stroke-width: 2; }
+.console.show-json .c-fan { opacity: 0; }
+
+.c-res { grid-column: 3; padding: 24px 24px 20px 0; min-width: 0; display: flex; flex-direction: column; }
+.c-res .c-label { padding-left: 14px; }
+.c-json-t {
+  margin-left: auto; height: 26px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent;
+  font: 12px var(--mono); letter-spacing: 0; text-transform: none; color: var(--ink-faint); cursor: pointer;
+}
+.c-json-t:hover { color: var(--ink-text); background: var(--ink-2); }
+.c-json-t[aria-pressed="true"] { background: var(--ink-3); color: var(--ink-text); }
+#c-json { max-height: 380px; overflow-y: auto; }
+.answers { display: grid; gap: 4px; }
 .a-row {
-  display: grid; grid-template-columns: minmax(0, 1.05fr) 132px minmax(0, 1fr) 46px;
-  align-items: center; gap: 16px; padding: 12px 8px; margin: 0 -8px;
-  border-radius: 10px; cursor: default; transition: background .15s;
+  display: grid; grid-template-columns: minmax(0, 8.5rem) minmax(0, 1fr); gap: 4px 20px; align-items: center;
+  padding: 12px 14px; border-radius: 12px; transition: background .2s;
 }
-.a-row + .a-row { box-shadow: 0 -1px 0 var(--ink-line); }
-.a-row:hover, .a-row:focus-visible, .a-row.on { background: var(--ink-2); }
+.a-row:hover, .a-row:focus-visible { background: var(--ink-2); }
 .a-row:focus-visible { outline-offset: -2px; }
-.a-name { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.a-name b { font: 500 13px var(--mono); color: var(--ink-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.a-name small { font: 12px var(--mono); color: var(--ink-faint); }
-.hist { display: flex; align-items: flex-end; gap: 2px; height: 30px; }
-.hist i {
-  flex: 1; min-width: 3px; height: 2px; border-radius: 2px; background: var(--ink-hi);
-  transition: height .6s var(--ease), background .3s;
-}
-.hist i.w { background: var(--lime); }
+.a-ask { grid-column: 1 / -1; font-size: 14px; line-height: 1.4; color: var(--ink-soft); text-wrap: pretty; }
 .a-val {
-  min-width: 0; font-weight: 620; font-size: 15.5px; color: #fff; letter-spacing: -.005em;
+  min-width: 0; font-weight: 680; font-stretch: 108%; font-size: 21px; line-height: 1.2; letter-spacing: -.015em; color: #fff;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  transition: opacity .35s, transform .5s var(--ease);
+  transition: opacity .14s, transform .22s var(--ease), filter .22s var(--ease);
 }
-.a-p { font: 500 13px var(--mono); color: var(--ink-soft); text-align: right; font-variant-numeric: tabular-nums; transition: opacity .35s; }
-.pending .a-val, .pending .a-p { opacity: 0; transform: translateY(4px); }
-.pending .hist i { height: 2px !important; }
-.c-inspect {
-  flex: none; min-height: 58px; padding: 10px 20px 12px; border-top: 1px solid var(--ink-line);
-  font: 12px/1.55 var(--mono); color: var(--ink-faint);
+.a-dist { display: flex; gap: 2px; height: 10px; }
+.a-dist i {
+  flex: var(--p) 1 0; min-width: 0; border-radius: 3px; background: var(--ink-hi);
+  transition: flex-grow .32s var(--ease), background .2s;
 }
-.c-inspect .ask { color: var(--ink-soft); font: 13px/1.4 var(--sans); margin-bottom: 4px; }
-.c-inspect .opt { white-space: nowrap; margin-right: 14px; }
-.c-inspect .opt b { color: var(--ink-soft); font-weight: 500; }
-.c-inspect .opt.w, .c-inspect .opt.w b { color: var(--lime); }
+.a-dist i.w { background: var(--lime); }
+.a-dist i.z { flex-grow: 0; margin-left: -2px; }
+.a-leg { grid-column: 2; display: flex; flex-wrap: wrap; gap: 0 14px; font: 12px var(--mono); color: var(--ink-faint); font-variant-numeric: tabular-nums; transition: opacity .14s; }
+.a-leg span { white-space: nowrap; }
+.a-leg b { font-weight: 500; color: var(--ink-soft); }
+.a-leg .w, .a-leg .w b { color: var(--lime); }
+.pending .a-val { opacity: 0; transform: translateY(6px); filter: blur(4px); }
+.pending .a-leg { opacity: 0; }
+.pending .a-dist i { flex-grow: 1 !important; margin-left: 0; background: var(--ink-line); }
+
 .c-foot {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 20px; align-items: center;
-  padding: 14px 20px; border-top: 1px solid var(--ink-line); background: var(--ink-2);
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px;
+  padding: 18px 24px; border-top: 1px solid var(--ink-line); background: var(--ink-2);
 }
-.clock { font: 600 24px/1 var(--mono); color: #fff; font-variant-numeric: tabular-nums; letter-spacing: -.02em; min-width: 7.2ch; }
-.clock small { font-size: 13px; color: var(--ink-faint); font-weight: 500; margin-left: 4px; }
-.track { height: 6px; border-radius: 3px; background: var(--ink-line); overflow: hidden; }
-.track i { display: block; height: 100%; width: 0; background: var(--lime); border-radius: 3px; }
-.facts { display: flex; gap: 18px; font: 12px var(--mono); color: var(--ink-faint); white-space: nowrap; }
+.clock { font: 640 34px/1 var(--mono); color: #fff; font-variant-numeric: tabular-nums; letter-spacing: -.03em; min-width: 7ch; }
+.clock small { font-size: 14px; color: var(--ink-faint); font-weight: 500; margin-left: 5px; letter-spacing: 0; }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 20px; font: 13px var(--mono); color: var(--ink-faint); }
 .facts b { color: var(--ink-text); font-weight: 600; }
-.facts .zero b { color: var(--lime); }
+.facts .zero, .facts .zero b { color: var(--lime); }
+.c-meta { margin-left: auto; font: 12px var(--mono); color: var(--ink-faint); white-space: nowrap; }
 
 /* ---------- sections ---------- */
 section { padding: 128px 0; }
@@ -578,7 +570,6 @@ footer { padding: 56px 0 64px; }
   .deploy { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .deploy > div:nth-child(3) { padding-left: 0; border-left: 0; }
   .deploy > div:nth-child(n+3) { margin-top: 28px; border-top: 1px solid var(--line); }
-  .c-meta { display: none; }
 }
 @media (max-width: 880px) {
   :root { --g: 20px; }
@@ -589,15 +580,14 @@ footer { padding: 56px 0 64px; }
   .head { margin-bottom: 44px; }
   .head .sub { justify-self: start; }
   .stage { margin-top: 44px; }
-  .c-body { grid-template-columns: minmax(0, 1fr); height: auto; }
-  .c-req { border-right: 0; border-bottom: 1px solid var(--ink-line); }
-  .c-req .c-scroll { max-height: 190px; }
-  .c-qs, .c-req .c-label.qs-l { display: none; }
-  .c-res .c-scroll { overflow: visible; }
-  .scan { display: none; }
-  .c-foot { grid-template-columns: auto minmax(0, 1fr); }
-  .facts { grid-column: 1 / -1; flex-wrap: wrap; gap: 6px 16px; white-space: normal; }
-  .c-dots { display: none; }
+  .c-body { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .c-fan { display: none; }
+  .c-state, .c-res { grid-column: 1; padding: 20px; }
+  .c-state { padding-bottom: 4px; }
+  .c-src { max-height: 168px; overflow-y: auto; }
+  .c-res { padding: 16px 12px 16px; }
+  .c-res .c-label { padding: 0 8px; }
+  .a-row { padding: 10px 8px; }
   .uc { grid-template-columns: minmax(0, 1fr); }
   .uc-list { position: static; display: flex; gap: 6px; overflow-x: auto; margin: 0 calc(-1 * var(--g)); padding: 0 var(--g) 4px; scrollbar-width: none; }
   .uc-list::-webkit-scrollbar { display: none; }
@@ -643,12 +633,10 @@ footer { padding: 56px 0 64px; }
   .foot > div:first-child { grid-column: 1 / -1; }
 }
 @media (max-width: 520px) {
-  .a-row { grid-template-columns: minmax(0, 1fr) 84px 42px; gap: 10px; }
-  .a-row .a-val { grid-column: 1 / -1; grid-row: 2; font-size: 14.5px; margin-top: -2px; }
-  .a-row .hist { grid-column: 2; grid-row: 1; }
-  .a-row .a-p { grid-column: 3; grid-row: 1; }
-  .c-inspect .opt { display: inline-block; }
-  .clock { font-size: 20px; }
+  .a-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .a-leg { grid-column: 1; }
+  .clock { font-size: 28px; }
+  .c-foot { padding: 16px 20px; }
   .top .btn.primary { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -699,49 +687,34 @@ footer { padding: 56px 0 64px; }
     </div>
 
     <div class="stage">
-      <div class="console" id="console" role="region" aria-label="Recorded snap requests: every question answered in one pass">
+      <div class="console" id="console" role="region" aria-label="Recorded snap requests: one state, every question answered in one pass">
         <div class="c-bar">
-          <div class="c-dots" aria-hidden="true"><i></i><i></i><i></i></div>
           <div class="c-tabs" role="tablist" aria-label="Recorded requests">
             <button class="tab" role="tab" aria-selected="true" data-case="support">Support ticket</button>
             <button class="tab" role="tab" aria-selected="false" data-case="agent" tabindex="-1">Agent tool call</button>
             <button class="tab" role="tab" aria-selected="false" data-case="incident" tabindex="-1">Incident page</button>
           </div>
-          <span class="c-meta">minicpm5-2b · Q4_K_M · Apple M1 Max</span>
-          <button class="c-replay" id="replay" aria-label="Replay this request">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.8 8a5.2 5.2 0 1 0 1.6-3.8M2.6 1.9v2.8h2.8"/></svg>Replay
+          <button class="c-replay" id="replay" aria-label="Replay this request" title="Replay">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.8 8a5.2 5.2 0 1 0 1.6-3.8M2.6 1.9v2.8h2.8"/></svg>
           </button>
         </div>
-        <div class="c-body">
-          <div class="c-req">
-            <div class="c-head"><b>POST</b><span class="path">/v1/systemone</span></div>
-            <div class="scan" aria-hidden="true"></div>
-            <div class="c-scroll">
-              <p class="c-label">state</p>
-              <pre class="json" id="c-state"></pre>
-              <p class="c-label qs-l">questions</p>
-              <div class="c-qs" id="c-qs"></div>
-            </div>
+        <div class="c-body" id="c-body">
+          <svg class="c-fan" id="c-fan" aria-hidden="true"></svg>
+          <div class="c-state">
+            <p class="c-label">state</p>
+            <div class="c-src"><pre class="json" id="c-state"></pre><i class="scan"></i></div>
+            <p class="c-once" id="c-once"></p>
           </div>
           <div class="c-res">
-            <div class="c-head">
-              <span id="c-status">waiting</span>
-              <span class="right" role="group" aria-label="Response view">
-                <button class="seg" aria-pressed="true" data-view="answers">answers</button>
-                <button class="seg" aria-pressed="false" data-view="json">json</button>
-              </span>
-            </div>
-            <div class="c-scroll" id="c-res-scroll">
-              <div class="answers" id="c-answers"></div>
-              <pre class="json" id="c-json" hidden></pre>
-            </div>
-            <div class="c-inspect" id="c-inspect" aria-live="polite"></div>
+            <p class="c-label">questions<button class="c-json-t" id="c-json-t" aria-pressed="false">json</button></p>
+            <ol class="answers" id="c-answers"></ol>
+            <pre class="json" id="c-json" hidden></pre>
           </div>
         </div>
         <div class="c-foot">
           <span class="clock" aria-label="Engine time"><span id="c-ms">0.0</span><small>ms</small></span>
-          <span class="track" aria-hidden="true"><i id="c-fill"></i></span>
-          <span class="facts" id="c-facts"></span>
+          <span class="facts" id="c-facts" aria-live="polite"></span>
+          <span class="c-meta">minicpm5-2b · Q4_K_M · Apple M1 Max</span>
         </div>
       </div>
 
@@ -1178,82 +1151,100 @@ function hl(obj) {
       : kw ? `<span class="b">${m}</span>` : `<span class="n">${m}</span>`);
 }
 const winIdx = q => q.p.indexOf(Math.max(...q.p));
-const optSummary = q => {
-  if (q.t === 'numeric') return `${q.min} … ${q.max}, step ${q.step}`;
-  if (q.t === 'noul') return 'yes | no';
-  return q.o.length > 4 ? `${q.o.slice(0, 3).join(' | ')} +${q.o.length - 3}` : q.o.join(' | ');
-};
 
 /* ---------------- hero console ---------------- */
+// One state, fanned out to every question, landing together, replayed in the
+// engine's real time: the speed is the point.
 const HERO = ['support', 'agent', 'incident'];
 const con = $('#console');
-const el = { state: $('#c-state'), qs: $('#c-qs'), ans: $('#c-answers'), json: $('#c-json'), status: $('#c-status'),
-  ms: $('#c-ms'), fill: $('#c-fill'), facts: $('#c-facts'), inspect: $('#c-inspect'), resScroll: $('#c-res-scroll') };
-let cur = 'support', raf = 0, timers = [], auto = true, hovering = false, inView = false, view = 'answers', focusQ = 0;
-
-function inspect(i) {
-  const q = DATA[cur].qs[i]; if (!q) return;
-  focusQ = i;
-  $$('.a-row', el.ans).forEach((r, j) => r.classList.toggle('on', j === i));
-  const w = winIdx(q);
-  const opts = q.o.map((o, j) => `<span class="opt${j === w ? ' w' : ''}">${esc(o)} <b>${pf(q.p[j])}</b></span>`).join('');
-  el.inspect.innerHTML = `<div class="ask">${esc(q.n)}: ${esc(q.ask)}</div>${opts}`;
-}
+const el = { body: $('#c-body'), fan: $('#c-fan'), state: $('#c-state'), once: $('#c-once'), ans: $('#c-answers'),
+  json: $('#c-json'), jsonT: $('#c-json-t'), ms: $('#c-ms'), facts: $('#c-facts'), scan: $('.scan', con) };
+const p2 = p => p >= .995 ? '1.00' : p < .005 ? '<.01' : p.toFixed(2).replace(/^0/, '');
+let cur = 'support', raf = 0, timers = [], anims = [], auto = true, hovering = false, inView = false;
 
 function paint(name) {
   const c = DATA[name];
   el.state.innerHTML = hl(c.state);
-  el.qs.innerHTML = c.qs.map(q => `<div class="c-q"><span class="qn">${esc(q.n)}</span><span class="qt">${TYPE[q.t]}</span><span class="qa">${esc(optSummary(q))}</span></div>`).join('');
+  el.once.innerHTML = `<b>${c.shared}</b> tokens, decoded once for all ${c.qs.length}`;
   el.ans.innerHTML = c.qs.map((q, i) => {
     const w = winIdx(q);
-    const bars = q.p.map((p, j) => `<i class="${j === w ? 'w' : ''}" data-h="${Math.max(p, .06)}"></i>`).join('');
-    const label = `${q.n}: ${q.a}, confidence ${pf(q.c)}`;
-    return `<div class="a-row" tabindex="0" data-i="${i}" aria-label="${esc(label)}"><span class="a-name"><b>${esc(q.n)}</b><small>${TYPE[q.t]}</small></span><span class="hist" aria-hidden="true">${bars}</span><span class="a-val">${esc(q.a)}</span><span class="a-p">${pf(q.p[w])}</span></div>`;
+    const segs = q.p.map((p, j) => `<i class="${j === w ? 'w' : ''}${p < .005 ? ' z' : ''}" style="--p:${p}"></i>`).join('');
+    const leg = q.o.map((o, j) => q.p[j] < .01 && j !== w ? '' : `<span class="${j === w ? 'w' : ''}">${esc(o)} <b>${p2(q.p[j])}</b></span>`).join('');
+    return `<li class="a-row" tabindex="0" data-i="${i}" aria-label="${esc(`${q.ask} ${q.a}, ${p2(q.p[w])}`)}"><p class="a-ask">${esc(q.ask)}</p><span class="a-val">${esc(q.a)}</span><span class="a-dist" aria-hidden="true">${segs}</span><span class="a-leg" aria-hidden="true">${leg}</span></li>`;
   }).join('');
   el.json.innerHTML = hl(c.raw);
-  el.facts.innerHTML = `<span><b>${c.qs.length}</b> answers</span><span><b>1</b> batched pass</span><span><b>${c.input}</b> input tokens</span><span class="zero"><b>0</b> output tokens</span>`;
   $$('.a-row', el.ans).forEach(r => {
-    const i = +r.dataset.i;
-    r.addEventListener('mouseenter', () => inspect(i));
-    r.addEventListener('focus', () => inspect(i));
+    const hot = v => $(`.th[data-i="${r.dataset.i}"]`, el.fan)?.classList.toggle('hot', v);
+    r.addEventListener('mouseenter', () => hot(true)); r.addEventListener('mouseleave', () => hot(false));
+    r.addEventListener('focus', () => hot(true)); r.addEventListener('blur', () => hot(false));
   });
-  inspect(0);
+  fan();
 }
+
+// threads from the state block to every question row, in c-body coordinates
+function fan() {
+  const b = el.body.getBoundingClientRect(), s = $('.c-src', con).getBoundingClientRect();
+  if (!b.width || getComputedStyle(el.fan).display === 'none') return;
+  const x0 = s.right - b.left, y0 = s.top - b.top + Math.min(s.height / 2, 120);
+  const ends = $$('.a-row', el.ans).map(r => {
+    const a = $('.a-ask', r).getBoundingClientRect(), x1 = r.getBoundingClientRect().left - b.left + 4, dx = (x1 - x0) * .55;
+    return [x1, a.top - b.top + a.height / 2, dx];
+  });
+  // reshape in place when the count matches, so a resize mid-replay keeps the running comets
+  if ($$('.th', el.fan).length !== ends.length)
+    el.fan.innerHTML = ends.map((_, i) => `<path class="th" data-i="${i}"/><path class="cm"/><circle class="e" r="3.5"/>`).join('') + '<circle class="o" r="5"/>';
+  const th = $$('.th', el.fan), cm = $$('.cm', el.fan), e = $$('.e', el.fan);
+  ends.forEach(([x1, y1, dx], i) => {
+    const d = `M${x0} ${y0}C${x0 + dx} ${y0} ${x1 - dx} ${y1} ${x1} ${y1}`;
+    th[i].setAttribute('d', d); cm[i].setAttribute('d', d);
+    e[i].setAttribute('cx', x1); e[i].setAttribute('cy', y1);
+  });
+  const o = $('.o', el.fan); o.setAttribute('cx', x0); o.setAttribute('cy', y0);
+}
+
 
 function land() {
-  con.classList.remove('running');
+  const c = DATA[cur];
+  con.classList.remove('prefill'); con.classList.add('done');
   el.ans.classList.remove('pending');
-  $$('.hist i', el.ans).forEach(b => b.style.height = (b.dataset.h * 100) + '%');
-  el.status.innerHTML = `<span class="ok">200 OK</span>&nbsp;· ${DATA[cur].qs.length} answers`;
-  $$('.c-q', el.qs).forEach(q => q.classList.remove('lit'));
+  el.ms.textContent = c.ms.toFixed(1);
 }
 
-function clear() { cancelAnimationFrame(raf); timers.forEach(clearTimeout); timers = []; }
+function clear() {
+  cancelAnimationFrame(raf); timers.forEach(clearTimeout); timers = [];
+  anims.forEach(a => a.cancel()); anims = [];
+}
 
 function run(name, animate = true) {
   clear();
   cur = name;
   $$('.tab', con).forEach(t => { const on = t.dataset.case === name; t.setAttribute('aria-selected', on); t.tabIndex = on ? 0 : -1; });
-  paint(name);
-  const ms = DATA[name].ms;
-  if (!animate || reduced) {
-    el.ms.textContent = ms.toFixed(1); el.fill.style.width = '100%'; land(); schedule(); return;
-  }
+  con.classList.remove('done', 'prefill');
   el.ans.classList.add('pending');
-  $$('.hist i', el.ans).forEach(b => b.style.height = '');
-  el.fill.style.width = '0%'; el.ms.textContent = '0.0';
-  el.status.textContent = 'decoding…';
-  con.style.setProperty('--dur', ms + 'ms');
-  con.classList.remove('running'); void con.offsetWidth; con.classList.add('running');
-  const qEls = $$('.c-q', el.qs);
-  qEls.forEach((q, i) => timers.push(setTimeout(() => q.classList.add('lit'), (i + 1) * ms / (qEls.length + 1))));
+  paint(name);
+  el.facts.innerHTML = `<span><b>1</b> pass</span><span><b>${DATA[name].qs.length}</b> answers</span><span class="zero"><b>0</b> tokens generated</span>`;
+  if (!animate || reduced) { land(); schedule(); return; }
+  const c = DATA[name], T = c.ms, src = $('.c-src', con);
+  // first 30%: the state is read once
+  timers.push(setTimeout(() => con.classList.add('prefill'), 0));
+  anims.push(el.scan.animate(
+    [{ opacity: 1, transform: 'translateY(-56px)' }, { opacity: 1, transform: `translateY(${src.offsetHeight}px)` }],
+    { duration: T * .3, easing: 'cubic-bezier(.4,0,.6,1)' }));
+  // then every question branches off that one read, in parallel
+  $$('.c-fan .cm', el.fan).forEach(p => {
+    const L = p.getTotalLength();
+    p.style.strokeDasharray = `26 ${L + 26}`;
+    anims.push(p.animate(
+      [{ strokeDashoffset: 26, opacity: 1 }, { strokeDashoffset: -L, opacity: 1 }],
+      { duration: T * .52, delay: T * .3, easing: 'cubic-bezier(.5,0,.3,1)', fill: 'none' }));
+  });
+  // and all answers land at the same instant
+  timers.push(setTimeout(land, T * .82));
   const t0 = performance.now();
   const tick = now => {
-    const t = Math.min(ms, now - t0);
-    el.ms.textContent = t.toFixed(1);
-    el.fill.style.width = (t / ms * 100) + '%';
-    if (t < ms) raf = requestAnimationFrame(tick);
-    else { el.ms.textContent = ms.toFixed(1); land(); schedule(); }
+    const k = Math.min(1, (now - t0) / (T * .82));
+    el.ms.textContent = (k * c.ms).toFixed(1);
+    if (k < 1) raf = requestAnimationFrame(tick); else schedule();
   };
   raf = requestAnimationFrame(tick);
 }
@@ -1263,7 +1254,7 @@ function schedule() {
   timers.push(setTimeout(() => {
     if (hovering || !inView || !auto) return schedule();
     run(HERO[(HERO.indexOf(cur) + 1) % HERO.length]);
-  }, 5200));
+  }, 5600));
 }
 
 $$('.tab', con).forEach(t => {
@@ -1275,16 +1266,18 @@ $$('.tab', con).forEach(t => {
   });
 });
 $('#replay').addEventListener('click', () => { auto = false; run(cur); });
-$$('.seg[data-view]', con).forEach(b => b.addEventListener('click', () => {
-  view = b.dataset.view;
-  $$('.seg[data-view]', con).forEach(x => x.setAttribute('aria-pressed', x === b));
-  el.ans.hidden = view !== 'answers'; el.json.hidden = view !== 'json';
-}));
+el.jsonT.addEventListener('click', () => {
+  const on = el.jsonT.getAttribute('aria-pressed') !== 'true';
+  el.jsonT.setAttribute('aria-pressed', on);
+  el.ans.hidden = on; el.json.hidden = !on;
+  con.classList.toggle('show-json', on);
+  if (!on) fan();
+});
 con.addEventListener('mouseenter', () => hovering = true);
 con.addEventListener('mouseleave', () => hovering = false);
+new ResizeObserver(() => fan()).observe(el.body);
 
-paint('support');
-el.ans.classList.add('pending');
+if (reduced) run('support', false); else { el.ans.classList.add('pending'); paint('support'); }
 new IntersectionObserver(es => {
   inView = es.some(e => e.isIntersecting);
   if (inView && !con.dataset.started) { con.dataset.started = 1; run('support'); }
