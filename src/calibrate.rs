@@ -296,7 +296,7 @@ pub fn fit(engine: &mut Engine, cases: &[Value]) -> Result<Calibration> {
     let mut by_bucket: BTreeMap<String, Vec<BucketSample>> = BTreeMap::new();
     let mut skipped = 0usize;
     for (ci, case) in cases.iter().enumerate() {
-        let req = crate::evaluate::build_req(case, false)?;
+        let req = crate::evaluate::build_req(case, false, None)?;
         let out = engine.decide(&req)?;
         let ans = &out["answers"]["q"];
         let Some(probs) = ans["probabilities"].as_object() else {

@@ -252,6 +252,20 @@ pub unsafe fn mem_clear(ctx: *mut sys::llama_context) {
     sys::llama_memory_clear(mem, true);
 }
 
+/// Hybrid/recurrent memory can't trim a sequence to an arbitrary position:
+/// partial seq_rm needs n_rs_seq rollback slots, which contexts don't
+/// allocate — so deep rewind is never available on these archs.
+pub fn model_hybrid(model: &Model) -> bool {
+    unsafe { sys::llama_model_is_hybrid(model.0) || sys::llama_model_is_recurrent(model.0) }
+}
+
+/// Last position held by `seq` (-1 when empty). Cached question heads are
+/// only trusted when this matches their token span exactly.
+pub unsafe fn mem_seq_pos_max(ctx: *mut sys::llama_context, seq: i32) -> i32 {
+    let mem = sys::llama_get_memory(ctx);
+    sys::llama_memory_seq_pos_max(mem, seq)
+}
+
 /// Whole-context state snapshot (KV + recurrent state + rng). Used on hybrid
 /// archs where arbitrary KV rewind is unsupported.
 pub unsafe fn state_save(ctx: *mut sys::llama_context) -> Vec<u8> {

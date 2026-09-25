@@ -5,10 +5,10 @@
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use crate::schema::{default_mode, DecideRequest, Mode};
+use crate::schema::{default_layout, default_mode, DecideRequest, Layout, Mode};
 
 /// Jev wire format, tolerant of extra SDK keys. Optional snap extensions:
-/// per-question `allow_abstain` (default false) and request `mode`.
+/// per-question `allow_abstain` (default false), request `mode` and `layout`.
 #[derive(Debug, Deserialize)]
 pub struct SystemoneRequest {
     #[serde(default)]
@@ -19,6 +19,8 @@ pub struct SystemoneRequest {
     pub temperature: f64,
     #[serde(default = "default_mode")]
     pub mode: Mode,
+    #[serde(default = "default_layout")]
+    pub layout: Layout,
 }
 
 fn one() -> f64 {
@@ -45,6 +47,7 @@ impl SystemoneRequest {
             questions,
             temperature: self.temperature,
             mode: self.mode,
+            layout: self.layout,
         }
     }
 }
@@ -59,6 +62,9 @@ pub fn from_native(native: &Value) -> Value {
             let mut a = Map::new();
             a.insert("confidence".into(), ans["confidence"].clone());
             a.insert("status".into(), ans["status"].clone());
+            if let Some(c) = ans.get("coverage") {
+                a.insert("coverage".into(), c.clone());
+            }
             if let Some(b) = ans.get("boolean") {
                 a.insert("type".into(), json!("noul"));
                 let p_yes = ans["probabilities"].get("yes").cloned().unwrap_or_else(|| {

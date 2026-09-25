@@ -119,6 +119,31 @@ pub enum Mode {
     Direct,
 }
 
+/// Prompt layout: where the question sits relative to the state. snapjudge's
+/// finding (and ours): question-first reads more accurately and its head is
+/// cacheable across requests; state-first amortizes a long document across
+/// many questions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Layout {
+    /// question_first for short states; state_first for long documents
+    /// carrying several questions, or when any question allows abstain
+    /// (the abstain slot before the evidence primes abstention).
+    Auto,
+    /// STATE then QUESTION+OPTIONS (snap's original order).
+    StateFirst,
+    /// QUESTION+OPTIONS then STATE — the question head is cached across
+    /// requests, so repeat workloads decode only the state.
+    QuestionFirst,
+    /// All question instructions listed before the STATE, then each question
+    /// again on its own — the document is read with every question in view.
+    Header,
+}
+
+pub(crate) fn default_layout() -> Layout {
+    Layout::Auto
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DecideRequest {
@@ -132,6 +157,8 @@ pub struct DecideRequest {
     pub temperature: f64,
     #[serde(default = "default_mode")]
     pub mode: Mode,
+    #[serde(default = "default_layout")]
+    pub layout: Layout,
 }
 
 impl DecideRequest {
@@ -258,6 +285,33 @@ mod tests {
         }))
         .unwrap();
         assert!(r.validate().is_err());
+    }
+
+    #[test]
+    fn layout_parses_and_defaults_auto() {
+        let r: DecideRequest = serde_json::from_value(json!({
+            "state": "x",
+            "questions": {"q": {"type": "boolean"}}
+        }))
+        .unwrap();
+        assert_eq!(r.layout, Layout::Auto);
+        let r: DecideRequest = serde_json::from_value(json!({
+            "state": "x", "layout": "question_first",
+            "questions": {"q": {"type": "boolean"}}
+        }))
+        .unwrap();
+        assert_eq!(r.layout, Layout::QuestionFirst);
+        let r: DecideRequest = serde_json::from_value(json!({
+            "state": "x", "layout": "header",
+            "questions": {"q": {"type": "boolean"}}
+        }))
+        .unwrap();
+        assert_eq!(r.layout, Layout::Header);
+        assert!(serde_json::from_value::<DecideRequest>(json!({
+            "state": "x", "layout": "sideways",
+            "questions": {"q": {"type": "boolean"}}
+        }))
+        .is_err());
     }
 
     #[test]

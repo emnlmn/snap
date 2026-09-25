@@ -176,6 +176,7 @@ fn local_decide(engine: &mut Engine, state: Value, n: usize, mode: Mode) -> Resu
         questions: qs,
         temperature: 1.0,
         mode,
+        layout: crate::schema::Layout::Auto,
     };
     engine.decide(&req)
 }
