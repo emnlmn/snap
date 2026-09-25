@@ -172,24 +172,31 @@ instead of 65.
 ### …and against the same weights through Ollama
 
 Ollama 0.34.3 serving `openbmb/minicpm5-2b` (its own packaging of the
-same MiniCPM5-2B Q4_K_M), same machine, both over HTTP, p50 of 15:
-`think:false`, one output token per question, temperature 0, the prompt
-text snap compiles, a fresh state per request.
+same MiniCPM5-2B Q4_K_M), same machine, both over HTTP, p50 of 15, each
+engine's requests back to back, and every request a state that engine
+has never seen. Ollama runs `think:false` at temperature 0, with the
+fixed question text first so its prefix cache reuses it the way SNAP's
+does. `python3 eval/vs_ollama.py` reproduces the table.
 
-| workload | Ollama | SNAP | |
-|---|---:|---:|---|
-| 1 question | 149 ms | 51 ms | −66% |
-| 4 questions, one request each | 523 ms | 126 ms | −76% |
-| 8 questions, one request each | 796 ms | 258 ms | −68% |
-| 4 questions, combined prompt | 571 ms | 126 ms | −78% |
-| 8 questions, combined prompt | 731 ms | 258 ms | −65% |
-| 4 KB state, 1 question | 1376 ms | 1304 ms | −5% |
+| workload | Ollama, JSON + probabilities | Ollama, JSON answers | Ollama, one letter each | SNAP | vs fastest Ollama |
+|---|---:|---:|---:|---:|---:|
+| 1 question | 898 ms (69 tok) | 163 ms (9 tok) | 61 ms | 54 ms | −11% |
+| 4 questions | 3704 ms (282 tok) | 342 ms (26 tok) | 257 ms | 135 ms | −48% |
+| 8 questions | 7874 ms (562 tok) | 732 ms (50 tok) | 504 ms | 263 ms | −48% |
+| 5 KB state, 1 question | 3872 ms (73 tok) | 2738 ms (8 tok) | 2650 ms | 2226 ms | −16% |
 
-The combined-prompt rows are Ollama's best case for N questions — and it
-hands you `"A,C,B"` as *text* to parse, with no probabilities. SNAP's
-whole answer is the distribution. With one question over a long state
-both are bound by the same prefill: the win is in the many-question
-case.
+- **One letter per question** is Ollama's floor: a letter of text to
+  parse, no probabilities, one request per question (asked for every
+  letter in one reply, `"A,C,B"`, it stopped early at 4 and 8
+  questions). On a single question it comes close to SNAP (61 vs 54 ms):
+  same prompt, one position read. SNAP pulls ahead as questions are
+  added, because they share one pass instead of one request each.
+- **JSON** is what a pipeline actually wires, under a schema. Asked for
+  what a SNAP answer carries (key, confidence, a probability per option)
+  Ollama writes every token of it, and those probabilities are text the
+  model made up; SNAP's come from the logits.
+- **A long state with one question** is bound by prefill on both sides;
+  the gap there is prefill speed, not the method.
 
 ## Accuracy
 
