@@ -409,9 +409,9 @@ function renderStats() {
   const ms = x.total_ms != null ? Math.round(x.total_ms) : Math.round(last.rtt);
   $("stats").innerHTML =
     stat(ms, "ms", `total · ${md}`, `lead ${md}`) +
-    stat(x.prefill_ms != null ? Math.round(x.prefill_ms) : null, "ms", "prefill") +
+    stat(x.decode_ms != null ? Math.round(x.decode_ms) : null, "ms", "decode") +
     stat(n, "", n === 1 ? "missile scored" : "missiles scored") +
-    stat(x.decoded_items, "", `items · ${x.suffix_decode ?? "—"}`) +
+    stat(x.decoded_items, "", `items · ${x.waves ?? "—"} wave${x.waves === 1 ? "" : "s"}`) +
     stat(asJson.toLocaleString(), "ch", "as JSON text");
 }
 

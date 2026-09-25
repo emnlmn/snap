@@ -13,7 +13,7 @@ Everything goes through the Makefile (cargo resolves via rustup shim, not PATH):
 make setup        # rustup + cmake/C++ compiler check (llama.cpp is vendored via llama-cpp-sys-2)
 make build        # cargo build --release -> ./target/release/snap
 make test         # unit tests + functional smoke (downloads ~1.5 GB GGUF)
-make test-unit    # cargo test --release — pure logic, never loads a model
+make test-unit    # cargo test --release — logic + the KV planner on a simulated backend, never loads a model
 make lint         # cargo fmt --check + cargo clippy --release -- -D warnings
 make check        # unit tests + cargo check --release
 make serve        # build + run the HTTP server (MODEL=minicpm5-2b default)
@@ -39,7 +39,8 @@ make serve        # build + run the HTTP server (MODEL=minicpm5-2b default)
   on mismatch — that's deliberate.
 - **Budgets** (schema.rs / llamac.rs): `MAX_SLOTS=26` letters, `MAX_OPTIONS=256`
   (two-stage per-option probes past 26), `MAX_QUESTIONS=64`,
-  `MAX_SEQS=65` (seq 0 owns the shared prefix).
+  `MAX_SEQS=65` (seq 0 keeps the resident template head; `HYBRID_SEQS=17`
+  on recurrent/hybrid archs, where every seq pins a recurrent-state row).
 - **Jev compatibility.** `POST /v1/systemone` is the single API surface —
   no parallel endpoints for the same job. Snap extensions are optional fields
   and defaults must preserve Jev semantics.
@@ -62,8 +63,13 @@ make serve        # build + run the HTTP server (MODEL=minicpm5-2b default)
 - Module docs (`//!`) explain the *why*, matching existing density — sparse,
   pointed, no comment noise.
 - Compact code, no defensive nesting; error handling at real boundaries.
-- Engine changes that touch seq management / KV rewind are the riskiest
-  area — read `llamac.rs` memory ops before modifying.
+- KV orchestration lives in `kv.rs` and is the riskiest area. Its one rule:
+  seqs are copied whole and removed whole, never trimmed — that is what keeps
+  hybrid/recurrent memories on the same path. `kv::sim` enforces llama.cpp's
+  decode rules (positions, coupled seqs, capacity, whole copies) and checks
+  every logits row against from-scratch decoding of its prompt: a change
+  there is done when those tests pass in debug (the cell-estimate
+  `debug_assert` only runs there) and answers on a real model don't move.
 
 ## Git
 

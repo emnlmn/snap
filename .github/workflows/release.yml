@@ -147,6 +147,11 @@ jobs:
           # host:path, and bsdtar (macOS) lacks --force-local
           tar czf - "${files[@]}" > "$GITHUB_WORKSPACE/dist/snap-${{ matrix.name }}.tar.gz"
           tar tzf - < "$GITHUB_WORKSPACE/dist/snap-${{ matrix.name }}.tar.gz"
+          cd "$GITHUB_WORKSPACE/dist"
+          # git-bash has sha256sum, macOS only shasum — either emits "<hash>  <file>"
+          (sha256sum "snap-${{ matrix.name }}.tar.gz" 2>/dev/null \
+            || shasum -a 256 "snap-${{ matrix.name }}.tar.gz") \
+            > "snap-${{ matrix.name }}.tar.gz.sha256"
 
       - name: verify packaged binary starts
         shell: bash
@@ -158,5 +163,5 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/snap-${{ matrix.name }}.tar.gz
+          files: dist/*
           generate_release_notes: true

@@ -1,10 +1,16 @@
-//! Latency / throughput benchmark against a running server or in-process engine.
+//! Latency / throughput benchmark against a running server or an in-process
+//! engine — both send the same Jev wire request, so every default matches
+//! production. Each request carries a fresh state: a stream of new
+//! documents, the realistic case, where nothing is reusable across requests
+//! but the template and the question heads.
 //!
 //! Scenarios:
-//!   single      small state, 1 question            -> baseline per-decision latency
-//!   prefix      same state, 1|4|8 questions        -> shared-prefix amortization
-//!   statesize   1 question, ~8 KB state            -> prefill scaling
-//!   load        R requests over C concurrent threads -> real throughput + tail latency
+//!   single-1q      small state, 1 question         -> per-decision latency
+//!   shared-{4,8}q  small state, 4|8 questions      -> batched decode
+//!   direct-{4,8}q  same, mode direct               -> nothing shared (reference)
+//!   doc-8q         ~1.8 KB document, 8 questions   -> document decoded once
+//!   state-4k       ~4 KB state, 1 question         -> prefill scaling
+//!   load-cN        R requests over C threads (HTTP only) -> throughput + tails
 
 use std::sync::mpsc;
 use std::thread;
@@ -13,32 +19,43 @@ use std::time::Instant;
 use anyhow::Result;
 use serde_json::{json, Map, Value};
 
+use crate::api::{from_native, SystemoneRequest};
 use crate::engine::Engine;
-use crate::schema::{DecideRequest, Mode};
 
-fn small_state() -> Value {
-    json!({"item": "latte", "quantity": 1})
+fn small_state(i: usize) -> Value {
+    json!({"item": "latte", "quantity": 1 + i % 3, "order": i})
 }
 
-fn big_state() -> Value {
+fn doc_state(i: usize) -> Value {
+    let lines: Vec<String> = (0..40)
+        .map(|k| {
+            format!(
+                "Riga {k}: {} x prodotto P{:04}, consegna zona {}.",
+                1 + k % 4,
+                k * 7 + i,
+                k % 9
+            )
+        })
+        .collect();
+    json!(format!("Ordine {i}. {}", lines.join(" ")))
+}
+
+fn big_state(i: usize) -> Value {
     let history: Vec<Value> = (0..40)
-        .map(|i| json!({"order": i, "items": ["latte", "pane", "pasta", "olio", "vino"], "total": 20 + i}))
+        .map(|k| json!({"order": k, "items": ["latte", "pane", "pasta", "olio", "vino"], "total": 20 + k}))
         .collect();
     json!({
+        "request": i,
         "customer": "Mario Rossi",
         "history": history,
         "notes": "Cliente premium, preferisce bio, consegna giovedì. ".repeat(20),
     })
 }
 
-fn question_choice(variant: Option<usize>) -> Value {
-    let instr = match variant {
-        Some(i) => format!("Scegli il prodotto giusto per la voce della lista spesa. Mai ESAURITO. (variante {i}: ragiona sul caso {i})"),
-        None => "Scegli il prodotto giusto per la voce della lista spesa. Mai ESAURITO.".into(),
-    };
+fn question_choice(i: usize) -> Value {
     json!({
         "type": "choice",
-        "instructions": instr,
+        "instructions": format!("Scegli il prodotto giusto per la voce della lista spesa. Mai ESAURITO. (variante {i}: ragiona sul caso {i})"),
         "criteria": {
             "c0": "Latte intero 1L — 1.19€",
             "c1": "Latte parzialmente scremato 1L — 1.09€",
@@ -46,21 +63,19 @@ fn question_choice(variant: Option<usize>) -> Value {
             "c3": "Croccantini gatto 400g — ESAURITO",
             "c4": "Latte scremato 500ml — 0.69€",
         },
-        "allow_abstain": false,
     })
 }
 
 fn payload(state: Value, n_questions: usize, mode: &str) -> Value {
-    let mut qs = Map::new();
-    for i in 0..n_questions {
-        qs.insert(format!("q{i}"), question_choice(Some(i)));
-    }
+    let qs: Map<String, Value> = (0..n_questions)
+        .map(|i| (format!("q{i}"), question_choice(i)))
+        .collect();
     json!({"state": state, "questions": qs, "mode": mode})
 }
 
 fn post(url: &str, body: &Value) -> Result<(Value, f64)> {
     let t0 = Instant::now();
-    let out: Value = ureq::post(&format!("{}/v1/systemone", url.trim_end_matches('/')))
+    let out: Value = ureq::post(&format!("{url}/v1/systemone"))
         .header("content-type", "application/json")
         .send_json(body)?
         .body_mut()
@@ -71,14 +86,15 @@ fn post(url: &str, body: &Value) -> Result<(Value, f64)> {
 fn stats(mut lat: Vec<f64>, wall_s: f64) -> Map<String, Value> {
     lat.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let n = lat.len();
-    let p50 = lat[n / 2];
-    let p95 = lat[(n - 1).min((n as f64 * 0.95) as usize)];
-    let mean = lat.iter().sum::<f64>() / n as f64;
+    let r1 = |v: f64| (v * 10.0).round() / 10.0;
     let mut m = Map::new();
     m.insert("n".into(), json!(n));
-    m.insert("p50".into(), json!((p50 * 10.0).round() / 10.0));
-    m.insert("p95".into(), json!((p95 * 10.0).round() / 10.0));
-    m.insert("mean".into(), json!((mean * 10.0).round() / 10.0));
+    m.insert("p50".into(), json!(r1(lat[n / 2])));
+    m.insert(
+        "p95".into(),
+        json!(r1(lat[(n - 1).min((n as f64 * 0.95) as usize)])),
+    );
+    m.insert("mean".into(), json!(r1(lat.iter().sum::<f64>() / n as f64)));
     m.insert(
         "req_s".into(),
         json!(((n as f64 / wall_s) * 100.0).round() / 100.0),
@@ -86,169 +102,86 @@ fn stats(mut lat: Vec<f64>, wall_s: f64) -> Map<String, Value> {
     m
 }
 
-pub fn run_http(url: &str, requests: usize, concurrency: usize) -> Result<Vec<Value>> {
-    let url = url.trim_end_matches('/');
-    let mut results = Vec::new();
+/// name, questions per request, request builder (index -> wire body)
+type Scenario = (&'static str, usize, fn(usize) -> Value);
 
-    post(url, &payload(small_state(), 1, "shared"))?; // warm-up
-
-    let t0 = Instant::now();
-    let mut lat = Vec::new();
-    for _ in 0..requests {
-        lat.push(post(url, &payload(small_state(), 1, "shared"))?.1);
-    }
-    let mut row = stats(lat, t0.elapsed().as_secs_f64());
-    row.insert("scenario".into(), json!("single-1q"));
-    results.push(Value::Object(row));
-
-    for k in [4usize, 8] {
-        for mode in ["shared", "direct"] {
-            let t0 = Instant::now();
-            let mut lat = Vec::new();
-            for _ in 0..requests {
-                lat.push(post(url, &payload(small_state(), k, mode))?.1);
-            }
-            let mut row = stats(lat, t0.elapsed().as_secs_f64());
-            let mean = row["mean"].as_f64().unwrap_or(0.0);
+/// Every sequential scenario through `call` (one wire request -> the answer
+/// and its latency), plus the shared-vs-direct agreement check.
+fn scenarios(
+    call: &mut dyn FnMut(&Value) -> Result<(Value, f64)>,
+    requests: usize,
+) -> Result<Vec<Value>> {
+    call(&payload(small_state(usize::MAX), 8, "shared"))?; // warm-up + question heads
+    let mut rows = Vec::new();
+    let runs: [Scenario; 7] = [
+        ("single-1q", 1, |i| payload(small_state(i), 1, "shared")),
+        ("shared-4q", 4, |i| payload(small_state(i), 4, "shared")),
+        ("direct-4q", 4, |i| payload(small_state(i), 4, "direct")),
+        ("shared-8q", 8, |i| payload(small_state(i), 8, "shared")),
+        ("direct-8q", 8, |i| payload(small_state(i), 8, "direct")),
+        ("doc-8q", 8, |i| payload(doc_state(i), 8, "shared")),
+        ("state-4k", 1, |i| payload(big_state(i), 1, "shared")),
+    ];
+    for (name, k, mk) in &runs {
+        let t0 = Instant::now();
+        let lat = (0..requests)
+            .map(|i| call(&mk(i)).map(|r| r.1))
+            .collect::<Result<Vec<f64>>>()?;
+        let mut row = stats(lat, t0.elapsed().as_secs_f64());
+        if *k > 1 {
+            let per_q = row["mean"].as_f64().unwrap_or(0.0) / *k as f64;
             row.insert(
                 "ms_per_question".into(),
-                json!((mean / k as f64 * 10.0).round() / 10.0),
+                json!((per_q * 10.0).round() / 10.0),
             );
-            row.insert(
-                "scenario".into(),
-                json!(if mode == "shared" {
-                    format!("prefix-{k}q")
-                } else {
-                    format!("direct-{k}q")
-                }),
-            );
-            results.push(Value::Object(row));
         }
+        row.insert("scenario".into(), json!(name));
+        rows.push(Value::Object(row));
     }
-
-    let t0 = Instant::now();
-    let mut lat = Vec::new();
-    for _ in 0..requests {
-        lat.push(post(url, &payload(big_state(), 1, "shared"))?.1);
-    }
-    let mut row = stats(lat, t0.elapsed().as_secs_f64());
-    row.insert("scenario".into(), json!("state-big-8k"));
-    results.push(Value::Object(row));
-
-    // concurrent load
-    let t0 = Instant::now();
-    let (tx, rx) = mpsc::channel();
-    let total = requests * concurrency;
-    let url_owned = url.to_string();
-    let handles: Vec<_> = (0..concurrency)
-        .map(|_| {
-            let tx = tx.clone();
-            let u = url_owned.clone();
-            thread::spawn(move || {
-                for _ in 0..requests {
-                    let ms = post(&u, &payload(small_state(), 1, "shared"))
-                        .map(|(_, ms)| ms)
-                        .unwrap_or(-1.0);
-                    let _ = tx.send(ms);
-                }
-            })
-        })
-        .collect();
-    drop(tx);
-    let lat: Vec<f64> = rx.iter().take(total).filter(|m| *m > 0.0).collect();
-    for h in handles {
-        let _ = h.join();
-    }
-    let mut row = stats(lat, t0.elapsed().as_secs_f64());
-    row.insert("scenario".into(), json!(format!("load-c{concurrency}")));
-    results.push(Value::Object(row));
-    Ok(results)
+    // direct decodes every question alone: the same answers or a bug
+    let shared = call(&payload(small_state(7), 4, "shared"))?.0;
+    let direct = call(&payload(small_state(7), 4, "direct"))?.0;
+    let pick = |a: &Value, k: &str| a["answers"][k]["choice"].clone();
+    let n = shared["answers"].as_object().map_or(0, |m| m.len());
+    let agree = (0..4).all(|i| pick(&shared, &format!("q{i}")) == pick(&direct, &format!("q{i}")));
+    rows.push(json!({"scenario": "mode-check", "n": n, "match": agree}));
+    Ok(rows)
 }
 
-fn local_decide(engine: &mut Engine, state: Value, n: usize, mode: Mode) -> Result<Value> {
-    let mut qs = Map::new();
-    for i in 0..n {
-        qs.insert(format!("q{i}"), question_choice(Some(i)));
+pub fn run_http(url: &str, requests: usize, concurrency: usize) -> Result<Vec<Value>> {
+    let url = url.trim_end_matches('/');
+    let mut rows = scenarios(&mut |body| post(url, body), requests)?;
+    // concurrent load: requests serialize on the engine, so this measures
+    // queueing + tail latency, not parallel speedup
+    let t0 = Instant::now();
+    let (tx, rx) = mpsc::channel();
+    for c in 0..concurrency {
+        let (tx, u) = (tx.clone(), url.to_string());
+        thread::spawn(move || {
+            for i in 0..requests {
+                let body = payload(small_state(c * requests + i), 1, "shared");
+                let _ = tx.send(post(&u, &body).map_or(-1.0, |(_, ms)| ms));
+            }
+        });
     }
-    let req = DecideRequest {
-        model: None,
-        state,
-        questions: qs,
-        temperature: 1.0,
-        mode,
-        layout: crate::schema::Layout::Auto,
-        expand: Default::default(),
-        compact_state: false,
-    };
-    engine.decide(&req)
+    drop(tx);
+    let lat: Vec<f64> = rx.iter().filter(|m| *m > 0.0).collect();
+    let mut row = stats(lat, t0.elapsed().as_secs_f64());
+    row.insert("scenario".into(), json!(format!("load-c{concurrency}")));
+    rows.push(Value::Object(row));
+    Ok(rows)
 }
 
 pub fn run_local(engine: &mut Engine, requests: usize) -> Result<Vec<Value>> {
-    let mut results = Vec::new();
-    local_decide(engine, small_state(), 1, Mode::Shared)?; // warm-up
-
-    let t0 = Instant::now();
-    let mut lat = Vec::new();
-    for _ in 0..requests {
-        let r = local_decide(engine, small_state(), 1, Mode::Shared)?;
-        lat.push(r["x_snap"]["total_ms"].as_f64().unwrap_or(0.0));
-    }
-    let mut row = stats(lat, t0.elapsed().as_secs_f64());
-    row.insert("scenario".into(), json!("single-1q"));
-    results.push(Value::Object(row));
-
-    for k in [4usize, 8] {
-        for mode in [Mode::Shared, Mode::Direct] {
-            let t0 = Instant::now();
-            let mut lat = Vec::new();
-            for _ in 0..requests {
-                let r = local_decide(engine, small_state(), k, mode)?;
-                lat.push(r["x_snap"]["total_ms"].as_f64().unwrap_or(0.0));
-            }
-            let mut row = stats(lat, t0.elapsed().as_secs_f64());
-            let mean = row["mean"].as_f64().unwrap_or(0.0);
-            row.insert(
-                "ms_per_question".into(),
-                json!((mean / k as f64 * 10.0).round() / 10.0),
-            );
-            row.insert(
-                "scenario".into(),
-                json!(if mode == Mode::Shared {
-                    format!("prefix-{k}q")
-                } else {
-                    format!("direct-{k}q")
-                }),
-            );
-            results.push(Value::Object(row));
-        }
-    }
-
-    // shared vs direct must return the same answers
-    let shared_ans = local_decide(engine, small_state(), 4, Mode::Shared)?["answers"].clone();
-    let direct_ans = local_decide(engine, small_state(), 4, Mode::Direct)?["answers"].clone();
-    let mut all_match = true;
-    let mut n = 0;
-    if let (Some(sa), Some(da)) = (shared_ans.as_object(), direct_ans.as_object()) {
-        n = sa.len();
-        for (k, v) in sa {
-            let pick = |a: &Value| a.get("choice").or_else(|| a.get("boolean")).cloned();
-            if pick(v) != pick(&da[k]) {
-                all_match = false;
-            }
-        }
-    }
-    results.push(json!({"scenario": "mode-check", "n": n, "match": all_match}));
-
-    let t0 = Instant::now();
-    let mut lat = Vec::new();
-    for _ in 0..requests {
-        let r = local_decide(engine, big_state(), 1, Mode::Shared)?;
-        lat.push(r["x_snap"]["total_ms"].as_f64().unwrap_or(0.0));
-    }
-    let mut row = stats(lat, t0.elapsed().as_secs_f64());
-    row.insert("scenario".into(), json!("state-big-8k"));
-    results.push(Value::Object(row));
-    Ok(results)
+    scenarios(
+        &mut |body| {
+            let req: SystemoneRequest = serde_json::from_value(body.clone())?;
+            let out = from_native(&engine.decide(&req.to_native())?);
+            let ms = out["x_snap"]["total_ms"].as_f64().unwrap_or(0.0);
+            Ok((out, ms))
+        },
+        requests,
+    )
 }
 
 pub fn print_bench(rows: &[Value]) {

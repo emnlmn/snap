@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn decode_boolean() {
-        let q = question(serde_json::json!({"type": "boolean"}));
+        let q = question(serde_json::json!({"type": "boolean", "allow_abstain": true}));
         let slots = slots_for(&q);
         // yes, no, abstain
         let ans = decode(&q, &slots, &[5.0, 0.0, -3.0], 1.0);
@@ -312,7 +312,9 @@ mod tests {
 
     #[test]
     fn decode_abstain_status() {
-        let q = question(serde_json::json!({"type": "choice", "criteria": {"a": "A", "b": "B"}}));
+        let q = question(serde_json::json!({
+            "type": "choice", "criteria": {"a": "A", "b": "B"}, "allow_abstain": true
+        }));
         let slots = slots_for(&q);
         let ans = decode(&q, &slots, &[0.0, 0.0, 9.0], 1.0);
         assert_eq!(ans["status"], "abstained");
@@ -320,7 +322,7 @@ mod tests {
         assert!(ans["probabilities"].get(ABSTAIN).is_some());
         // numeric reports the range markers too
         let qn = question(serde_json::json!({
-            "type": "numeric", "min": 0, "max": 10, "granularity": 3
+            "type": "numeric", "min": 0, "max": 10, "granularity": 3, "allow_abstain": true
         }));
         let sn = slots_for(&qn);
         let an = decode(&qn, &sn, &[-9.0, 0.0, 6.0, 0.0, -9.0, 0.0], 1.0);

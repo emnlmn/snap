@@ -1,6 +1,6 @@
 //! Axum surface: the single POST /v1/systemone API (Jev wire + snap extras).
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
@@ -30,6 +30,15 @@ struct AppState {
     started: Instant,
 }
 
+impl AppState {
+    /// The engine survives a panicking request: the lock is taken back
+    /// instead of staying poisoned (every request would fail after), and
+    /// the KV layer wipes the aborted wave's seqs on its next run.
+    fn slot(&self) -> MutexGuard<'_, Slot> {
+        self.slot.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
 fn err422(e: anyhow::Error) -> (StatusCode, Json<Value>) {
     (
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -38,7 +47,7 @@ fn err422(e: anyhow::Error) -> (StatusCode, Json<Value>) {
 }
 
 async fn healthz(State(s): State<Arc<AppState>>) -> Json<Value> {
-    let slot = s.slot.lock().unwrap();
+    let slot = s.slot();
     Json(json!({
         "status": "ok",
         "model": slot.engine.model_id,
@@ -48,7 +57,7 @@ async fn healthz(State(s): State<Arc<AppState>>) -> Json<Value> {
 }
 
 async fn models(State(s): State<Arc<AppState>>) -> Json<Value> {
-    let active = s.slot.lock().unwrap().name.clone();
+    let active = s.slot().name.clone();
     Json(json!({
         "object": "list",
         "data": crate::models::MODELS.iter().map(|(n, repo, file)| json!({
@@ -79,17 +88,17 @@ async fn switch_model(
     let n_threads = s.n_threads;
     let name2 = name.clone();
     let model_id = tokio::task::spawn_blocking(move || -> Result<String> {
-        let _serial = s2.switch.lock().unwrap();
-        if s2.slot.lock().unwrap().name == name2 {
-            return Ok(s2.slot.lock().unwrap().engine.model_id.clone());
+        let _serial = s2.switch.lock().unwrap_or_else(|e| e.into_inner());
+        if s2.slot().name == name2 {
+            return Ok(s2.slot().engine.model_id.clone());
         }
         let path = crate::models::resolve(&name2)?;
-        let mut eng = Engine::new(path.to_string_lossy().as_ref(), n_ctx, 1024, n_threads)?;
+        let mut eng = Engine::load(path.to_string_lossy().as_ref(), n_ctx, 1024, n_threads)?;
         if let Err(e) = eng.warmup() {
             eprintln!("snap: warmup failed: {e}");
         }
         let model_id = eng.model_id.clone();
-        let mut slot = s2.slot.lock().unwrap();
+        let mut slot = s2.slot();
         slot.engine = eng;
         slot.name = name2;
         Ok(model_id)
@@ -107,7 +116,7 @@ async fn systemone(
     Json(req): Json<SystemoneRequest>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let native = req.to_native();
-    let out = tokio::task::spawn_blocking(move || s.slot.lock().unwrap().engine.decide(&native))
+    let out = tokio::task::spawn_blocking(move || s.slot().engine.decide(&native))
         .await
         .map_err(|e| err422(anyhow::anyhow!(e)))?
         .map_err(err422)?;

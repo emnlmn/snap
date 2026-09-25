@@ -36,9 +36,6 @@ impl QType {
 pub(crate) fn default_granularity() -> i64 {
     8
 }
-fn default_true() -> bool {
-    true
-}
 fn default_temp() -> f64 {
     1.0
 }
@@ -65,11 +62,23 @@ pub struct Question {
     pub step: Option<f64>,
     #[serde(default = "default_granularity")]
     pub granularity: i64,
-    #[serde(default = "default_true")]
+    /// Adds an `__abstain__` slot. Off by default — Jev semantics, and the
+    /// one default every entry point (API, eval, calibrate, bench) shares.
+    #[serde(default)]
     pub allow_abstain: bool,
 }
 
 impl Question {
+    /// Interior anchors of a numeric question: `step` wins over `granularity`.
+    pub fn anchors(&self) -> usize {
+        match (self.min, self.max, self.step) {
+            (Some(a), Some(b), Some(s)) if s > 0.0 => (((b - a) / s).round() as usize)
+                .saturating_add(1)
+                .clamp(2, 24),
+            _ => self.granularity.clamp(2, 24) as usize,
+        }
+    }
+
     pub fn validate(&self) -> Result<()> {
         match self.qtype {
             QType::Choice | QType::Score => {
@@ -92,16 +101,16 @@ impl Question {
                 }
             }
             QType::Numeric => {
-                let (min, max) = match (self.min, self.max) {
-                    (Some(a), Some(b)) if a < b => (a, b),
-                    _ => bail!("numeric: requires min < max"),
-                };
-                let _ = (min, max);
+                if !matches!((self.min, self.max), (Some(a), Some(b)) if a < b) {
+                    bail!("numeric: requires min < max");
+                }
                 if !(2..=24).contains(&self.granularity) {
                     bail!("numeric: granularity must be in 2..=24");
                 }
-                if self.granularity as usize + 2 + self.allow_abstain as usize > MAX_SLOTS {
-                    bail!("numeric: granularity too high for letter slots");
+                // the count slots_for will lay out: step overrides granularity
+                let n = self.anchors() + 2 + self.allow_abstain as usize;
+                if n > MAX_SLOTS {
+                    bail!("numeric: {n} slots (anchors + below/above + abstain) exceed {MAX_SLOTS} letters");
                 }
             }
             _ => {}
@@ -264,10 +273,17 @@ mod tests {
     #[test]
     fn score_slot_limit() {
         // scores stay within the letter budget: no expansion for ordinal levels
-        let levels: Vec<Value> = (0..26).map(|i| json!(format!("l{i}"))).collect();
+        let levels: Vec<Value> = (0..27).map(|i| json!(format!("l{i}"))).collect();
         assert!(q(json!({"type": "score", "criteria": levels})).is_err());
-        let levels: Vec<Value> = (0..25).map(|i| json!(format!("l{i}"))).collect();
+        let levels: Vec<Value> = (0..26).map(|i| json!(format!("l{i}"))).collect();
         assert!(q(json!({"type": "score", "criteria": levels})).is_ok());
+        // the abstain slot shares the budget
+        assert!(q(json!({"type": "score", "criteria": levels, "allow_abstain": true})).is_err());
+    }
+
+    #[test]
+    fn abstain_is_off_by_default() {
+        assert!(!q(json!({"type": "noul"})).unwrap().allow_abstain);
     }
 
     #[test]
@@ -284,9 +300,22 @@ mod tests {
         // granularity out of range
         assert!(q(json!({"type": "numeric", "min": 0, "max": 10, "granularity": 1})).is_err());
         assert!(q(json!({"type": "numeric", "min": 0, "max": 10, "granularity": 25})).is_err());
-        // granularity 24 + below/above + abstain = 27 > 26
-        assert!(q(json!({"type": "numeric", "min": 0, "max": 10, "granularity": 24})).is_err());
-        assert!(q(json!({"type": "numeric", "min": 0, "max": 10, "granularity": 23})).is_ok());
+        // granularity 24 + below/above = 26 fits; + abstain = 27 doesn't
+        assert!(q(json!({"type": "numeric", "min": 0, "max": 10, "granularity": 24})).is_ok());
+        let g24 = json!({"type": "numeric", "min": 0, "max": 10, "granularity": 24, "allow_abstain": true});
+        assert!(q(g24).is_err());
+    }
+
+    #[test]
+    fn numeric_step_counts_against_the_letter_budget() {
+        // step overrides granularity: 0..100 by 1 clamps to 24 anchors, and
+        // with abstain that is 27 slots — once a panic that poisoned the server
+        let step = |abstain| json!({"type": "numeric", "min": 0, "max": 100, "step": 1, "allow_abstain": abstain});
+        assert!(q(step(true)).is_err());
+        let ok = q(step(false)).unwrap();
+        assert_eq!(ok.anchors(), 24);
+        let coarse = q(json!({"type": "numeric", "min": 0, "max": 10, "step": 5})).unwrap();
+        assert_eq!(coarse.anchors(), 3);
     }
 
     #[test]

@@ -188,12 +188,7 @@ pub fn slots_for(q: &Question) -> Vec<Slot> {
         },
         QType::Numeric => {
             let (min, max) = (q.min.unwrap(), q.max.unwrap());
-            let mut n = q.granularity.clamp(2, 24) as usize;
-            if let Some(step) = q.step {
-                if step > 0.0 {
-                    n = (((max - min) / step).round() as usize + 1).clamp(2, 24);
-                }
-            }
+            let n = q.anchors();
             let mut v = Vec::with_capacity(n + 2);
             v.push(Slot::special(BELOW, format!("Below {}", fmt_g(min))));
             for i in 0..n {
@@ -351,13 +346,13 @@ mod tests {
 
     #[test]
     fn boolean_slots() {
-        let s = slots_for(&q(json!({"type": "boolean"})));
+        let s = slots_for(&q(json!({"type": "boolean", "allow_abstain": true})));
         assert_eq!(s.len(), 3); // yes, no, abstain
         assert_eq!(s[0].key, "yes");
         assert_eq!(s[1].key, "no");
         assert!(s[2].special && s[2].key == ABSTAIN);
-        // no abstain when disabled
-        let s = slots_for(&q(json!({"type": "boolean", "allow_abstain": false})));
+        // no abstain by default
+        let s = slots_for(&q(json!({"type": "boolean"})));
         assert_eq!(s.len(), 2);
     }
 
@@ -409,7 +404,8 @@ mod tests {
 
     #[test]
     fn user_message_shape() {
-        let qu = q(json!({"type": "boolean", "instructions": "Is it spam?"}));
+        let qu =
+            q(json!({"type": "boolean", "instructions": "Is it spam?", "allow_abstain": true}));
         let s = slots_for(&qu);
         let m = user_message("hello world", &qu, &s, Layout::StateFirst, &[]);
         assert!(m.starts_with("STATE\nhello world"));

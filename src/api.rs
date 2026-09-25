@@ -8,7 +8,8 @@ use serde_json::{json, Map, Value};
 use crate::schema::{default_layout, default_mode, DecideRequest, Expand, Layout, Mode};
 
 /// Jev wire format, tolerant of extra SDK keys. Optional snap extensions:
-/// per-question `allow_abstain` (default false), request `mode` and `layout`.
+/// per-question `allow_abstain` (default false, same as every other entry
+/// point), request `mode`, `layout`, `expand`, `compact_state`.
 #[derive(Debug, Deserialize)]
 pub struct SystemoneRequest {
     #[serde(default)]
@@ -32,23 +33,11 @@ fn one() -> f64 {
 }
 
 impl SystemoneRequest {
-    /// Jev default: no abstention slot — unless a question opts in explicitly.
     pub fn to_native(&self) -> DecideRequest {
-        let questions = self
-            .questions
-            .iter()
-            .map(|(k, v)| {
-                let mut v = v.clone();
-                if let Value::Object(ref mut m) = v {
-                    m.entry("allow_abstain").or_insert(json!(false));
-                }
-                (k.clone(), v)
-            })
-            .collect();
         DecideRequest {
             model: self.model.clone(),
             state: self.state.clone(),
-            questions,
+            questions: self.questions.clone(),
             temperature: self.temperature,
             mode: self.mode,
             layout: self.layout,
@@ -125,9 +114,9 @@ mod tests {
             }
         }))
         .unwrap();
-        let n = r.to_native();
-        assert_eq!(n.questions["q1"]["allow_abstain"], false); // Jev default
-        assert_eq!(n.questions["q2"]["allow_abstain"], true); // explicit opt-in survives
+        let qs = r.to_native().questions().unwrap();
+        assert!(!qs[0].1.allow_abstain); // Jev default
+        assert!(qs[1].1.allow_abstain); // explicit opt-in survives
     }
 
     #[test]

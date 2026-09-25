@@ -5,11 +5,13 @@ mod decisions;
 mod engine;
 mod evaluate;
 mod instances;
+mod kv;
 mod llamac;
 mod models;
 mod prompts;
 mod schema;
 mod server;
+mod version;
 
 use std::io::{IsTerminal, Read};
 use std::path::Path;
@@ -22,7 +24,8 @@ const DEFAULT_PORT: u16 = 8018;
 #[derive(Parser)]
 #[command(
     name = "snap",
-    about = "snap: typed decisions from a single forward pass"
+    about = "snap: typed decisions from a single forward pass",
+    version
 )]
 struct Cli {
     #[command(subcommand)]
@@ -168,7 +171,7 @@ fn read_request(spec: Option<&str>) -> Result<String> {
 
 fn decide_request(m: &ModelArgs, req: api::SystemoneRequest) -> Result<()> {
     let path = models::resolve(&m.model)?;
-    let mut eng = engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
+    let mut eng = engine::Engine::load(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
     if let Some(c) = &m.calibration {
         eng.load_calibration(c)?;
     }
@@ -186,7 +189,7 @@ fn parse_layout(s: &str) -> std::result::Result<crate::schema::Layout, String> {
 fn serve(m: &ModelArgs, host: &str, port: u16) -> Result<()> {
     eprintln!("snap: loading {} …", m.model);
     let path = models::resolve(&m.model)?;
-    let mut eng = engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
+    let mut eng = engine::Engine::load(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
     if let Some(c) = &m.calibration {
         eng.load_calibration(c)?;
     }
@@ -351,6 +354,7 @@ fn main() -> Result<()> {
     {
         anyhow::bail!("model flags belong after the subcommand (top-level is -p only)");
     }
+    version::nag(); // stderr only, ~once a day — never in -p mode
     match cmd {
         Cmd::Models => {
             for (name, repo, file) in models::MODELS {
@@ -389,7 +393,7 @@ fn main() -> Result<()> {
             }
             let path = models::resolve(&m.model)?;
             let mut eng =
-                engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
+                engine::Engine::load(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
             let mut cases = Vec::new();
             for f in files {
                 cases.extend(evaluate::load_cases(f)?);
@@ -428,7 +432,7 @@ fn main() -> Result<()> {
             } else {
                 let path = models::resolve(&m.model)?;
                 let mut eng =
-                    engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
+                    engine::Engine::load(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
                 if let Some(c) = &m.calibration {
                     eng.load_calibration(c)?;
                 }
@@ -452,7 +456,7 @@ fn main() -> Result<()> {
             } else {
                 let path = models::resolve(&m.model)?;
                 let mut eng =
-                    engine::Engine::new(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
+                    engine::Engine::load(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
                 if let Some(c) = &m.calibration {
                     eng.load_calibration(c)?;
                 }
