@@ -64,6 +64,15 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # a v0.2.0 tag built binaries stamped 0.1.0: the crate version was
+      # never bumped. Fail before the matrix burns a release build.
+      - name: tag matches crate version
+        run: |
+          pkg=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [[ "$GITHUB_REF_NAME" == v* && "${GITHUB_REF_NAME#v}" != "$pkg" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME != Cargo.toml version $pkg"
+            exit 1
+          fi
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}

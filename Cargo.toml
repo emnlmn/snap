@@ -1,6 +1,6 @@
 [package]
 name = "snap"
-version = "0.1.0"
+version = "0.2.1"
 edition = "2021"
 description = "SNAP: typed decisions from a single forward pass (single-pass neural answer probabilities)"
 license = "MIT"
