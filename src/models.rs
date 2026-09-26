@@ -34,7 +34,16 @@ pub const MODELS: &[(&str, &str, &str)] = &[
 pub const DEFAULT_MODEL: &str = "minicpm5-2b";
 
 /// Resolve a tested-model name to a local GGUF path, downloading if needed.
+/// An explicit path to an existing .gguf is honored as-is — the MODELS
+/// curation gates *names*, not files a caller already has on disk.
 pub fn resolve(spec: &str) -> Result<PathBuf> {
+    if spec.ends_with(".gguf") {
+        let p = PathBuf::from(spec);
+        if !p.is_file() {
+            bail!("model file {spec:?} not found");
+        }
+        return Ok(p);
+    }
     let Some((_, repo, file)) = MODELS.iter().find(|(n, _, _)| *n == spec) else {
         bail!(
             "unknown model {spec:?} — supported: {}",

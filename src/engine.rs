@@ -61,6 +61,14 @@ pub struct Engine {
     pub calibration: Option<Calibration>,
 }
 
+fn state_text(state: &Value, compact: bool) -> String {
+    if compact {
+        prompts::render_state_compact(state)
+    } else {
+        prompts::render_state(state)
+    }
+}
+
 impl Engine {
     /// Load a GGUF on the production llama.cpp backend.
     pub fn load(model_path: &str, n_ctx: i32, n_batch: i32, n_threads: i32) -> Result<Self> {
@@ -196,6 +204,44 @@ impl Engine {
             .map_or(0, |probe| common(&it.toks, &probe))
     }
 
+    /// Tokens the model reads for `state`, rendered exactly as `decide`
+    /// renders it — the shared prefix every question pays for once.
+    pub fn state_tokens(&self, state: &Value, compact: bool) -> Result<usize> {
+        Ok(self.llm.tokenize(&state_text(state, compact), false)?.len())
+    }
+
+    /// Render one state+question exactly as `decide` would send it through
+    /// the model's chat template — the supervision surface for training.
+    /// Returns the full prompt string, the resolved layout, and the
+    /// letter->key slot map so callers never re-derive positions.
+    pub fn render_question(&self, state: &Value, q: &Question) -> Result<Value> {
+        q.validate()?;
+        let slots = prompts::slots_for(q);
+        let state_txt = state_text(state, false);
+        let layout = resolve_layout(Layout::Auto, &[q], q.allow_abstain, state_txt.len());
+        let msg = prompts::user_message(&state_txt, q, &slots, layout, &[]);
+        let full = self.llm.render(prompts::SYSTEM, &msg)?;
+        // serve-time tokenization: the frame's own text may produce control
+        // tokens, the body never does — a plain re-tokenize of `full` would
+        // let request content (or the seam) pick up different ids
+        let token_ids = self.prompt_tokens(&msg)?;
+        Ok(json!({
+            "prompt": full,
+            "token_ids": token_ids,
+            "layout": layout_str(layout),
+            "letters": slots
+                .iter()
+                .enumerate()
+                .map(|(i, s)| json!({
+                    "letter": (prompts::LETTERS[i] as char).to_string(),
+                    "key": s.key,
+                    "text": s.text,
+                    "special": s.special,
+                }))
+                .collect::<Vec<_>>(),
+        }))
+    }
+
     pub fn decide(&mut self, req: &DecideRequest) -> Result<Value> {
         req.validate()?;
         let t0 = Instant::now();
@@ -231,11 +277,7 @@ impl Engine {
             }
         }
 
-        let state_txt = if req.compact_state {
-            prompts::render_state_compact(&req.state)
-        } else {
-            prompts::render_state(&req.state)
-        };
+        let state_txt = state_text(&req.state, req.compact_state);
         let qs: Vec<&Question> = pending.iter().map(|p| &p.1).collect();
         let layout = resolve_layout(req.layout, &qs, any_abstain, state_txt.len());
         let preamble: Vec<String> = if layout == Layout::Header {
@@ -404,7 +446,12 @@ impl Engine {
 /// head cached). Long documents and anything with
 /// an abstain slot go state_first: the `__abstain__` option read before the
 /// evidence primes abstention (measured on eval/cases across the model set).
-fn resolve_layout(layout: Layout, qs: &[&Question], any_abstain: bool, state_len: usize) -> Layout {
+pub(crate) fn resolve_layout(
+    layout: Layout,
+    qs: &[&Question],
+    any_abstain: bool,
+    state_len: usize,
+) -> Layout {
     if layout != Layout::Auto {
         return layout;
     }

@@ -122,6 +122,11 @@ pub fn decode(q: &Question, slots: &[Slot], logits: &[f64], temperature: f64) ->
             for (si, s) in &levels {
                 lm.insert(s.text.clone(), json!(r6(probs[*si])));
             }
+            for (i, s) in slots.iter().enumerate() {
+                if s.key == ABSTAIN {
+                    lm.insert(s.key.clone(), json!(r6(probs[i])));
+                }
+            }
             out.insert("probabilities".into(), Value::Object(lm));
         }
         QType::Numeric => {
