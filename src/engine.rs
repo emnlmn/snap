@@ -206,6 +206,8 @@ impl Engine {
 
     /// Tokens the model reads for `state`, rendered exactly as `decide`
     /// renders it — the shared prefix every question pays for once.
+    /// Caller lands with the server-side usage probe (uncommitted work).
+    #[allow(dead_code)]
     pub fn state_tokens(&self, state: &Value, compact: bool) -> Result<usize> {
         Ok(self.llm.tokenize(&state_text(state, compact), false)?.len())
     }
