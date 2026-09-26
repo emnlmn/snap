@@ -72,6 +72,9 @@ pub fn from_native(native: &Value) -> Value {
                 a.insert("noul".into(), p_yes);
                 a.insert("boolean".into(), b.clone());
                 a.insert("choice".into(), ans["choice"].clone());
+                // full slot map too — Jev ignores it; consumers need the
+                // abstain mass that the scalar folds away
+                a.insert("probabilities".into(), ans["probabilities"].clone());
             } else if ans.get("choice").is_some() {
                 a.insert("type".into(), json!("choice"));
                 a.insert("choice".into(), ans["choice"].clone());
@@ -153,6 +156,7 @@ mod tests {
         assert_eq!(a["noul"], 0.97); // P(yes) as float
         assert_eq!(a["boolean"], true); // typed extras ride along
         assert_eq!(a["choice"], "yes");
+        assert_eq!(a["probabilities"]["yes"], 0.97);
     }
 
     #[test]
