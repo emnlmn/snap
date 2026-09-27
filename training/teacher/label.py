@@ -93,6 +93,15 @@ def expected_key(case: dict) -> tuple[str | None, float]:
             return str(crit[lv]), 0.75
     if t == "numeric":
         v = exp.get("value")
+        lo, hi = q.get("min"), q.get("max")
+        if exp.get("status") == "out_of_bounds" or (
+            isinstance(v, (int, float)) and lo is not None and hi is not None
+            and (v < lo or v > hi)
+        ):
+            # the answer is a boundary slot, not the nearest anchor
+            if isinstance(v, (int, float)):
+                return ("__below__" if v < lo else "__above__"), 0.75
+            return None, 0.0  # side unknown — teacher probs carry the row
         if isinstance(v, (int, float)):
             a = numeric_anchors(q)
             nearest = min(a, key=lambda x: abs(x - v))
@@ -152,11 +161,24 @@ def laya_predict(url: str, state, q: dict, timeout: int = 60) -> dict | None:
         qq["type"] = "noul"
     if qq["type"] == "numeric" or q.get("allow_abstain"):
         return None
-    body = json.dumps({"state": state, "questions": {"q": qq}}).encode()
-    req = urllib.request.Request(f"{url}/predict", data=body,
-                                 headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read())["answers"]["q"]
+    payload = {"state": state, "questions": {"q": qq}}
+    model = os.environ.get("LAYA_MODEL")
+    if model:
+        payload["model"] = model  # TypeSafe-compatible servers require it
+    body = json.dumps(payload).encode()
+    # laya exposes /predict; any TypeSafe-compatible server answers the same
+    # shape on /v1/systemone — try the first, fall back to the second
+    for path in ("/predict", "/v1/systemone"):
+        req = urllib.request.Request(f"{url}{path}", data=body,
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read())["answers"]["q"]
+        except urllib.error.HTTPError as e:
+            if e.code in (404, 405) and path == "/predict":
+                continue
+            raise
+    return None
 
 
 def laya_probs(case: dict, ans: dict) -> dict:
