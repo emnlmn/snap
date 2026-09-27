@@ -82,7 +82,9 @@ def expected_key(case):
     if qt == "score":
         return ex["level"]
     if qt == "numeric":
-        return ex["value"]
+        # may be absent on a bare out_of_bounds expect — numeric_slot
+        # resolves the boundary side from the value, None drops the row
+        return ex.get("value")
     return None
 
 
@@ -257,8 +259,14 @@ def smoothed_gold(letters, gi, qtype, smoothing):
         nb = [j for j in (gi - 1, gi + 1)
               if 0 <= j < len(letters) and not letters[j]["special"]]
         if nb:
+            # a missing side means the gold sits at an edge — giving the
+            # single inward neighbor the full eps taught boundary answers
+            # to pull inside; each side keeps a fixed share and the
+            # missing side's share stays on the gold
+            share = smoothing / 2
             for j in nb:
-                vec[j] = smoothing / len(nb)
+                vec[j] = share
+            vec[gi] += smoothing - share * len(nb)
         else:
             vec[gi] = 1.0
     else:

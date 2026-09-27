@@ -115,10 +115,15 @@ pub(crate) fn target_key(
     probs: &Map<String, Value>,
 ) -> Option<String> {
     if let Some(s) = expect.get("status").and_then(|v| v.as_str()) {
-        return match s {
-            "abstained" if probs.contains_key(ABSTAIN) => Some(ABSTAIN.to_string()),
-            _ => None,
-        };
+        match s {
+            "abstained" if probs.contains_key(ABSTAIN) => {
+                return Some(ABSTAIN.to_string());
+            }
+            // out_of_bounds falls through to the numeric branch, which
+            // maps the out-of-range value to its boundary slot
+            "out_of_bounds" => {}
+            _ => return None,
+        }
     }
     match question["type"].as_str()? {
         "choice" => expect.get("choice")?.as_str().map(String::from),
@@ -139,6 +144,16 @@ pub(crate) fn target_key(
         }
         "numeric" => {
             let target = expect.get("value")?.as_f64()?;
+            let lo = question.get("min").and_then(|v| v.as_f64());
+            let hi = question.get("max").and_then(|v| v.as_f64());
+            if lo.is_some_and(|l| target < l) || hi.is_some_and(|h| target > h) {
+                let key = if lo.is_some_and(|l| target < l) {
+                    "__below__"
+                } else {
+                    "__above__"
+                };
+                return probs.contains_key(key).then(|| key.to_string());
+            }
             probs
                 .keys()
                 .filter_map(|k| k.parse::<f64>().ok().map(|v| (k.clone(), v)))
@@ -467,6 +482,22 @@ mod tests {
         assert!((brier(&[1.0, 0.0], 0)).abs() < 1e-9);
         assert!((brier(&[0.5, 0.5], 0) - 0.5).abs() < 1e-9);
         assert!((brier(&[0.0, 1.0], 0) - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn numeric_oob_targets_boundary_slots() {
+        let q = json!({"type": "numeric", "min": 0, "max": 10});
+        let mut probs = Map::new();
+        for k in ["0", "5", "10", "__below__", "__above__"] {
+            probs.insert(k.into(), json!(0.2));
+        }
+        for (v, want) in [(-3.0, "__below__"), (25.0, "__above__")] {
+            let e = json!({"status": "out_of_bounds", "value": v});
+            assert_eq!(target_key(&q, &e, &probs).as_deref(), Some(want));
+        }
+        // an in-range value still targets the nearest anchor
+        let e = json!({"value": 4.8});
+        assert_eq!(target_key(&q, &e, &probs).as_deref(), Some("5"));
     }
 
     #[test]
