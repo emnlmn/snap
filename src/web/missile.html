@@ -3,21 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f4f4ee">
+<script src="/playground/theme.js"></script>
 <title>snap · missile command</title>
 <link rel="icon" type="image/png" href="/playground/logo.png?v=3">
+<link rel="preload" href="/playground/fonts/mona-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/playground/fonts/jetbrains-mono.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/playground/app.css">
 <link rel="stylesheet" href="/playground/missile.css">
 </head>
 <body>
 <header class="topbar">
-  <img class="mark" src="/playground/logo.png" alt="" width="32" height="32">
-  <span class="brand">snap</span>
+  <a class="brand" href="/playground"><img src="/playground/logo.png" alt="" width="28" height="28"><span>snap</span></a>
+  <i class="slash" aria-hidden="true"></i>
   <span class="status wait" id="srv"><i></i><span id="model">connecting…</span></span>
   <nav class="nav" aria-label="Playground">
     <a href="/playground">Console</a>
     <a href="/playground/missile" aria-current="page">Missile<span class="nav-long"> Command</span></a>
   </nav>
+  <div class="seg theme" role="group" aria-label="Theme">
+    <button data-set-theme="system" aria-pressed="true" aria-label="System theme" title="System"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.25" y="3" width="11.5" height="8" rx="1.5"/><path d="M6 13.25h4M8 11v2.25"/></svg></button>
+    <button data-set-theme="light" aria-pressed="false" aria-label="Light theme" title="Light"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.5"/><path d="M8 2.25v1M8 12.75v1M2.25 8h1M12.75 8h1M3.95 3.95l.7.7M11.35 11.35l.7.7M3.95 12.05l.7-.7M11.35 4.65l.7-.7"/></svg></button>
+    <button data-set-theme="dark" aria-pressed="false" aria-label="Dark theme" title="Dark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12.9 9.75A5.25 5.25 0 0 1 6.25 3.1a5.25 5.25 0 1 0 6.65 6.65z"/></svg></button>
+  </div>
 </header>
 
 <main class="mc">
@@ -71,7 +80,7 @@
       </div>
     </div>
 
-    <div class="stats" id="stats"></div>
+    <div class="dial" id="stats"></div>
 
     <div class="pane-body">
       <div class="board" id="board" role="table" aria-label="Threat per missile">

@@ -74,6 +74,22 @@ async fn models(State(s): State<Arc<AppState>>) -> Json<Value> {
     }))
 }
 
+/// POST /playground/tokenize {"state": ..} — tokens the resident model reads
+/// for this state, rendered as /v1/systemone renders it. Backs the console's
+/// live count; internal to the playground, not part of the API.
+async fn tokenize(
+    State(s): State<Arc<AppState>>,
+    Json(req): Json<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let state = req.get("state").cloned().unwrap_or_default();
+    let compact = req["compact_state"].as_bool().unwrap_or(false);
+    let n = tokio::task::spawn_blocking(move || s.engine().state_tokens(&state, compact))
+        .await
+        .map_err(|e| err422(anyhow::anyhow!(e)))?
+        .map_err(err422)?;
+    Ok(Json(json!({ "tokens": n })))
+}
+
 /// POST /v1/models {"model": "<spec>"} — load and hot-swap the resident
 /// model. The old engine keeps serving until the new one is ready.
 async fn switch_model(
@@ -148,6 +164,12 @@ async fn pg_console_js() -> impl IntoResponse {
         include_str!("web/console.js"),
     )
 }
+async fn pg_theme_js() -> impl IntoResponse {
+    (
+        [(CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("web/theme.js"),
+    )
+}
 async fn pg_missile() -> Html<&'static str> {
     Html(include_str!("web/missile.html"))
 }
@@ -167,6 +189,19 @@ async fn pg_logo() -> impl IntoResponse {
     (
         [(CONTENT_TYPE, "image/png")],
         include_bytes!("web/logo.png").as_slice(),
+    )
+}
+// same self-hosted faces as the landing page: offline, no CDN
+async fn pg_font_sans() -> impl IntoResponse {
+    (
+        [(CONTENT_TYPE, "font/woff2")],
+        include_bytes!("web/fonts/mona-sans-latin.woff2").as_slice(),
+    )
+}
+async fn pg_font_mono() -> impl IntoResponse {
+    (
+        [(CONTENT_TYPE, "font/woff2")],
+        include_bytes!("web/fonts/jetbrains-mono-latin.woff2").as_slice(),
     )
 }
 /// SIGTERM (`snap stop`) or SIGINT — drain in-flight requests, then exit.
@@ -211,7 +246,11 @@ pub async fn serve(
         .route("/playground", get(pg_console))
         .route("/playground/app.css", get(pg_css))
         .route("/playground/console.js", get(pg_console_js))
+        .route("/playground/theme.js", get(pg_theme_js))
+        .route("/playground/tokenize", post(tokenize))
         .route("/playground/logo.png", get(pg_logo))
+        .route("/playground/fonts/mona-sans.woff2", get(pg_font_sans))
+        .route("/playground/fonts/jetbrains-mono.woff2", get(pg_font_mono))
         .route("/playground/missile", get(pg_missile))
         .route("/playground/missile.css", get(pg_missile_css))
         .route("/playground/missile.js", get(pg_missile_js))

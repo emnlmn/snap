@@ -20,11 +20,17 @@ const LEVELS = ["none", "low", "high", "critical"];
 // only carries the four level names
 const SCALE = "none = falls on empty ground or ruins; low = impact in more than 10s; high = impact in 4 to 10s; critical = impact in under 4s";
 
-const css = getComputedStyle(document.documentElement);
-const C = Object.fromEntries(["bg", "surface", "raise", "line", "line-hi", "text", "soft", "muted", "faint",
-  "accent", "num", "bad", "ok", "mono"].map((k) => [k, css.getPropertyValue(`--${k}`).trim()]));
+// theme tokens, re-read on every theme switch: draws read them from C / RGB
+const C = {}, RGB = {};
 const rgb = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
-const RGB = { muted: rgb(C.muted), num: rgb(C.num), bad: rgb(C.bad), accent: rgb(C.accent), faint: rgb(C.faint) };
+function readTheme() {
+  const css = getComputedStyle(document.documentElement);
+  for (const k of ["bg", "surface", "raise", "line", "line-hi", "text", "soft", "muted", "faint", "accent", "num", "bad", "ok", "mono"])
+    C[k] = css.getPropertyValue(`--${k}`).trim();
+  for (const k of ["muted", "num", "bad", "accent", "faint"]) RGB[k] = rgb(C[k]);
+}
+readTheme();
+addEventListener("themechange", () => { readTheme(); drawChart(); });
 const lerp = (a, b, t) => a + (b - a) * t;
 const mix = (a, b, t) => a.map((v, i) => Math.round(lerp(v, b[i], t)));
 const rgba = ([r, g, b], a = 1) => `rgba(${r},${g},${b},${a})`;
@@ -397,8 +403,9 @@ function apply(list, body, rtt, md) {
 }
 
 /* ---------------- panel ---------------- */
-const stat = (v, unit, label, cls = "") =>
-  `<div class="stat ${cls}"><b>${esc(v ?? "—")}${unit ? `<small>${unit}</small>` : ""}</b><span>${label}</span></div>`;
+// the console's dial: the frame's clock with its mode, internals as facts
+const fact = (label, v, unit, title) =>
+  `<span title="${esc(title)}">${label}<b>${esc(v ?? "—")}</b>${unit ? `<small>${unit}</small>` : ""}</span>`;
 
 function renderStats() {
   if (!last) {
@@ -408,11 +415,13 @@ function renderStats() {
   const { x, n, md, asJson } = last;
   const ms = x.total_ms != null ? Math.round(x.total_ms) : Math.round(last.rtt);
   $("stats").innerHTML =
-    stat(ms, "ms", `total · ${md}`, `lead ${md}`) +
-    stat(x.decode_ms != null ? Math.round(x.decode_ms) : null, "ms", "decode") +
-    stat(n, "", n === 1 ? "missile scored" : "missiles scored") +
-    stat(x.decoded_items, "", `items · ${x.waves ?? "—"} wave${x.waves === 1 ? "" : "s"}`) +
-    stat(asJson.toLocaleString(), "ch", "as JSON text");
+    `<div class="clock ${md}"><b>${ms}</b><small>ms</small><span><i class="dot ${md}"></i>${md} · ${x.total_ms != null ? "engine time" : "round-trip"}</span></div>` +
+    `<p class="facts">${
+      fact("decode", x.decode_ms != null ? Math.round(x.decode_ms) : null, "ms", "time inside batched decode calls") +
+      fact(n === 1 ? "missile" : "missiles", n, "", "missiles scored this frame, one question each") +
+      fact("items", x.decoded_items, "", "decode items") +
+      fact("waves", x.waves, "", "batched decode waves") +
+      fact("as JSON", asJson.toLocaleString(), "ch", "the same decisions written out as JSON text")}</p>`;
 }
 
 const shortTarget = (m) => {
@@ -570,13 +579,15 @@ function drawChart() {
   const step = [100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000].find((v) => maxMs / v <= 4) || 20000;
   const top = Math.ceil(maxMs / step) * step;
   const X = (n) => L + (n / MAX_ALIVE) * w, Y = (ms) => T + h - (ms / top) * h;
+  // one unit per axis: seconds once the scale passes 1 s, ms below
+  const tick = top > 1000 ? (v) => `${(v / 1000).toFixed(step % 1000 ? 1 : 0)}s` : (v) => `${v}ms`;
 
   cx.font = `10.5px ${C.mono}`; cx.fillStyle = C.faint; cx.strokeStyle = C.line; cx.lineWidth = 1;
   cx.textAlign = "right"; cx.textBaseline = "middle";
   for (let v = 0; v <= top; v += step) {
     const y = Math.round(Y(v)) + .5;
     cx.beginPath(); cx.moveTo(L, y); cx.lineTo(L + w, y); cx.stroke();
-    cx.fillText(fmtMs(v).replace(" ", ""), L - 8, y);
+    cx.fillText(tick(v), L - 8, y);
   }
   cx.textAlign = "center"; cx.textBaseline = "top";
   for (const n of [1, 4, 8, 12, 16, 20, 24]) cx.fillText(n, X(n), T + h + 6);

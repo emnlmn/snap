@@ -3,33 +3,44 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f4f4ee">
+<script src="/playground/theme.js"></script>
 <title>snap · console</title>
 <link rel="icon" type="image/png" href="/playground/logo.png?v=3">
+<link rel="preload" href="/playground/fonts/mona-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/playground/fonts/jetbrains-mono.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/playground/app.css">
 </head>
 <body>
 <header class="topbar">
-  <img class="mark" src="/playground/logo.png" alt="" width="32" height="32">
-  <span class="brand">snap</span>
+  <a class="brand" href="/playground"><img src="/playground/logo.png" alt="" width="28" height="28"><span>snap</span></a>
+  <i class="slash" aria-hidden="true"></i>
   <button class="status wait" id="srv" aria-haspopup="menu" title="Switch model"><i></i><span id="model">connecting…</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 6.5l3 3 3-3"/></svg></button>
   <nav class="nav" aria-label="Playground">
     <a href="/playground" aria-current="page">Console</a>
     <a href="/playground/missile">Missile<span class="nav-long"> Command</span></a>
   </nav>
+  <div class="seg theme" role="group" aria-label="Theme">
+    <button data-set-theme="system" aria-pressed="true" aria-label="System theme" title="System"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.25" y="3" width="11.5" height="8" rx="1.5"/><path d="M6 13.25h4M8 11v2.25"/></svg></button>
+    <button data-set-theme="light" aria-pressed="false" aria-label="Light theme" title="Light"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.5"/><path d="M8 2.25v1M8 12.75v1M2.25 8h1M12.75 8h1M3.95 3.95l.7.7M11.35 11.35l.7.7M3.95 12.05l.7-.7M11.35 4.65l.7-.7"/></svg></button>
+    <button data-set-theme="dark" aria-pressed="false" aria-label="Dark theme" title="Dark"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12.9 9.75A5.25 5.25 0 0 1 6.25 3.1a5.25 5.25 0 1 0 6.65 6.65z"/></svg></button>
+  </div>
 </header>
 
 <main class="split">
 
-  <section class="pane" aria-label="Request">
+  <section class="pane req" aria-label="Request">
     <div class="pane-head">
       <h2>Request</h2>
-      <div class="seg" id="tabs" role="tablist">
-        <button data-t="builder" class="on" role="tab">Editor</button>
-        <button data-t="json" role="tab">JSON</button>
-        <button data-t="curl" role="tab">cURL</button>
+      <div class="seg slide" id="tabs" role="tablist" aria-label="Request view">
+        <button data-t="builder" class="on" role="tab" aria-selected="true">Editor</button>
+        <button data-t="json" role="tab" aria-selected="false">JSON</button>
+        <button data-t="curl" role="tab" aria-selected="false">cURL</button>
       </div>
-      <button class="ghost" id="examples" aria-haspopup="menu">Examples</button>
+      <button class="link drop" id="examples" aria-haspopup="menu">Examples<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 6.5l3 3 3-3"/></svg></button>
+      <button class="link drop" id="opts" aria-haspopup="dialog" title="How the request runs: mode and temperature"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 5h6M11.5 5h2M2.5 11h2M7.5 11h6"/><circle cx="10" cy="5" r="1.5"/><circle cx="6" cy="11" r="1.5"/></svg><span id="opts-sum"></span></button>
+      <button class="run" id="run"><span id="run-label">Run</span><kbd class="mod">⌘ ↵</kbd></button>
     </div>
 
     <div class="pane-body">
@@ -37,53 +48,60 @@
         <section class="box" aria-labelledby="h-state">
           <div class="box-head">
             <h3 id="h-state">State</h3>
-            <span class="hint">JSON or plain text · read once, shared by every question</span>
+            <span class="tok" id="state-tok" title="Tokens the model reads for this state: once per request, shared by every question" hidden></span>
             <button class="link" id="fmt" title="Pretty-print JSON state">Format</button>
           </div>
-          <textarea id="state" class="box-body state" spellcheck="false" aria-labelledby="h-state"></textarea>
+          <div class="code state">
+            <pre id="state-hl" aria-hidden="true"></pre>
+            <textarea id="state" spellcheck="false" aria-labelledby="h-state"></textarea>
+          </div>
         </section>
 
         <section class="box" aria-labelledby="h-q">
           <div class="box-head">
             <h3 id="h-q">Questions</h3>
             <span class="count" id="qcount">0</span>
-            <button class="link" id="addq" aria-haspopup="menu">Add question</button>
+            <button class="link" id="addq" aria-haspopup="menu"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9"/></svg>Add question</button>
           </div>
-          <div id="tree" class="box-body tree" spellcheck="false"></div>
+          <div id="tree" class="tree" spellcheck="false"></div>
         </section>
       </div>
 
       <div id="pane-json" class="code-pane" hidden>
-        <textarea id="json" spellcheck="false" aria-label="Request body"></textarea>
+        <div class="code fill">
+          <pre id="json-hl" aria-hidden="true"></pre>
+          <textarea id="json" spellcheck="false" aria-label="Request body"></textarea>
+        </div>
         <p class="note" id="json-note">Body for <code>POST /v1/systemone</code>. Edits sync back to the editor when you switch tabs.</p>
       </div>
 
       <div id="pane-curl" class="code-pane" hidden>
-        <textarea id="curl" readonly spellcheck="false" aria-label="cURL command"></textarea>
-        <p class="note"><button class="ghost" id="copy-curl">Copy</button></p>
+        <div class="code fill ro">
+          <pre id="curl" tabindex="0" aria-label="cURL command"></pre>
+          <button class="copy" id="copy-curl"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="7" height="7" rx="1.5"/><path d="M10.5 3.5h-5a2 2 0 0 0-2 2v5"/></svg><span>Copy</span></button>
+        </div>
+        <p class="note">The same request from a terminal, against this server.</p>
       </div>
     </div>
 
-    <div class="pane-foot">
-      <div class="knobs">
-        <span class="knob">mode <button class="e" id="mode" aria-haspopup="menu">shared</button></span>
-        <label class="knob">temperature <input id="temp" type="number" min="0.1" max="10" step="0.1" value="1" title="(0, 10]"></label>
-      </div>
-      <button class="run" id="run"><span id="run-label">Run</span><kbd>⌘ ↵</kbd></button>
-    </div>
+    <label class="knob" id="temp-row"><input id="temp" type="number" min="0.1" max="10" step="0.1" value="1" aria-label="temperature"><span>1 reads the raw logits; lower sharpens every distribution, higher flattens it.</span></label>
   </section>
 
-  <section class="pane" aria-label="Response">
+  <section class="pane res" aria-label="Response">
     <div class="pane-head">
       <h2>Response</h2>
+      <span class="http" id="http" hidden></span>
       <span class="meta" id="ran"></span>
-      <div class="seg" id="rtabs" role="tablist">
-        <button data-r="result" class="on" role="tab">Result</button>
-        <button data-r="raw" role="tab">Raw</button>
+      <div class="seg slide" id="rtabs" role="tablist" aria-label="Response view">
+        <button data-r="result" class="on" role="tab" aria-selected="true">Result</button>
+        <button data-r="raw" role="tab" aria-selected="false">Raw</button>
       </div>
     </div>
 
-    <div class="stats" id="stats" hidden></div>
+    <div class="dial" id="dial" hidden>
+      <div class="clock"><b id="clock">0</b><small>ms</small><span id="clock-l">engine time</span></div>
+      <p class="facts" id="facts"></p>
+    </div>
 
     <div class="pane-body">
       <div id="result">
@@ -91,9 +109,10 @@
           <h3>Start from an example</h3>
           <p class="lede">Every answer comes back as a full probability map: one forward pass, zero generated tokens. Pick one, it runs straight away.</p>
           <h4>The three primitives</h4>
-          <div class="lessons" id="lessons"></div>
+          <div class="list" id="lessons"></div>
           <h4>Use cases</h4>
-          <div class="cases" id="cases"></div>
+          <div class="list" id="cases"></div>
+          <p class="kb">Or edit the request on the left and press <kbd class="mod">⌘ ↵</kbd></p>
         </div>
         <div id="answers"></div>
       </div>
@@ -104,6 +123,7 @@
 </main>
 
 <div class="pop" id="pop" role="menu" hidden></div>
+<div class="tip" id="tip" role="tooltip" aria-hidden="true"></div>
 <script src="/playground/console.js"></script>
 </body>
 </html>

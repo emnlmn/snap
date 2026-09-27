@@ -1,6 +1,9 @@
 /* missile command — the console's world, with a night sky on the left.
    Accent = what snap chose; amber = direct mode; red = what is coming. */
 
+/* on ink --num is mint, too close to the lime of shared: direct takes heat */
+:root[data-theme="dark"] { --num: #e59a52; }
+
 .mc { display: grid; grid-template-columns: minmax(0, 1fr) 400px; min-height: 0; }
 
 /* ---------- battlefield ---------- */
@@ -46,8 +49,11 @@
 .dot.shared { background: var(--accent); }
 .dot.direct { background: var(--num); }
 
-.side .stats { gap: 6px 22px; min-height: 63px; align-content: center; }
-.side .stats .stat.lead.direct b { color: var(--num); }
+/* the last frame, read like the console's dial; the mode's dot under the
+   clock matches its dots in the chart */
+.side .dial { min-height: 69px; }
+.side .clock { min-width: 5.5rem; }
+.clock .dot { margin-right: 5px; vertical-align: 1px; }
 .stats-empty { font-size: 12.5px; color: var(--muted); }
 
 /* ---------- threat board ---------- */
