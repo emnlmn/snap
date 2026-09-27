@@ -13,8 +13,7 @@ pub const ABOVE: &str = "__above__";
 /// Layout::Catalog added, compact_state rendering added.
 /// v4: empty choice descriptions show the key, request text tokenized
 /// without special tokens.
-/// v5: boolean/noul criteria render as the Yes/No option text.
-pub const PROMPT_VERSION: u32 = 5;
+pub const PROMPT_VERSION: u32 = 4;
 
 pub const SYSTEM: &str = "You are a decision engine. Given a state and a question, you evaluate the options and reply with only the letter of the best option. Never explain.";
 
@@ -179,22 +178,7 @@ fn option_label(key: &str, desc: &str) -> String {
 pub fn slots_for(q: &Question) -> Vec<Slot> {
     let mut opts = match q.qtype {
         QType::Boolean | QType::Noul => {
-            // criteria {"true"/"yes", "false"/"no"} describe what each answer
-            // means — show them next to the letters instead of bare Yes/No
-            let crit = q.criteria.as_ref().and_then(Value::as_object);
-            let desc = |keys: &[&str]| {
-                keys.iter()
-                    .find_map(|k| crit.and_then(|m| m.get(*k)))
-                    .map(value_text)
-            };
-            let label = |word: &str, d: Option<String>| match d {
-                Some(d) => format!("{word} — {d}"),
-                None => word.to_string(),
-            };
-            vec![
-                Slot::new("yes", label("Yes", desc(&["true", "yes"]))),
-                Slot::new("no", label("No", desc(&["false", "no"]))),
-            ]
+            vec![Slot::new("yes", "Yes"), Slot::new("no", "No")]
         }
         QType::Choice => match q.criteria.as_ref().unwrap() {
             Value::Object(m) => m
@@ -383,22 +367,6 @@ mod tests {
         // no abstain by default
         let s = slots_for(&q(json!({"type": "boolean"})));
         assert_eq!(s.len(), 2);
-    }
-
-    #[test]
-    fn boolean_criteria_describe_options() {
-        let s = slots_for(&q(json!({
-            "type": "noul",
-            "instructions": "This trace requires human review.",
-            "criteria": {"false": "No human attention is warranted.",
-                         "true": "A human should inspect this run."}
-        })));
-        assert_eq!(s[0].key, "yes");
-        assert_eq!(s[0].text, "Yes — A human should inspect this run.");
-        assert_eq!(s[1].text, "No — No human attention is warranted.");
-        // missing criteria keeps the plain Yes/No
-        let s = slots_for(&q(json!({"type": "noul"})));
-        assert_eq!(s[0].text, "Yes");
     }
 
     #[test]
