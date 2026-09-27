@@ -1,0 +1,8 @@
+.git
+target
+results
+*.gguf
+eval/typesafe
+.serena
+.impeccable
+__pycache__
