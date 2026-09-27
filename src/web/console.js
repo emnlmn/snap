@@ -799,10 +799,11 @@ $("rtabs").addEventListener("click", (e) => {
 });
 
 /* ---------------- run ---------------- */
-// same question names as what is on screen: dim it and tween from it.
-// anything else: draw the request's own shape at rest while it runs.
+// byte-identical request to the one on screen: dim it and tween from it.
+// anything else — a different state, options, instructions — is a fresh run.
+let lastReqJson = null;
 const sameShape = (req) => !!lastDist && !!$("answers").querySelector(".ans:not(.pending)") &&
-  Object.keys(req.questions || {}).join("\n") === Object.keys(lastDist).join("\n");
+  JSON.stringify(req) === lastReqJson;
 
 async function run() {
   if (running) return;
@@ -933,6 +934,7 @@ function renderResult(req, body, ms, fresh) {
     return html;
   }).join("");
   lastDist = dist;
+  lastReqJson = JSON.stringify(req);
   tweenDist();
   fitAxes();
 }
