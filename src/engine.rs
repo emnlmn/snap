@@ -6,7 +6,8 @@
 //! and every per-option probe a >26-option choice expands into — to a token
 //! prompt plus the prefix of it worth caching across requests, hands the lot
 //! to `kv::Kv` (one shared-prefix trie per batched decode), and folds the
-//! rows back into answers.
+//! rows back into answers. The training export (`render_prompt`) reads its
+//! prompt from the same compile step, so what it writes is what is decoded.
 //!
 //! The layout decides what that cached prefix is: `state_first` and `header`
 //! keep `[head+state]` (the same document, any questions), `question_first`
@@ -47,6 +48,39 @@ struct Item {
     toks: Vec<i32>,
     keep: usize,
     calib: f64,
+}
+
+/// A decode unit before tokenization: name (expanded subs carry the
+/// `name\x1fi` tag), question, calibration bucket.
+type Unit = (String, Question, &'static str);
+
+/// What every unit's user message shares once a request is compiled — the
+/// one place layout, state rendering and choice expansion turn into prompt
+/// text, read by both `decide` and the training export.
+struct Compiled {
+    layout: Layout,
+    state: String,
+    /// Layout::Header: every original question, numbered.
+    preamble: Vec<String>,
+    /// Layout::Catalog: the numbered question set.
+    catalog: Vec<String>,
+    /// Over-budget choices: (name, question, option keys, sub count).
+    expanded: Vec<(String, Question, Vec<String>, usize)>,
+}
+
+impl Compiled {
+    /// Letter slots and user message of unit `idx`, built on demand: a
+    /// request never holds every message at once.
+    fn message(&self, idx: usize, name: &str, q: &Question) -> (Vec<Slot>, String) {
+        let slots = prompts::slots_for(q);
+        let msg = match self.layout {
+            Layout::Catalog => {
+                prompts::catalog_message(&self.catalog, &self.state, idx, display(name), &slots)
+            }
+            _ => prompts::user_message(&self.state, q, &slots, self.layout, &self.preamble),
+        };
+        (slots, msg)
+    }
 }
 
 pub struct Engine {
@@ -212,25 +246,31 @@ impl Engine {
         Ok(self.llm.tokenize(&state_text(state, compact), false)?.len())
     }
 
-    /// Render one state+question exactly as `decide` would send it through
+    /// Render a one-question request exactly as `decide` sends it through
     /// the model's chat template — the supervision surface for training.
-    /// Returns the full prompt string, the resolved layout, and the
-    /// letter->key slot map so callers never re-derive positions.
-    pub fn render_question(&self, state: &Value, q: &Question) -> Result<Value> {
-        q.validate()?;
-        let slots = prompts::slots_for(q);
-        let state_txt = state_text(state, false);
-        let layout = resolve_layout(Layout::Auto, &[q], q.allow_abstain, state_txt.len());
-        let msg = prompts::user_message(&state_txt, q, &slots, layout, &[]);
+    /// Returns the full prompt string, its serve-time token ids, the resolved
+    /// layout, and the letter->key slot map so callers never re-derive
+    /// positions; None when the question has no single prompt (a choice past
+    /// the letter budget expands into several decode items).
+    pub fn render_prompt(&self, req: &DecideRequest) -> Result<Option<Value>> {
+        req.validate()?;
+        let (compiled, units) = compile(req)?;
+        if !compiled.expanded.is_empty() {
+            return Ok(None);
+        }
+        let [(name, q, _)] = units.as_slice() else {
+            bail!("a prompt renders one question, got {}", units.len());
+        };
+        let (slots, msg) = compiled.message(0, name, q);
         let full = self.llm.render(prompts::SYSTEM, &msg)?;
         // serve-time tokenization: the frame's own text may produce control
         // tokens, the body never does — a plain re-tokenize of `full` would
         // let request content (or the seam) pick up different ids
         let token_ids = self.prompt_tokens(&msg)?;
-        Ok(json!({
+        Ok(Some(json!({
             "prompt": full,
             "token_ids": token_ids,
-            "layout": layout_str(layout),
+            "layout": layout_str(compiled.layout),
             "letters": slots
                 .iter()
                 .enumerate()
@@ -241,86 +281,22 @@ impl Engine {
                     "special": s.special,
                 }))
                 .collect::<Vec<_>>(),
-        }))
+        })))
     }
 
     pub fn decide(&mut self, req: &DecideRequest) -> Result<Value> {
         req.validate()?;
         let t0 = Instant::now();
         let calib = |b: &str| self.calibration.as_ref().map_or(1.0, |c| c.temp(b));
-
-        // expand over-budget choices first: the layout heuristic wants the
-        // real item count (a 30-option choice is 30 probes sharing the state)
-        let mut pending: Vec<(String, Question, f64)> = Vec::new();
-        let mut expanded: Vec<(String, Question, Vec<String>, usize)> = Vec::new();
-        let mut originals: Vec<(String, String)> = Vec::new();
-        let mut any_abstain = false;
-        for (name, q) in req.questions()? {
-            originals.push((name.clone(), q.instructions.clone()));
-            any_abstain |= q.allow_abstain;
-            match expand_choice(&q, req.expand) {
-                Some((subs, keys)) => {
-                    // probes are booleans mechanically: boolean-bucket
-                    // temperature; pages are real choices
-                    let b = match req.expand {
-                        Expand::Pages => "choice",
-                        Expand::Probes => "boolean",
-                    };
-                    let n = subs.len();
-                    for (i, sq) in subs.into_iter().enumerate() {
-                        pending.push((format!("{name}\u{1f}{i}"), sq, calib(b)));
-                    }
-                    expanded.push((name, q, keys, n));
-                }
-                None => {
-                    let c = calib(bucket(q.qtype.as_str()));
-                    pending.push((name, q, c));
-                }
-            }
-        }
-
-        let state_txt = state_text(&req.state, req.compact_state);
-        let qs: Vec<&Question> = pending.iter().map(|p| &p.1).collect();
-        let layout = resolve_layout(req.layout, &qs, any_abstain, state_txt.len());
-        let preamble: Vec<String> = if layout == Layout::Header {
-            originals
-                .iter()
-                .enumerate()
-                .map(|(i, (n, instr))| match instr.is_empty() {
-                    true => format!("{}. {n}", i + 1),
-                    false => format!("{}. {n} — {instr}", i + 1),
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
-        // expanded subs carry the `name\x1fi` tag; prompts show the name
-        let display = |name: &str| name.split('\u{1f}').next().unwrap_or(name).to_string();
-        let catalog: Vec<String> = if layout == Layout::Catalog {
-            let mut v = Vec::new();
-            for (i, (name, q, _)) in pending.iter().enumerate() {
-                if i > 0 {
-                    v.push(String::new());
-                }
-                v.extend(prompts::catalog_entry(i, &display(name), q));
-            }
-            v
-        } else {
-            Vec::new()
-        };
+        let (compiled, units) = compile(req)?;
+        let layout = compiled.layout;
 
         let shared = req.mode == Mode::Shared;
         let n_ctx = self.llm.n_ctx();
-        let mut items = Vec::with_capacity(pending.len());
+        let mut items = Vec::with_capacity(units.len());
         let mut first_msg = String::new();
-        for (idx, (name, q, calib)) in pending.into_iter().enumerate() {
-            let slots = prompts::slots_for(&q);
-            let msg = match layout {
-                Layout::Catalog => {
-                    prompts::catalog_message(&catalog, &state_txt, idx, &display(&name), &slots)
-                }
-                _ => prompts::user_message(&state_txt, &q, &slots, layout, &preamble),
-            };
+        for (idx, (name, q, bucket)) in units.into_iter().enumerate() {
+            let (slots, msg) = compiled.message(idx, &name, &q);
             let toks = self.prompt_tokens(&msg)?;
             if toks.len() > n_ctx {
                 bail!(
@@ -341,7 +317,7 @@ impl Engine {
                 slots,
                 toks,
                 keep,
-                calib,
+                calib: calib(bucket),
             });
         }
         let plen = match items.split_first() {
@@ -389,7 +365,7 @@ impl Engine {
             answers.insert(it.name.clone(), ans);
         }
         // fold per-option probes / pages back into one answer per choice
-        for (name, q, keys, nsubs) in &expanded {
+        for (name, q, keys, nsubs) in &compiled.expanded {
             let subs: Vec<Value> = (0..*nsubs)
                 .map(|i| {
                     answers
@@ -438,6 +414,82 @@ impl Engine {
             },
         }))
     }
+}
+
+/// Compile a request into its decode units and what their messages share:
+/// over-budget choices expanded, state rendered, layout resolved, header
+/// preamble or catalog laid out.
+fn compile(req: &DecideRequest) -> Result<(Compiled, Vec<Unit>)> {
+    // expand over-budget choices first: the layout heuristic wants the
+    // real item count (a 30-option choice is 30 probes sharing the state)
+    let mut units: Vec<Unit> = Vec::new();
+    let mut expanded = Vec::new();
+    let mut originals: Vec<(String, String)> = Vec::new();
+    let mut any_abstain = false;
+    for (name, q) in req.questions()? {
+        originals.push((name.clone(), q.instructions.clone()));
+        any_abstain |= q.allow_abstain;
+        match expand_choice(&q, req.expand) {
+            Some((subs, keys)) => {
+                // probes are booleans mechanically: boolean-bucket
+                // temperature; pages are real choices
+                let b = match req.expand {
+                    Expand::Pages => "choice",
+                    Expand::Probes => "boolean",
+                };
+                let n = subs.len();
+                for (i, sq) in subs.into_iter().enumerate() {
+                    units.push((format!("{name}\u{1f}{i}"), sq, b));
+                }
+                expanded.push((name, q, keys, n));
+            }
+            None => {
+                let b = bucket(q.qtype.as_str());
+                units.push((name, q, b));
+            }
+        }
+    }
+
+    let state = state_text(&req.state, req.compact_state);
+    let qs: Vec<&Question> = units.iter().map(|u| &u.1).collect();
+    let layout = resolve_layout(req.layout, &qs, any_abstain, state.len());
+    let preamble: Vec<String> = if layout == Layout::Header {
+        originals
+            .iter()
+            .enumerate()
+            .map(|(i, (n, instr))| match instr.is_empty() {
+                true => format!("{}. {n}", i + 1),
+                false => format!("{}. {n} — {instr}", i + 1),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let catalog: Vec<String> = if layout == Layout::Catalog {
+        let mut v = Vec::new();
+        for (i, (name, q, _)) in units.iter().enumerate() {
+            if i > 0 {
+                v.push(String::new());
+            }
+            v.extend(prompts::catalog_entry(i, display(name), q));
+        }
+        v
+    } else {
+        Vec::new()
+    };
+    let compiled = Compiled {
+        layout,
+        state,
+        preamble,
+        catalog,
+        expanded,
+    };
+    Ok((compiled, units))
+}
+
+/// Expanded subs carry the `name\x1fi` tag; prompts show the name.
+fn display(name: &str) -> &str {
+    name.split('\u{1f}').next().unwrap_or(name)
 }
 
 /// `layout: auto` resolved. Steady-state cost decides: warm question_first
@@ -690,6 +742,89 @@ mod tests {
         let (logits, _) = read_row(&row(&toks), &eng.letter_ids[..slots.len()]);
         let want = decisions::decode(&q, &slots, &logits, 1.0);
         assert_eq!(out["answers"]["q"]["probabilities"], want["probabilities"]);
+    }
+
+    #[test]
+    fn export_renders_exactly_what_decide_decodes() {
+        // the sim's row hashes the whole history: an exported prompt that
+        // drifts from the decoded one by a single token changes the answer
+        let mut eng = engine(1 << 16, 65, 512);
+        let shapes = [
+            json!({"type": "noul", "instructions": "Is it urgent?"}),
+            json!({"type": "boolean", "instructions": "Enough info?", "allow_abstain": true}),
+            json!({"type": "choice", "criteria": {"billing": "payments", "tech": "", "sales": "pricing"}}),
+            json!({"type": "score", "instructions": "How angry?", "criteria": ["calm", "annoyed", "furious"]}),
+            json!({"type": "numeric", "instructions": "Refund in days?", "min": 0, "max": 10, "granularity": 5}),
+            // right at the letter budget: still one prompt
+            json!({"type": "choice", "instructions": "Which product?", "criteria": big_choice(26)}),
+        ];
+        let state = json!({"ticket": "refund please", "items": ["latte", "pane"]});
+        for layout in LAYOUTS {
+            for compact in [false, true] {
+                for qj in &shapes {
+                    let r = req(json!({"state": state, "questions": {"q": qj},
+                                       "layout": layout, "compact_state": compact}));
+                    let rec = eng.render_prompt(&r).unwrap().unwrap();
+                    let out = eng.decide(&r).unwrap();
+                    let at = format!("{layout}/compact={compact}: {qj}");
+                    assert_eq!(rec["layout"], out["x_snap"]["layout"], "{at}");
+                    let toks: Vec<i32> = serde_json::from_value(rec["token_ids"].clone()).unwrap();
+                    let q: Question = serde_json::from_value(qj.clone()).unwrap();
+                    let slots = prompts::slots_for(&q);
+                    let (logits, _) = read_row(&row(&toks), &eng.letter_ids[..slots.len()]);
+                    let want = decisions::decode(&q, &slots, &logits, 1.0);
+                    assert_eq!(
+                        out["answers"]["q"]["probabilities"], want["probabilities"],
+                        "{at}"
+                    );
+                    // the prompt string is the template around those same tokens
+                    let prompt = rec["prompt"].as_str().unwrap();
+                    assert_eq!(eng.llm.tokenize(prompt, true).unwrap(), toks, "{at}");
+                    let keys: Vec<&str> = rec["letters"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|l| l["key"].as_str().unwrap())
+                        .collect();
+                    assert_eq!(
+                        keys,
+                        slots.iter().map(|s| s.key.as_str()).collect::<Vec<_>>()
+                    );
+                    assert_eq!(rec["letters"][0]["letter"], "A");
+                    match layout {
+                        "header" => assert!(
+                            prompt.contains("QUESTIONS\n") && prompt.contains("\n1. q"),
+                            "{at}"
+                        ),
+                        "catalog" => assert!(prompt.contains("\nQUESTION 1 — q\n"), "{at}"),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn export_has_no_single_prompt_past_the_letter_budget() {
+        let eng = engine(1 << 16, 65, 512);
+        let r =
+            |qs: Value, expand: &str| req(json!({"state": "s", "questions": qs, "expand": expand}));
+        for expand in ["probes", "pages"] {
+            for qj in [
+                json!({"type": "choice", "criteria": big_choice(30)}),
+                // 26 options fit the letters until abstain takes one
+                json!({"type": "choice", "criteria": big_choice(26), "allow_abstain": true}),
+            ] {
+                let one = r(json!({"q": qj}), expand);
+                assert!(eng.render_prompt(&one).unwrap().is_none(), "{expand}");
+            }
+        }
+        let two = r(
+            json!({"a": {"type": "noul"}, "b": {"type": "noul"}}),
+            "probes",
+        );
+        let e = eng.render_prompt(&two).unwrap_err().to_string();
+        assert!(e.contains("one question"), "{e}");
     }
 
     #[test]

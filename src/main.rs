@@ -13,7 +13,7 @@ mod schema;
 mod server;
 mod version;
 
-use std::io::{IsTerminal, Read};
+use std::io::{IsTerminal, Read, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -113,6 +113,9 @@ enum Cmd {
         m: ModelArgs,
         /// eval/training JSONL case files
         files: Vec<String>,
+        /// force a prompt layout for all cases (auto|state_first|question_first|header|catalog)
+        #[arg(long, value_parser = parse_layout)]
+        layout: Option<crate::schema::Layout>,
         /// write JSONL (create-only)
         #[arg(long)]
         output: Option<String>,
@@ -395,40 +398,37 @@ fn main() -> Result<()> {
             pid,
             force,
         } => stop(*all, port, pid, *force)?,
-        Cmd::ExportPrompts { m, files, output } => {
+        Cmd::ExportPrompts {
+            m,
+            files,
+            layout,
+            output,
+        } => {
             init_logs(m.debug);
             if files.is_empty() {
                 anyhow::bail!("export-prompts needs at least one JSONL file");
             }
-            let path = models::resolve(&m.model)?;
-            let eng =
-                engine::Engine::load(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
-            let mut out = String::new();
-            let mut n = 0usize;
+            let mut cases = Vec::new();
             for f in files {
-                for case in evaluate::load_cases(f)? {
-                    let q: schema::Question = serde_json::from_value(case["question"].clone())
-                        .with_context(|| format!("{}: bad question", case["id"]))?;
-                    let mut rec = eng
-                        .render_question(&case["state"], &q)
-                        .with_context(|| format!("{}: render failed", case["id"]))?;
-                    rec["id"] = case["id"].clone();
-                    out.push_str(&serde_json::to_string(&rec)?);
-                    out.push('\n');
-                    n += 1;
-                }
+                cases.extend(evaluate::load_cases(f)?);
             }
-            if let Some(o) = output {
-                if Path::new(o).exists() {
-                    anyhow::bail!("{o} exists (reports are create-only)");
+            // the model loads in here: an existing --output fails before it
+            let export = |w: &mut dyn Write| {
+                let path = models::resolve(&m.model)?;
+                let eng =
+                    engine::Engine::load(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
+                evaluate::export_prompts(&eng, &cases, *layout, w)
+            };
+            match output {
+                Some(o) => {
+                    let (n, _) = evaluate::create_only(o, export)?;
+                    eprintln!("{n} prompts written: {o}");
                 }
-                if let Some(d) = Path::new(o).parent() {
-                    std::fs::create_dir_all(d)?;
+                None => {
+                    let mut w = std::io::BufWriter::new(std::io::stdout().lock());
+                    export(&mut w)?;
+                    w.flush()?;
                 }
-                std::fs::write(o, &out)?;
-                eprintln!("{n} prompts written: {o}");
-            } else {
-                print!("{out}");
             }
         }
 

@@ -55,6 +55,10 @@ make serve        # build + run the HTTP server (MODEL=minicpm5-2b default)
   `tar` flags).
 - **Reports are create-only** — eval/bench/calibrate outputs refuse to
   overwrite existing files. Keep it that way.
+- **Training export is decode.** `snap export-prompts` renders through
+  `engine::compile`, the step `decide` itself uses, and maps cases via
+  `evaluate::build_req` — never assemble a prompt beside it; snap-ft trains
+  on those bytes.
 
 ## Code style
 

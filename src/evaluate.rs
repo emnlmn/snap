@@ -4,20 +4,23 @@
 //!   {"id": "route-01", "state": {...}, "question": {<Question fields>},
 //!    "expect": {"choice"|"boolean"|"level"|"score"|"value"|"status": ..., "tol": float}}
 //!
-//! One question per case, keyed "q".
+//! One question per case, keyed "q"; optional `layout`/`expand`/`compact_state`
+//! pin the request knobs. `export_prompts` renders the very same requests
+//! for training.
 
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 use std::path::Path;
 use std::time::Instant;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 
 use std::collections::BTreeSet;
 
 use crate::calibrate;
 use crate::engine::Engine;
-use crate::schema::{DecideRequest, Mode};
+use crate::schema::{DecideRequest, Layout, Mode, MAX_SLOTS};
 
 pub fn load_cases(path: &str) -> Result<Vec<Value>> {
     let text = std::fs::read_to_string(path).with_context(|| format!("read {path}"))?;
@@ -58,7 +61,7 @@ pub fn judge(ans: &Value, expect: &Value) -> Option<bool> {
 pub(crate) fn build_req(
     case: &Value,
     no_abstain: bool,
-    layout: Option<crate::schema::Layout>,
+    layout: Option<Layout>,
 ) -> Result<DecideRequest> {
     let mut q = case["question"].clone();
     if no_abstain {
@@ -67,6 +70,8 @@ pub(crate) fn build_req(
     }
     let mut questions = Map::new();
     questions.insert("q".into(), q);
+    // parsed even under --layout: a malformed case is an error either way
+    let pinned: Option<Layout> = pin(case, "layout")?;
     Ok(DecideRequest {
         model: None,
         state: case["state"].clone(),
@@ -74,12 +79,64 @@ pub(crate) fn build_req(
         temperature: 1.0,
         mode: Mode::Shared,
         // --layout wins; else cases may pin one for A/B runs; else auto
-        layout: layout
-            .or_else(|| serde_json::from_value(case["layout"].clone()).ok())
-            .unwrap_or(crate::schema::Layout::Auto),
-        expand: serde_json::from_value(case["expand"].clone()).unwrap_or_default(),
-        compact_state: case["compact_state"].as_bool().unwrap_or(false),
+        layout: layout.or(pinned).unwrap_or(Layout::Auto),
+        expand: pin(case, "expand")?.unwrap_or_default(),
+        compact_state: pin(case, "compact_state")?.unwrap_or(false),
     })
+}
+
+/// A case's optional request knob: absent or null reads as None, anything
+/// that doesn't parse is an error — a typo'd pin must not quietly run the
+/// default.
+fn pin<T: DeserializeOwned>(case: &Value, key: &str) -> Result<Option<T>> {
+    serde_json::from_value(case[key].clone())
+        .with_context(|| format!("case {}: bad {key:?}", case["id"]))
+}
+
+/// Training export: each case rendered to the exact prompt `evaluate`
+/// decodes for it — same `build_req`, same compile step as `decide` — as one
+/// JSONL record joined back to its case by `id`. A choice past the letter
+/// budget has no single prompt: skipped, with a note on stderr. Returns
+/// (written, skipped).
+pub fn export_prompts(
+    engine: &Engine,
+    cases: &[Value],
+    layout: Option<Layout>,
+    out: &mut dyn Write,
+) -> Result<(usize, usize)> {
+    let mut ids = BTreeSet::new();
+    let (mut written, mut skipped) = (0, 0);
+    for (i, case) in cases.iter().enumerate() {
+        let id = &case["id"];
+        if id.is_null() {
+            bail!(
+                "case {} has no id: export records join back to their case on it",
+                i + 1
+            );
+        }
+        if !ids.insert(id.to_string()) {
+            bail!("duplicate case id {id}");
+        }
+        let req = build_req(case, false, layout)?;
+        match engine
+            .render_prompt(&req)
+            .with_context(|| format!("case {id}"))?
+        {
+            Some(mut rec) => {
+                rec["id"] = id.clone();
+                serde_json::to_writer(&mut *out, &rec)?;
+                out.write_all(b"\n")?;
+                written += 1;
+            }
+            None => {
+                eprintln!(
+                    "snap: skip {id}: a choice past {MAX_SLOTS} letters has no single prompt"
+                );
+                skipped += 1;
+            }
+        }
+    }
+    Ok((written, skipped))
 }
 
 fn answer_brief(ans: &Value) -> Value {
@@ -650,19 +707,39 @@ pub fn print_report(rep: &Value) {
     }
 }
 
-pub fn write_report(rep: &Value, output: &str) -> Result<()> {
-    let p = Path::new(output);
+/// Create `path` and hand it to `fill`: never over an existing file (reports
+/// are create-only), and a failed fill takes the file with it, so a torn
+/// report can't pass for a finished run.
+pub fn create_only<T>(path: &str, fill: impl FnOnce(&mut dyn Write) -> Result<T>) -> Result<T> {
+    let p = Path::new(path);
     if let Some(d) = p.parent() {
         std::fs::create_dir_all(d)?;
     }
-    // create-only: never overwrite a report
-    let mut f = std::fs::OpenOptions::new()
+    let f = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(p)
-        .with_context(|| format!("{output} exists (reports are create-only)"))?;
-    use std::io::Write;
-    f.write_all(serde_json::to_string_pretty(rep)?.as_bytes())?;
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::AlreadyExists => {
+                anyhow!("{path} exists (reports are create-only)")
+            }
+            _ => anyhow::Error::new(e).context(format!("create {path}")),
+        })?;
+    let mut w = std::io::BufWriter::new(f);
+    let r = fill(&mut w).and_then(|v| {
+        w.flush()?;
+        Ok(v)
+    });
+    drop(w);
+    if r.is_err() {
+        let _ = std::fs::remove_file(p);
+    }
+    r
+}
+
+pub fn write_report(rep: &Value, output: &str) -> Result<()> {
+    // create-only: never overwrite a report
+    create_only(output, |w| Ok(serde_json::to_writer_pretty(w, rep)?))?;
     eprintln!("report written: {output}");
     Ok(())
 }
@@ -771,5 +848,127 @@ mod tests {
         assert_eq!(r.questions["q"]["allow_abstain"], false);
         let r = build_req(&case, false, None).unwrap();
         assert!(r.questions["q"].get("allow_abstain").is_none());
+    }
+
+    #[test]
+    fn build_req_reads_case_pins() {
+        use crate::schema::Expand;
+        let case = json!({"id": "p", "state": "s", "question": {"type": "boolean"},
+                          "layout": "header", "expand": "pages", "compact_state": true});
+        let r = build_req(&case, false, None).unwrap();
+        assert_eq!(
+            (r.layout, r.expand, r.compact_state),
+            (Layout::Header, Expand::Pages, true)
+        );
+        // --layout wins over the pin
+        let r = build_req(&case, false, Some(Layout::Catalog)).unwrap();
+        assert_eq!(r.layout, Layout::Catalog);
+        // no pins, or null ones: the API's own defaults
+        for bare in [
+            json!({"id": "b", "state": "s", "question": {"type": "boolean"}}),
+            json!({"id": "n", "state": "s", "question": {"type": "boolean"},
+                   "layout": null, "expand": null, "compact_state": null}),
+        ] {
+            let r = build_req(&bare, false, None).unwrap();
+            assert_eq!(
+                (r.layout, r.expand, r.compact_state),
+                (Layout::Auto, Expand::Probes, false)
+            );
+        }
+    }
+
+    #[test]
+    fn build_req_rejects_bad_pins() {
+        for (k, v) in [
+            ("layout", json!("sideways")),
+            ("expand", json!(3)),
+            ("compact_state", json!("yes")),
+        ] {
+            let mut case = json!({"id": "x", "state": "s", "question": {"type": "boolean"}});
+            case[k] = v;
+            let e = build_req(&case, false, None).unwrap_err().to_string();
+            assert_eq!(e, format!("case \"x\": bad \"{k}\""));
+            // a forced layout doesn't hide a malformed case
+            assert!(build_req(&case, false, Some(Layout::StateFirst)).is_err());
+        }
+    }
+
+    /// Export `cases` on the simulated backend: (records, skipped).
+    fn export(cases: &[Value], layout: Option<Layout>) -> Result<(Vec<Value>, usize)> {
+        let sim = crate::kv::sim::Sim::new(1 << 16, 65, 512);
+        let eng = Engine::new(Box::new(sim), "snap-sim".into())?;
+        let mut buf = Vec::new();
+        let (written, skipped) = export_prompts(&eng, cases, layout, &mut buf)?;
+        let recs: Vec<Value> = String::from_utf8(buf)?
+            .lines()
+            .map(serde_json::from_str)
+            .collect::<Result<_, _>>()?;
+        assert_eq!(recs.len(), written);
+        Ok((recs, skipped))
+    }
+
+    #[test]
+    fn export_follows_case_pins_like_evaluate() {
+        let noul = json!({"type": "noul", "instructions": "Spam?"});
+        let big: Map<String, Value> = (0..30).map(|i| (format!("o{i}"), json!("x"))).collect();
+        let cases = [
+            json!({"id": "a", "state": "buy now", "question": noul}),
+            json!({"id": "b", "state": "buy now", "question": noul, "layout": "header"}),
+            json!({"id": "c", "state": {"k": "v"}, "question": noul, "compact_state": true}),
+            json!({"id": "d", "state": "s", "question": {"type": "choice", "criteria": big}}),
+        ];
+        let (recs, skipped) = export(&cases, None).unwrap();
+        // the over-budget choice has no single prompt: skipped, not fatal
+        assert_eq!(skipped, 1);
+        let ids: Vec<&str> = recs.iter().map(|r| r["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["a", "b", "c"]);
+        // short state, no abstain: auto reads the question first
+        assert_eq!(recs[0]["layout"], "question_first");
+        assert_eq!(recs[1]["layout"], "header");
+        assert!(recs[2]["prompt"]
+            .as_str()
+            .unwrap()
+            .contains("\nSTATE\nk: v\n"));
+        // --layout overrides every pin
+        let (recs, _) = export(&cases, Some(Layout::Catalog)).unwrap();
+        assert!(recs.iter().all(|r| r["layout"] == "catalog"));
+    }
+
+    #[test]
+    fn export_refuses_cases_it_cannot_join_or_parse() {
+        let case = |id: Value| json!({"id": id, "state": "s", "question": {"type": "noul"}});
+        let err = |cases: &[Value]| format!("{:#}", export(cases, None).unwrap_err());
+        assert!(err(&[case(json!("a")), case(json!("a"))]).contains("duplicate case id \"a\""));
+        assert!(err(&[case(json!("a")), case(Value::Null)]).contains("case 2 has no id"));
+        // a malformed question or pin names its case
+        let bad_q = json!({"id": "q1", "state": "s", "question": {"type": "magic"}});
+        assert!(err(&[bad_q]).starts_with("case \"q1\""));
+        let mut bad_pin = case(json!("p1"));
+        bad_pin["layout"] = json!("sideways");
+        assert!(err(&[bad_pin]).starts_with("case \"p1\": bad \"layout\""));
+    }
+
+    #[test]
+    fn create_only_never_overwrites_nor_leaves_a_torn_file() {
+        let dir = std::env::temp_dir().join(format!("snap-test-create-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let p = dir.join("sub").join("r.json");
+        let path = p.to_str().unwrap();
+        create_only(path, |w| Ok(w.write_all(b"one")?)).unwrap();
+        let e = create_only(path, |w| Ok(w.write_all(b"two")?)).unwrap_err();
+        assert!(
+            e.to_string().ends_with("exists (reports are create-only)"),
+            "{e}"
+        );
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "one");
+        // a fill that fails midway takes its file with it
+        let torn = dir.join("torn.json");
+        let r: Result<()> = create_only(torn.to_str().unwrap(), |w| {
+            w.write_all(b"half")?;
+            bail!("boom")
+        });
+        assert_eq!(r.unwrap_err().to_string(), "boom");
+        assert!(!torn.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- cli: `export-prompts` renders through `decide`'s own compile step and honors `--layout` plus the case `layout`/`expand`/`compact_state` pins — header preamble and catalog included, byte-exact with what evaluate decodes; choices past 26 letters are skipped instead of panicking; ids must be unique; `--output` is claimed before the model loads and removed on a failed run
+- eval: malformed `layout`/`expand`/`compact_state` case pins are errors, not silent defaults
 - api: `noul` answers expose the full `probabilities` map — the abstain mass the scalar folded away
 - engine: byte-exact training export surface; `state_tokens` lands behind `/playground/tokenize`
 - cli: loading folds into the ready line — one dense line, `snap:` prefix on all stderr

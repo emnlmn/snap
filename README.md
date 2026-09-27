@@ -279,8 +279,18 @@ generates three stability probes per case: the option order reversed
 and an unrelated context injected; `--no-perturb` skips them.
 
 Line format: `{"id", "state", "question", "expect", "variants"?,
-"requires_abstain"?, "layout"?, "expand"?, "compact_state"?}`. Base cases
+"requires_abstain"?, "layout"?, "expand"?, "compact_state"?}`. The pins are
+the request's own knobs on that case — a malformed pin is an error, not a
+quiet default, and `--layout` overrides all of them. Base cases
 use `<domain>-NN` ids and adversarial cases `edge-<stress>-NN`.
+
+`snap export-prompts` reads the same case files and writes, one JSONL
+record per case, the exact prompt `evaluate` decodes for it — chat template
+applied, token ids, resolved layout, letter-to-key slots. It is the
+supervision surface snap-ft trains on. A choice with more options than the
+26 letters has no single prompt, so it is skipped (with a note on stderr)
+instead of blocking the run; ids must be unique and `--output` is
+create-only.
 
 The numbers below come from the 303 cases of `eval/cases.jsonl`, measured
 with the API's own defaults (`layout: auto`, no abstain slot unless a
@@ -519,6 +529,7 @@ snap ps                                     # running servers (pid, model, uptim
 snap stop                                   # stop the only server; --all / --port / --pid for more
 snap evaluate eval/cases.jsonl              # accuracy + brier/ece + consistency
 snap calibrate eval/cases.jsonl -o cal.json # fit temperatures into a calibration file
+snap export-prompts eval/cases.jsonl > p.jsonl  # the prompts evaluate decodes, for training
 snap bench --requests 20                    # latency and throughput
 ```
 
