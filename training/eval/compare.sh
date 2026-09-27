@@ -82,9 +82,10 @@ if [ "$TD" = 1 ]; then
     echo "== typed-decisions on $m ($kind) -> $out"
     "$SNAP" serve --model "$path" --port "$TD_PORT" >/dev/null 2>&1 &
     srv=$!
-    ok=""
+    ok=""; served=""
     for _ in $(seq 1 240); do
-      curl -sf "http://127.0.0.1:$TD_PORT/healthz" >/dev/null && { ok=1; break; }
+      served=$(curl -sf "http://127.0.0.1:$TD_PORT/healthz" 2>/dev/null) \
+        && { ok=1; break; }
       sleep 1
     done
     if [ -z "$ok" ]; then
@@ -92,10 +93,16 @@ if [ "$TD" = 1 ]; then
       kill "$srv" 2>/dev/null
       continue
     fi
+    # a stale server already on the port makes healthz pass while our serve
+    # dies on bind — the TD run would then score a different model silently
+    if ! kill -0 "$srv" 2>/dev/null; then
+      echo "!! :$TD_PORT already in use ($served) — skipping TD for $m"
+      continue
+    fi
     python3 "$TD_PY" answer --url "http://127.0.0.1:$TD_PORT" --kind "$kind" \
       --note "compare:$TAG $path" --out "$out" || rm -f "$out"
     kill "$srv" 2>/dev/null
-    wait "$srv" 2>/dev/null
+    wait "$srv" 2>/dev/null || true
   done
   if [ "$BASE" != none ]; then
     echo "td paired score: python3 $TD_PY score $OUTDIR/td-base.json $OUTDIR/td-ft.json" \
