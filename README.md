@@ -369,6 +369,36 @@ approved), and a 4B model answering in one token disagrees systematically
 with frontier models that reason first. That is the kind of question to
 route elsewhere when a calibrated answer comes back `contested`.
 
+### LocalLLaMA/typed-decisions
+
+`eval/typed_decisions.py` is the external benchmark in the reports: 400
+cases / 2,000 decisions, five questions over one shared state, gold being
+the mean of three samples from a ~4B teacher (agreement, not correctness;
+the card reads ~0.75 as saturation). It replays the dataset's own
+`state`+`questions` protocol, so its
+numbers line up with the card's (Jev 1.13.0 zero-shot: 0.727). What it
+catches that `eval/cases.jsonl` cannot: the same question repeats over
+100 different states, so **argmax constancy** measures whether the model
+reads the state at all. `score --detail` prints it per question — a run
+collapsing ≥95% of answers on a question is predicting the prior, not
+reading (minicpm5-2b zero-shot: 6/20 questions constant, acc 0.502;
+qwen3.8-4b: 8/20, acc 0.561, but its wins concentrate on lucky constants).
+
+```bash
+python3 eval/typed_decisions.py fetch       # test + train, pinned revision
+snap serve --model minicpm5-2b &
+python3 eval/typed_decisions.py answer --kind zero-shot \
+    --out results/typed-decisions/minicpm5-2b.json
+python3 eval/typed_decisions.py score results/typed-decisions/*.json --detail
+```
+
+`--kind` is required and means what the card means: `zero-shot` if the
+model never trained on these workflows, `in-domain` if it did — a run
+fine-tuned on the benchmark's train split is in-domain, and its number is
+not a generalization claim. Runs of different kinds are reported but
+flagged as not comparable. The corpus `tasksource-jev-typed-decisions`
+train rows can feed fine-tuning; the test split never does.
+
 ## Calibration
 
 Raw letter probabilities are honest but uncalibrated: `0.9` does not mean

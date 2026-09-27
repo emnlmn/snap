@@ -329,6 +329,22 @@ def preds_of(run: dict) -> dict:
     return {c["id"]: c["answers"] for c in run["cases"] if "answers" in c}
 
 
+def constancy(run: dict) -> dict:
+    """State-sensitivity probe: for each question, how often its argmax is
+    the modal one across the 100 states. A question that reads the state
+    varies its answer; a collapsed one repeats it regardless. Returns
+    {question: (modal_label, share, n)}."""
+    per_q = defaultdict(Counter)
+    for c in run["cases"]:
+        wf = c["id"].rsplit("_", 1)[0]
+        for name, p in c.get("answers", {}).items():
+            if isinstance(p, dict) and p:
+                per_q[f"{wf}/{name}"][max(p, key=p.get)] += 1
+    return {q: (c.most_common(1)[0][0],
+                c.most_common(1)[0][1] / sum(c.values()), sum(c.values()))
+            for q, c in per_q.items()}
+
+
 def paired(rows: list[dict], base: dict, run: dict, boot: int) -> str:
     """Deltas run − base on the decisions both answered, 95% bootstrap over
     cases, exact two-sided McNemar on accuracy."""
@@ -387,10 +403,17 @@ def score(args) -> None:
         parts = [f"{k} {v['accuracy']:.3f}" for k, v in (r["by_type"] | r["by_workflow"]).items()]
         print(f"  {name:<26} " + "  ".join(parts))
     if args.detail:
-        for name, r in reports.items():
-            print(f"\n{name}: accuracy per question (the card's ceilings range 0.56–0.94)")
+        for name, run in runs.items():
+            r = reports[name]
+            con = constancy(run)
+            collapsed = sum(s >= 0.95 for _, s, _ in con.values())
+            print(f"\n{name}: accuracy per question — const = modal-argmax share, "
+                  f"{collapsed}/{len(con)} questions ≥95% (the card's ceilings range 0.56–0.94)")
             for q, s in r["by_question"].items():
-                print(f"  {q:<44} {s['accuracy']:.3f}  (n={s['decisions']})")
+                lab, share, _ = con.get(q, ("–", 0.0, 0))
+                flag = "  ← constant" if share >= 0.95 else ""
+                print(f"  {q:<44} {s['accuracy']:.3f}  const {share:4.2f} → {lab:<16}"
+                      f"(n={s['decisions']}){flag}")
     if args.against:
         base_name = Path(args.against).stem
         base = json.loads(Path(args.against).read_text(encoding="utf-8"))
@@ -423,7 +446,8 @@ def main() -> None:
     s = sub.add_parser("score")
     s.add_argument("files", nargs="+", help="answer files from `answer`")
     s.add_argument("--against", help="a run to pair the others with (e.g. the base model)")
-    s.add_argument("--detail", action="store_true", help="accuracy per question")
+    s.add_argument("--detail", action="store_true",
+                   help="accuracy + argmax-constancy per question")
     s.add_argument("--boot", type=int, default=2000, help="bootstrap resamples")
     args = ap.parse_args()
     {"fetch": fetch, "baselines": baselines, "answer": answer, "score": score}[args.cmd](args)
