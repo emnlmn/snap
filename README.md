@@ -399,6 +399,24 @@ not a generalization claim. Runs of different kinds are reported but
 flagged as not comparable. The corpus `tasksource-jev-typed-decisions`
 train rows can feed fine-tuning; the test split never does.
 
+### Runs and history
+
+Every report is a create-only JSON under `results/` — a file name is a
+run, never repeated, never overwritten. The standard battery is one
+command per model:
+
+```bash
+eval/run_all.sh qwen3.8-4b qwen-4b        # evaluate + bench + typed-decisions
+TD_KIND=in-domain eval/run_all.sh runs/ft.gguf snap-ft-2b
+python3 eval/history.py                   # the whole timeline, oldest first
+```
+
+`history.py` scans `results/` (and `snap-ft`'s eval results when present)
+and prints one line per report — accuracy, ECE, KL, latency — so whether
+a change helped or regressed is read off a table, not reconstructed from
+memory. Old runs stay on disk as history; a paired view of two specific
+reports is `eval/typed_decisions.py score A.json B.json --against A.json`.
+
 ## Calibration
 
 Raw letter probabilities are honest but uncalibrated: `0.9` does not mean
