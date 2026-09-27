@@ -269,7 +269,8 @@ def main():
 
     out_dir = os.path.dirname(os.path.abspath(args.out)) or "."
     os.makedirs(out_dir, exist_ok=True)
-    log = open(os.path.join(out_dir, "train-log.jsonl"), "x")
+    log = open(os.path.join(
+        out_dir, f"train-log-{os.path.basename(args.out)}.jsonl"), "x")
     trunk, lm_head = trunk_and_head(model)
     best = -1.0
     micro = opt_step = seen = 0
