@@ -401,19 +401,20 @@ train rows can feed fine-tuning; the test split never does.
 
 ### Runs and history
 
-Every report is a create-only JSON under `results/` — a file name is a
-run, never repeated, never overwritten. The standard battery is one
-command per model:
+Every report is a create-only JSON — a file name is a run, never
+repeated, never overwritten. The standard battery (evaluate + bench +
+typed-decisions) is one command, in the training repo:
 
 ```bash
-eval/run_all.sh qwen3.8-4b qwen-4b        # evaluate + bench + typed-decisions
-TD_KIND=in-domain eval/run_all.sh runs/ft.gguf snap-ft-2b
-python3 eval/history.py                   # the whole timeline, oldest first
+cd ../snap-ft
+BASE_GGUF=none eval/compare.sh qwen3.8-4b qwen-4b        # solo run
+eval/compare.sh runs/snap-ft-2b.gguf run1                # paired vs base
+python3 ../snap-rs/eval/history.py                       # the whole timeline
 ```
 
-`history.py` scans `results/` (and `snap-ft`'s eval results when present)
-and prints one line per report — accuracy, ECE, KL, latency — so whether
-a change helped or regressed is read off a table, not reconstructed from
+`history.py` scans `results/` here and `snap-ft`'s `eval/results/` and
+prints one line per report — accuracy, ECE, KL, latency — so whether a
+change helped or regressed is read off a table, not reconstructed from
 memory. Old runs stay on disk as history; a paired view of two specific
 reports is `eval/typed_decisions.py score A.json B.json --against A.json`.
 
