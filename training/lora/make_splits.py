@@ -97,6 +97,10 @@ def main():
     ap.add_argument("--dev", type=float, default=0.05)
     ap.add_argument("--holdout", type=float, default=0.05)
     ap.add_argument("--seed", type=int, default=17)
+    ap.add_argument("--freeze",
+                    help="previous <p>-train/-dev/-holdout.jsonl prefix: "
+                         "groups already assigned there keep their fold, so "
+                         "dev/holdout stay byte-identical for old cases")
     args = ap.parse_args()
 
     outs = {k: f"{args.out_prefix}-{k}.jsonl" for k in ("train", "dev", "holdout")}
@@ -149,6 +153,24 @@ def main():
     gstrata = {g: {stratum(r) for r in groups[g]} for g in group_ids}
 
     assigned = {}
+    n_frozen = 0
+    if args.freeze:
+        frozen = {}
+        for fold in ("train", "dev", "holdout"):
+            p = f"{args.freeze}-{fold}.jsonl"
+            if not os.path.exists(p):
+                continue
+            for r in load_jsonl(p):
+                frozen[group_key(r, chains)] = fold
+        for g in group_ids:
+            if g in frozen:
+                fold = frozen[g]
+                assigned[g] = fold
+                n_frozen += 1
+                for r in groups[g]:
+                    if fold in need:
+                        need[fold][stratum(r)] -= 1
+
     for s in sorted(strata_size, key=strata_size.get):
         for fold in ("dev", "holdout"):
             while need[fold][s] > 0:
@@ -201,6 +223,7 @@ def main():
     report = {
         "total": len(rows), "dropped_dup": dup, "counts": counts,
         "groups": len(group_ids), "multi_stratum_groups": n_multi,
+        "frozen_groups": n_frozen,
         "strata_sizes": {str(k): v for k, v in sorted(strata_size.items())},
         "per_stratum_folds": per_stratum,
         "files": outs, "case_files": case_outs if args.cases else None,

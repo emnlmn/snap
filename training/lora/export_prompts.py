@@ -34,6 +34,7 @@ import itertools
 import json
 import os
 import random
+import re
 import subprocess
 import sys
 import tempfile
@@ -386,6 +387,10 @@ def main():
     ap.add_argument("--drop-contested", action="store_true",
                     help="drop rows where a teacher voice disagrees with gold "
                          "(rows with usable human soft labels are kept)")
+    ap.add_argument("--qfirst-frac", type=float, default=0.0,
+                    help="fraction of cases pinned to question_first "
+                         "(deterministic by base id; 'none of the above' "
+                         "criteria stay on the default layout)")
     args = ap.parse_args()
 
     if os.path.exists(args.out):
@@ -395,8 +400,23 @@ def main():
     stats = {"rows": 0, "noprompt": 0, "nogold": 0, "malformed_soft": 0,
              "dropped_source": 0, "dropped_ids": 0, "capped": 0,
              "contested": 0, "contested_dropped": 0, "abstain_gold": 0,
-             "permuted": 0, "soft_unmatched_rows": 0,
+             "permuted": 0, "qfirst": 0, "soft_unmatched_rows": 0,
              "soft_unmatched_mass": 0.0}
+
+    NOTA = ("none of the above", "nessuna delle precedenti",
+            "none of these", "all of the above", "tutte le precedenti")
+
+    def wants_qfirst(case):
+        if args.qfirst_frac <= 0:
+            return False
+        crit = case["question"].get("criteria")
+        vals = crit.values() if isinstance(crit, dict) else (crit or [])
+        if any(isinstance(t, str) and any(p in t.lower() for p in NOTA)
+               for t in vals):
+            return False
+        bid = re.sub(r"~p\d+$", "", case["id"])  # permuted copies share the pin
+        h = int(hashlib.sha1(bid.encode()).hexdigest(), 16)
+        return (h % 10000) / 10000 < args.qfirst_frac
     rng = random.Random(args.permute_seed)
     drop_ids = set()
     if args.drop_ids:
@@ -424,6 +444,11 @@ def main():
                         continue
                     per_source[src] = n + 1
                 kept.append(c)
+
+            for c in kept:
+                if wants_qfirst(c):
+                    c["layout"] = "question_first"
+                    stats["qfirst"] += 1
 
             expanded = []
             for c in kept:
