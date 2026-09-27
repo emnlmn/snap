@@ -1,159 +1,211 @@
 <p align="center">
-  <img src="assets/logo.png" width="180" alt="SNAP logo"/>
+  <img src="assets/logo.png" width="180" alt="snap logo"/>
 </p>
 
-<h1 align="center">SNAP</h1>
+<h1 align="center">snap</h1>
 
 <p align="center">
   <b>Single-pass Neural Answer Probabilities</b><br/>
-  Typed decisions from unstructured state — one forward pass, zero generated text.<br/>
-  <sub>local · deterministic · drop-in Jev compatible</sub>
+  Ask everything. Generate nothing.<br/>
+  <sub>local · deterministic · Jev wire-compatible · <a href="https://emnlmn.github.io/snap/">emnlmn.github.io/snap</a></sub>
 </p>
 
 <p align="center">
   <a href="https://github.com/emnlmn/snap/actions/workflows/ci.yml"><img src="https://github.com/emnlmn/snap/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
   <a href="https://github.com/emnlmn/snap/releases/latest"><img src="https://img.shields.io/github/v/release/emnlmn/snap" alt="release"/></a>
-  <img src="https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux-lightgrey" alt="platforms: macOS · Linux"/>
+  <img src="https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey" alt="platforms: macOS · Linux · Windows"/>
   <a href="https://opensource.org/license/mit"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT"/></a>
 </p>
 
 ---
 
-Your LLM pipeline doesn't need to *write* anything. It needs to *decide*.
+snap is a decision engine for LLM pipelines. The input is your data plus
+every question you have about it; the output is a set of typed answers,
+each with its full probability distribution, from a single pass over the
+model. There is no generated text, so there is nothing to parse, retry or
+clean up.
 
-Yet somewhere in your stack there's a prompt asking for JSON, a parser that
-mostly works, a retry loop for when it doesn't — and a token bill for
-thousands of generated words you immediately throw away. All that machinery
-exists for one reason: the only way you can interrogate a chat model is to
-let it talk.
+A pipeline that asks a chat model for a label usually carries a prompt
+that asks for JSON, a parser that works most of the time, a retry loop for
+the times it doesn't, and a bill for tokens that are thrown away right
+after parsing. All of that exists because a chat model answers by
+writing. snap reads the answer out of the model instead.
 
-SNAP never lets it talk.
-
-Every question compiles to a prompt whose first answer token must be a
-letter — `A` through `Z`, one per option. SNAP reads the logits at that
-single position, pools the letter variants, and softmaxes them into a
-distribution. The jaw snaps shut on the answer. One `llama_decode` per
-question. No prose, no parsing, no retries, no hallucinated JSON keys.
+Every question becomes a prompt whose answer is a single letter, `A` to
+`Z`, one per option. snap runs the model once, reads the logits at that
+one position, merges the tokens that spell the same letter and turns them
+into a distribution with a softmax. The questions of a request share one
+batched `llama_decode` call.
 
 ```jsonc
 // in
 {
-  "state": "ticket, CRM record, sensor dump — anything",
+  "state": "a ticket, a CRM record, a sensor dump: anything",
   "questions": {
-    "route":  {"type": "choice",  "criteria": {"billing": "…", "tech": "…"}},
-    "urgent": {"type": "boolean", "instructions": "SLA breach likely?"},
-    "impact": {"type": "score",   "criteria": ["low", "mid", "high"]}
+    "route":  {"type": "choice", "criteria": {"billing": "…", "tech": "…"}},
+    "urgent": {"type": "noul",   "instructions": "SLA breach likely?"},
+    "impact": {"type": "score",  "criteria": ["low", "mid", "high"]}
   }
 }
 
-// out — one distribution per question
+// out: one distribution per question (status, coverage and x_snap left out)
 {
   "answers": {
     "route":  {"choice": "billing", "probabilities": {"billing": 0.87, "tech": 0.13}},
-    "urgent": {"boolean": true,  "confidence": 0.94},
+    "urgent": {"noul": 0.97, "boolean": true, "confidence": 0.94},
     "impact": {"level": 2, "score": 0.81}
   }
 }
 ```
 
-## Why it bites
+## What it's for
 
-- **Decisions, not documents.** The output surface is a fixed alphabet of
-  letters. Structured by construction — there is nothing downstream to
-  parse, validate, or repair.
-- **The prompt is the API.** `noul`, `choice`, `score`, `numeric`,
-  abstention (`__abstain__`), out-of-range anchors — typed contracts
-  with explicit uncertainty instead of a confident hallucination.
-- **Probabilities you can threshold.** `snap calibrate` fits a
-  temperature per question type on your labeled cases — bound to the
-  model and prompt version, with ECE printed before and after.
-- **Choices past the alphabet.** More than 26 options? Each candidate
-  gets its own yes/no probe, batched over the same shared prefix, and
-  the scores merge into one distribution. Up to 256.
-- **State amortized.** Every prompt of a request decodes as one
-  shared-prefix trie in **a single batched call**: the state — and any
-  text several questions share — is evaluated once, on every architecture,
-  hybrids included. The constant prompt head stays resident between
-  requests.
-- **Questions amortized too.** `layout: question_first` flips the prompt —
-  the question head is identical across requests and stays cached on its
-  own KV sequence (LRU-bounded). Repeat
-  workloads — the same triage questions on a stream of tickets — decode
-  only the state.
-- **Honest internals.** `x_snap` reports exactly what happened:
-  `prompt_tokens` against the tokens actually decoded
-  (`usage.input_tokens`), `cached_head_tokens`, `shared_prefix_tokens`,
-  `cache_hits/misses`, `waves`, decode/total ms. Every answer also carries
-  `coverage` — how much of the model's raw next-token mass landed on the
-  allowed letters at all.
+snap is the shorter path for any label, flag or score you would otherwise
+prompt a model for and then parse: routing and triage of support tickets,
+a check on an agent's tool call before it runs, the severity of an
+incident page, a moderation verdict on a listing, the document that
+answers a search query, a judgment on whether an answer is faithful to its
+context, the qualification of an inbound lead. The
+[site](https://emnlmn.github.io/snap/#use-cases) shows each of these with
+a real request and snap's real response.
+
+## How it works
+
+1. **Letter prompts.** Each question becomes a prompt that stops exactly
+   where the first token of the answer goes. Each option gets a letter,
+   so the whole answer is a single token: a yes/no question (`noul`) gets
+   A and B, a `choice` one letter per option, a `score` one per level, a
+   `numeric` question one per anchor value across your range.
+2. **One shared prefill.** The state goes through the model once, and
+   what the model computes from it, the KV cache, is shared by every
+   question. The prompts of a request form a shared-prefix tree, so any
+   text several questions have in common is computed once, and the
+   constant prompt head stays resident between requests.
+3. **One batched decode.** All the questions decode together in a single
+   `llama_decode` call, with one KV sequence each: four questions cost one
+   pass, not four conversations. Hybrid and recurrent architectures take
+   the same path with fewer parallel sequences (17 instead of 65). snap
+   detects the architecture at startup, with nothing to configure.
+4. **One logit row.** For each question snap reads a single row of
+   logits, keeps only the option letters, merges the variants of the same
+   letter (like `A` and ` A`) and applies a softmax. `coverage` reports
+   how much of the model's raw next-token probability landed on those
+   letters.
+
+These 26 letters are the entire output surface. With more than 26
+options, each option gets its own yes/no probe over the same shared
+prefix, up to 256.
+
+The question can also come before the state. With `layout:
+question_first` the question head is identical across requests and stays
+cached on its own KV sequence (LRU-bounded), so a repeat workload, such as
+the same triage questions on a stream of tickets, decodes only the state.
+
+Every response carries `x_snap`, an account of what the engine did: the
+prompt tokens against the tokens actually decoded
+(`usage.input_tokens`), `cached_head_tokens`, `shared_prefix_tokens`,
+`cache_hits`/`cache_misses`, `waves`, and decode and total milliseconds.
 
 ## The API — drop-in Jev, extended
 
-`POST /v1/systemone` speaks the TypeSafe/Jev wire format. Point your
-existing client at a local `snap serve` and it works — `noul`, `choice`,
-`score`, same response shape. One surface, no parallel API.
+`POST /v1/systemone` speaks the TypeSafe/Jev wire format. A client
+written for Jev works unchanged against a local `snap serve`: same `noul`,
+`choice` and `score` questions, same response shape. There is one
+endpoint and no parallel API.
 
-The same request accepts optional snap extensions; Jev clients can ignore
-them and defaults preserve Jev semantics:
+The same request accepts optional snap extensions. Jev clients can ignore
+them, and the defaults preserve Jev semantics:
 
 | field | extension |
 |---|---|
-| question `"type": "numeric"` | `{min, max, granularity}` — distribution over a numeric range |
+| question `"type": "numeric"` | `{min, max, granularity}` or `{min, max, step}`: a distribution over a numeric range |
 | question `allow_abstain` | default `false`; `true` adds an `__abstain__` slot (status `abstained`) |
-| request `mode` | `shared` (default: shared text decoded once, spans cached across requests) or `direct` (every question decoded alone — the reference path) |
+| request `mode` | `shared` (default: shared text decoded once, spans cached across requests) or `direct` (every question decoded alone, the reference path) |
 | request `layout` | `auto` (default), `state_first`, `question_first`, `header`, `catalog` |
-| request `expand` | `probes` (default) or `pages` — how >26-option choices expand |
-| request `compact_state` | default `false`; `true` renders object states as compact lines/csv rows |
+| request `expand` | `probes` (default) or `pages`: how a choice with more than 26 options expands |
+| request `compact_state` | default `false`; `true` renders object states as compact lines or CSV rows |
 
-`layout` controls where the question sits relative to the state.
-`question_first` makes the question head cacheable across requests and
-reads more accurately on short states; `state_first` prefills a long
-document once for all questions; `header` lists every question before the
-state so the document is encoded with all of them in view. `auto` picks
-`question_first` only when the question heads outweigh the state — the
-case where warm caches win (qf re-decodes the state per question, sf
-decodes it once). It falls back to `state_first` for states > 2000 chars
-(even a single question reads a long document better after it), whenever any question has `allow_abstain` (an
-abstain slot read before the evidence primes abstention), or when the
-state is bigger than the heads. `catalog` lists every question (numbered,
-instructions only) before the state, then each item is just a
-`QUESTION i — name` pointer plus its OPTIONS — the `[head+catalog]` span
-caches across requests on the same question set, so a stream of different
-states decodes only the state once plus a ~20-token tail per question.
-The resolved layout is in `x_snap`.
+`layout` decides where the question sits relative to the state:
 
-Answers carry extras on top of the Jev shape — `status`, `confidence`,
-full `probabilities`, and typed fields (`boolean`, `level`, `value`) —
-which Jev clients simply ignore.
+- `state_first` puts the state first, so a long document is prefilled
+  once for all the questions.
+- `question_first` puts the question head first. The head caches across
+  requests and reads more accurately on short states, but the state is
+  decoded again for each question.
+- `header` lists every question before the state, so the document is
+  encoded with all of them in view.
+- `catalog` lists every question before the state, numbered and with
+  instructions only, then each item is a `QUESTION i — name` pointer plus
+  its options. The head and catalog span caches across requests on the
+  same question set, so a stream of different states costs one state
+  decode plus a tail of about 20 tokens per question.
+- `auto`, the default, picks `question_first` only when the question heads
+  outweigh the state, which is where warm caches win. It falls back to
+  `state_first` for states over 2000 characters (even a single question
+  reads a long document better after it), whenever a question has
+  `allow_abstain` (an abstain slot read before the evidence primes
+  abstention), and whenever the state is bigger than the heads.
 
-`choice` is not bounded by the alphabet: past 26 options (256 max) the
-question expands. `expand: probes` (default) scores each option with an
-independent probe — *is this candidate the correct answer?* — batched in
-waves over the shared prefix, then yes-masses normalize into the returned
-distribution; with `allow_abstain`, no candidate reaching 0.5 abstains.
-`expand: pages` instead splits candidates into equal-size pages of ≤26
-real choices — far fewer decode items, but page-conditional probabilities
-and no abstention.
+The resolved layout is reported in `x_snap`.
 
-## Local AI — security by construction
+Answers carry extras on top of the Jev shape, which Jev clients simply
+ignore: `status`, `confidence`, `coverage`, the full `probabilities`, and
+typed fields (`boolean`, `level`, `value`).
 
-- **Data never leaves the machine.** Weights are a GGUF on disk,
-  downloaded once from HuggingFace. No API key, no telemetry, no third
-  party reading your customers' tickets.
-- **Deterministic.** Same input, same distribution. Log it, replay it,
-  threshold it — every answer ships with its full probability map.
-- **Nothing to jailbreak.** The model cannot emit a payload because it
-  cannot emit text. Prompt injection can nudge a distribution; it cannot
-  speak.
-- **One static binary.** `cargo build --release` → `snap`. A container, a
-  VM, an air-gapped box — no Python, no runtime deps.
+A `choice` is not bounded by the alphabet: past 26 options, up to 256,
+the question expands. With `expand: probes`, the default, each option gets
+an independent probe (*is this candidate the correct answer?*), batched in
+waves over the shared prefix, and the yes-probabilities are normalized
+into the returned distribution; with `allow_abstain`, the question
+abstains when no candidate reaches 0.5. With `expand: pages` the
+candidates are split into equal pages of at most 26 real options: far
+fewer decode items, at the cost of page-conditional probabilities and no
+abstention.
+
+The full surface is in [`openapi.yaml`](openapi.yaml).
+
+## Security
+
+**No text channel for prompt injection.** Injection works by getting a
+model to produce text you didn't intend: a leaked system prompt, a
+smuggled tool call, a link your UI renders. snap never produces text.
+What leaves the engine is a probability over options you wrote, in a JSON
+shape the server builds, not the model.
+
+| attack | LLM that generates text | snap |
+|---|---|---|
+| data exfiltration through the response | possible, the response is free text | no text channel: answers are numbers keyed by your option names |
+| a smuggled tool call or command | possible, the model writes the call | nothing to execute: your code maps a decided option to an action you wrote |
+| a leaked system prompt or context | possible, it can be asked to repeat itself | nothing is generated for it to leak into |
+| markup or links injected downstream | possible, output gets rendered in a UI or an email | the response schema is fixed by the server |
+| a broken output format | handled with validators, repair and retries | impossible, the model doesn't write the response |
+| persuasion toward a different answer | possible, and invisible in the output | still possible, but limited and measurable |
+
+The last row is the residual risk. Text in the state can only shift
+probability between your options, and that shift shows up as a split
+`confidence` or a low `coverage`; `allow_abstain` gives the model a way to
+say it can't tell. Set a threshold and send those cases to a person.
+
+- **On your hardware.** A single binary with llama.cpp built in, the same
+  on a laptop, a VM, a Kubernetes pod or an air-gapped rack. There is also
+  a fully static Linux build, with no Python and no runtime to keep
+  patched.
+- **No data egress.** No API key, no telemetry, no third party handling
+  your records. The weights are a GGUF file on disk, downloaded once from
+  Hugging Face; after that snap runs offline.
+- **Auditable.** The same input always gives the same distribution. The
+  full probabilities can be logged with every decision and replayed
+  later, and `x_snap` shows what the engine did.
+- **Open source.** MIT-licensed Rust, readable end to end. Models come
+  from a tested list, and a calibration file refuses to load with a
+  different model or prompt version than the one it was fitted on.
 
 ## Performance
 
-Apple M1 Max, Metal, in-process `snap bench --requests 20`, p50. Every
-request carries a fresh state — a stream of new documents — so only what
-production can reuse gets reused: the template head and the question
-heads.
+Apple M1 Max with Metal, in-process `snap bench --requests 20`, medians.
+Every request carries a fresh state, as in a stream of new documents, so
+only what production can reuse gets reused: the template head and the
+question heads.
 
 | scenario | minicpm5-2b Q4_K_M | spark-4b Q8_0 | qwen3.8-4b Q4_K_M |
 |---|---:|---:|---:|
@@ -164,107 +216,141 @@ heads.
 | 8 questions on a 1.8 KB document | 1887 ms (236 ms/q) | 3278 ms (410 ms/q) | 3327 ms (416 ms/q) |
 | 4 KB state, 1 question | 1364 ms | 2476 ms | 2164 ms |
 
-The `direct` row decodes every question on its own: the gap to the row
-above it is what prefix sharing and the cached question heads buy. The
-hybrid qwen3.8 runs the same batched path, with 17 parallel sequences
+The `direct` row decodes every question on its own: its distance from the
+row above is the gain from prefix sharing and cached question heads. The
+hybrid qwen3.8 runs the same batched path with 17 parallel sequences
 instead of 65.
 
 ### …and against the same weights through Ollama
 
-Ollama 0.34.3 serving `openbmb/minicpm5-2b` (its own packaging of the
-same MiniCPM5-2B Q4_K_M), same machine, both over HTTP, p50 of 15, each
-engine's requests back to back, and every request a state that engine
-has never seen. Ollama runs `think:false` at temperature 0, with the
-fixed question text first so its prefix cache reuses it the way SNAP's
-does. `python3 eval/vs_ollama.py` reproduces the table.
+Ollama 0.34.3 serving `openbmb/minicpm5-2b`, its own packaging of the same
+MiniCPM5-2B Q4_K_M, on the same machine. Both engines run over HTTP,
+medians of 15, each engine's requests back to back, and every request
+carries a state that engine has never seen. Ollama runs with
+`think:false` at temperature 0, with the fixed question text first so its
+prefix cache reuses it the way snap's does. `python3 eval/vs_ollama.py`
+reproduces the table.
 
-| workload | Ollama, JSON + probabilities | Ollama, JSON answers | Ollama, one letter each | SNAP | vs fastest Ollama |
+| workload | Ollama, JSON + probabilities | Ollama, JSON answers | Ollama, one letter each | snap | vs fastest Ollama |
 |---|---:|---:|---:|---:|---:|
 | 1 question | 898 ms (69 tok) | 163 ms (9 tok) | 61 ms | 54 ms | −11% |
 | 4 questions | 3704 ms (282 tok) | 342 ms (26 tok) | 257 ms | 135 ms | −48% |
 | 8 questions | 7874 ms (562 tok) | 732 ms (50 tok) | 504 ms | 263 ms | −48% |
 | 5 KB state, 1 question | 3872 ms (73 tok) | 2738 ms (8 tok) | 2650 ms | 2226 ms | −16% |
 
-- **One letter per question** is Ollama's floor: a letter of text to
-  parse, no probabilities, one request per question (asked for every
-  letter in one reply, `"A,C,B"`, it stopped early at 4 and 8
-  questions). On a single question it comes close to SNAP (61 vs 54 ms):
-  same prompt, one position read. SNAP pulls ahead as questions are
-  added, because they share one pass instead of one request each.
-- **JSON** is what a pipeline actually wires, under a schema. Asked for
-  what a SNAP answer carries (key, confidence, a probability per option)
-  Ollama writes every token of it, and those probabilities are text the
-  model made up; SNAP's come from the logits.
-- **A long state with one question** is bound by prefill on both sides;
-  the gap there is prefill speed, not the method.
+- **One letter per question** is the quickest Ollama can go, and it still
+  means a letter of text to parse, no probabilities and one request per
+  question. Asked for every letter in a single reply (`"A,C,B"`), it
+  stopped early at 4 and 8 questions. On a single question it comes close
+  to snap (61 against 54 ms), since the prompt is the same and one
+  position is read; snap pulls ahead as questions are added, because they
+  share one pass instead of one request each.
+- **JSON under a schema** is what a pipeline actually wires. Asked for
+  what a snap answer carries (key, confidence, a probability per option),
+  Ollama writes every token of it, and its probabilities are text the
+  model made up; snap's come from the logits.
+- **A long state with one question** is bound by prefill on both sides,
+  so the gap there comes from prefill speed, not from the method.
+
+### …and against a hosted API
+
+`eval/vs_openai.py` sends the same prompts and JSON schemas to
+gpt-5.6-luna with reasoning turned off, medians of 5 requests (each call
+is billed). The time includes network and queue, because that is the
+wait a pipeline sees when the model it would call instead is an API away.
+
+| workload | OpenAI, JSON + probabilities | OpenAI, JSON answers | snap (M1 Max) |
+|---|---:|---:|---:|
+| 1 question | 1677 ms (60 tok) | 1170 ms (13 tok) | 54 ms |
+| 4 questions | 2829 ms (219 tok) | 1235 ms (31 tok) | 135 ms |
+| 8 questions | 3707 ms (431 tok) | 2013 ms (55 tok) | 263 ms |
 
 ## Accuracy
 
-`snap evaluate eval/cases.jsonl` — one file, one report: accuracy and
-**balanced accuracy** (mean per-class recall) against ground truth, plus
-the quality of the distributions themselves: **Brier score** and **ECE**
-(expected calibration error on the top probability). Cases can ship
-`variants` — paraphrased `state`/`question` fields — and the report adds
-a **consistency** block: answer agreement and mean probability drift,
-broken down per perturbation kind. SNAP also auto-generates stability
-probes per case — option-order reversal (positional bias), a
-meaning-preserving criterion rewording, and an unrelated-context
-injection — `--no-perturb` skips them. Line format:
-`{"id", "state", "question", "expect", "variants"?, "requires_abstain"?,
-"layout"?, "expand"?, "compact_state"?}`. Base cases use `<domain>-NN`
-ids, adversarial cases `edge-<stress>-NN` — the tables below split by
-tier.
+`snap evaluate eval/cases.jsonl` produces one report from one file:
+accuracy and **balanced accuracy** (mean per-class recall) against ground
+truth, plus the quality of the distributions themselves, as **Brier
+score** and **ECE** (expected calibration error on the top probability).
+Cases can ship `variants`, paraphrased `state` or `question` fields, and
+the report then adds a **consistency** block with answer agreement and
+mean probability drift, broken down per perturbation kind. snap also
+generates three stability probes per case: the option order reversed
+(positional bias), the criterion reworded without changing its meaning,
+and an unrelated context injected; `--no-perturb` skips them.
 
-Measured with the API's own defaults — `layout: auto`, no abstain slot
-unless a case asks for one — i.e. exactly what `/v1/systemone` serves:
+Line format: `{"id", "state", "question", "expect", "variants"?,
+"requires_abstain"?, "layout"?, "expand"?, "compact_state"?}`. Base cases
+use `<domain>-NN` ids and adversarial cases `edge-<stress>-NN`.
 
-| model | base (52) | edge (19) | ms/case |
+The numbers below come from the 303 cases of `eval/cases.jsonl`, measured
+with the API's own defaults (`layout: auto`, no abstain slot unless a
+case asks for one), which is exactly what `/v1/systemone` serves. The two
+`edge-contested` cases have no single right answer and carry no
+expectation, so accuracy is scored on 301.
+
+| model | accuracy | balanced | ms/case |
 |---|---:|---:|---:|
-| qwen3.8-4b Q4_K_M | **94.2%** | **79.0%** | ~210 |
-| spark-4b Q8_0 | 92.3% | **79.0%** | ~180 |
-| minicpm5-2b Q4_K_M | 80.8% | 57.9% | ~95 |
+| qwen3.8-4b Q4_K_M | **86.4%** | **66.7%** | ~300 |
+| spark-4b Q8_0 | 85.7% | 57.5% | ~245 |
+| minicpm5-2b Q4_K_M | 69.1% | 48.1% | ~135 |
 
-These sets are small: the 95% interval is about ±7–11 points on the 52
-base cases and ±17–20 on the 19 edge cases, so a few points between the
-4B models is noise.
+The 95% interval is about ±4 points at 301 cases, so the gap between the
+two 4B models is noise. Balanced accuracy averages recall over answer
+positions (A, B, C…), so rare late positions, such as numeric anchors or
+the tail of a long choice list, weigh as much as A and B: that is why it
+sits well below plain accuracy.
 
-Distribution quality (lower is better; same runs):
+Accuracy per question type:
 
-| model | brier base | brier edge | ECE base | ECE edge |
-|---|---:|---:|---:|---:|
-| qwen3.8-4b Q4_K_M | 0.126 | 0.201 | 0.159 | 0.151 |
-| spark-4b Q8_0 | 0.157 | 0.370 | 0.101 | 0.190 |
-| minicpm5-2b Q4_K_M | 0.300 | 0.627 | 0.079 | 0.281 |
+| model | choice | noul | boolean | score | numeric |
+|---|---:|---:|---:|---:|---:|
+| qwen3.8-4b | 91% | 91% | 84% | 86% | 58% |
+| spark-4b | 83% | 95% | 95% | 79% | 76% |
+| minicpm5-2b | 68% | 74% | 90% | 67% | 52% |
 
-The ECE column is why calibration exists: qwen is *under*confident (73%
-mean confidence at 94% accuracy on base), spark is overconfident where
-it's weaker (87% confidence at 79% on edge) — both fixable by
-`snap calibrate`, both invisible to accuracy alone.
+`numeric` is the weakest type on every model: a value read off anchor
+letters misses more often than a label does.
 
-Stability on base — how often the answer survives a perturbation that
-shouldn't change it:
+Distribution quality, lower is better for Brier and ECE, from the same
+runs:
+
+| model | brier | ECE | mean confidence |
+|---|---:|---:|---:|
+| qwen3.8-4b Q4_K_M | 0.200 | 0.121 | 67.0% |
+| spark-4b Q8_0 | 0.242 | 0.059 | 86.0% |
+| minicpm5-2b Q4_K_M | 0.457 | 0.124 | 66.8% |
+
+The ECE column is the reason calibration exists, and accuracy alone
+doesn't show it. spark comes out of the box close to calibrated, with
+86.0% mean confidence at 85.7% accuracy. qwen is *under*confident, with
+67% confidence at 86% accuracy, and `snap calibrate` brings its ECE from
+0.121 to 0.047 out of fold (see [Calibration](#calibration)).
+
+Stability, as the share of answers that survive a perturbation that
+shouldn't change them (option reversal applies only to the 127 `choice`
+cases):
 
 | model | options reversed | instruction reworded | unrelated context added |
 |---|---:|---:|---:|
-| qwen3.8-4b | 91% | 90% | 90% |
-| spark-4b | 91% | 81% | 92% |
-| minicpm5-2b | 68% | 81% | 88% |
+| qwen3.8-4b | 87% | 85% | 84% |
+| spark-4b | 83% | 77% | 83% |
+| minicpm5-2b | 69% | 72% | 79% |
 
-Reversing the option order flips a third of MiniCPM's choices: letter
-and position bias is the main weakness of small models answering by
-letter. MiniCPM-2B is the speed/footprint option; the 4B models are the
-production pick.
+Reversing the option order flips almost a third of MiniCPM's choices:
+letter and position bias is the main weakness of small models answering
+by letter. MiniCPM-2B is the option for speed and footprint; the 4B
+models are the production pick.
 
 ### TypeSafe's public cases
 
 `eval/typesafe_public.py` runs the 20 public cases from
-[evals.typesafe.ai](https://evals.typesafe.ai) — four workflows, 373
-decisions, reference = frontier consensus — against a running `snap serve`,
-then scores agreement the same way
-[jev-on-a-laptop](https://github.com/rorshopping/jev-on-a-laptop) does, so
-numbers are comparable across Jev reproductions (extraction logic adapted
-from it, MIT). TypeSafe's raw case data is fetched at runtime, never
-committed.
+[evals.typesafe.ai](https://evals.typesafe.ai) (four workflows, 373
+decisions, with frontier consensus as the reference) against a running
+`snap serve`. It scores agreement the same way
+[jev-on-a-laptop](https://github.com/rorshopping/jev-on-a-laptop) does,
+so the numbers are comparable across Jev reproductions; the extraction
+logic is adapted from it (MIT). TypeSafe's raw case data is fetched at
+runtime and never committed.
 
 ```bash
 python3 eval/typesafe_public.py fetch && python3 eval/typesafe_public.py extract
@@ -273,64 +359,69 @@ python3 eval/typesafe_public.py answer --out results/typesafe-public/snap-qwen38
 python3 eval/typesafe_public.py score results/typesafe-public/snap-qwen38.json
 ```
 
-qwen3.8-4b on an M1 Max: **73.2%** agreement over the 373 decisions
-(Security 35/48, AgentTrace 32/49, Invoice 130/184, CustomerSvc 76/92) —
-87% on yes/no questions, 56% on scores, 48% on choices, ~1.1 s per
-decision. The misses are not random: half are on the invoices, where
-whole question families cross-check a ~7k-token document (is this line
-really delivered, is this price really approved) and a 4B model
-answering in one token disagrees systematically with reasoning frontier
-models — the kind of question to route elsewhere when a calibrated
-answer comes back `contested`.
+qwen3.8-4b on an M1 Max reaches **73.2%** agreement over the 373
+decisions (Security 35/48, AgentTrace 32/49, Invoice 130/184, CustomerSvc
+76/92): 87% on yes/no questions, 56% on scores and 48% on choices, at
+about 1.1 s per decision. The misses are not random. Half of them are on
+the invoices, where whole families of questions cross-check a document of
+about 7k tokens (is this line really delivered, is this price really
+approved), and a 4B model answering in one token disagrees systematically
+with frontier models that reason first. That is the kind of question to
+route elsewhere when a calibrated answer comes back `contested`.
 
 ## Calibration
 
-Raw letter logits are honest but uncalibrated: `0.9` does not mean
-"right 90% of the time" until you measure it. `snap calibrate` runs
-your eval cases, collects every emitted distribution with its
-ground-truth target, and fits one temperature per question type:
+Raw letter probabilities are honest but uncalibrated: `0.9` does not mean
+"right 90% of the time" until you measure it. `snap calibrate` runs your
+eval cases, collects every distribution with its ground-truth target and
+fits one temperature per question type:
 
 ```bash
 snap calibrate --model qwen3.8-4b eval/cases.jsonl -o calibration.json
-# fitted on 69 cases (2 skipped)
-#   boolean  T=0.477   choice  T=0.474   numeric  T=1.000   score  T=0.774
-# ece  0.127 raw -> 0.089 in-sample | 0.106 out-of-fold  CI95 [0.055, 0.185]
-# caveat: OOF interval overlaps raw ECE — gain not proven at this n
+# fitted on 295 cases (8 skipped)
+#   boolean  T=0.558
+#   choice   T=0.395
+#   numeric  T=0.867
+#   score    T=0.573
+# ece  0.121 raw -> 0.041 in-sample | 0.047 out-of-fold  CI95 [0.037, 0.087]
+# gain is CI-separated from raw at 95% — real, not fitting noise
 snap serve --model qwen3.8-4b --calibration calibration.json
 ```
 
-(T &lt; 1 sharpens: qwen3.8 is *under*confident on this set. The caveat
-line is printed whenever the evidence doesn't separate — that's the
-point of reporting it.)
+A temperature below 1 sharpens the distribution, and here all four are
+below 1: qwen3.8 is *under*confident on every question type. The last
+line is the verdict. In this run the whole out-of-fold interval sits
+below the raw ECE, so the gain is real; when the interval overlaps the
+raw value, snap prints `caveat: … gain not proven at this n` instead.
 
-Three ECE numbers are printed, and they mean different things. **Raw**
-is where you start. **In-sample** is scored on the same cases the fit
-saw — optimistic by construction, kept for reference. **Out-of-fold**
-is the honest one: every case is scored with a temperature fit on the
-*other* folds (5-fold, group-disjoint — a case's variants never leak
-across folds). The 95% bootstrap interval resamples whole cases, and
-the report flags whether the gain actually separates from raw at that
-confidence — at these sample sizes, read the interval, not the point.
+The report prints three ECE numbers with different meanings. **Raw** is
+the starting point. **In-sample** is scored on the same cases the fit
+saw, optimistic by construction and kept for reference. **Out-of-fold**
+is the honest one: every case is scored with a temperature fitted on the
+*other* folds (5-fold, group-disjoint, so a case's variants never leak
+across folds). The 95% bootstrap interval resamples whole cases, and the
+report flags whether the gain separates from raw at that confidence. At
+these sample sizes, read the interval, not the point.
 
-The file binds to the exact model id and prompt version — a calibration
-fitted on another build refuses to load. `--calibration` is accepted by
-`serve`, `-p`, `evaluate`, `bench`. This is post-hoc scaling, not
-retraining: a single scalar corrects over/under-confidence, not the
-shape of the distribution, and it holds only as far as your eval data
-resembles production traffic.
+The calibration file binds to the exact model id and prompt version, and
+a file fitted on another build refuses to load. `--calibration` is
+accepted by `serve`, `-p`, `evaluate` and `bench`. This is post-hoc
+scaling, not retraining: a single scalar corrects over- or
+under-confidence, not the shape of the distribution, and it holds only as
+far as your eval data resembles production traffic.
 
 ## Quickstart
 
-Prebuilt binaries on
-[GitHub Releases](https://github.com/emnlmn/snap/releases):
+Prebuilt binaries are on
+[GitHub Releases](https://github.com/emnlmn/snap/releases).
 
-macOS (Apple Silicon) via Homebrew:
+macOS on Apple Silicon, with Homebrew:
 
 ```bash
 brew install emnlmn/snap/snap
 ```
 
-or the tarball:
+or with the tarball:
 
 ```bash
 mkdir -p ~/snap && curl -L https://github.com/emnlmn/snap/releases/latest/download/snap-macos-arm64.tar.gz | tar xz -C ~/snap
@@ -340,23 +431,75 @@ Linux x86_64:
 
 ```bash
 mkdir -p ~/snap && curl -L https://github.com/emnlmn/snap/releases/latest/download/snap-linux-x86_64.tar.gz | tar xz -C ~/snap
+ln -sf ~/snap/snap ~/.local/bin/snap   # optional: put it on PATH
 ```
 
-`snap` and the `lib*.so*` files must stay in the same directory
-(`$ORIGIN` rpath) — that's why it installs to a folder, not a bin dir.
-`~/snap/snap` runs as-is; `ln -sf ~/snap/snap ~/.local/bin/snap` puts
-it on PATH. Other assets: `linux-x86_64-v3` (single-file AVX2),
+Windows x86_64: download
+[`snap-windows-x86_64.tar.gz`](https://github.com/emnlmn/snap/releases/latest/download/snap-windows-x86_64.tar.gz),
+unpack it with `tar xzf snap-windows-x86_64.tar.gz` and run `.\snap serve`
+from that folder.
+
+The Linux and Windows builds ship `snap` next to its runtime libraries,
+and the two must stay in the same directory (on Linux through the
+`$ORIGIN` rpath): that is why the install goes to a folder rather than a
+bin directory. Other Linux assets: `linux-x86_64-v3` (single file, AVX2),
 `linux-x86_64-musl` (fully static), `linux-aarch64`,
-`linux-x86_64-vulkan`. macOS isn't notarized — a browser-quarantined
-tarball may need `xattr -d com.apple.quarantine ~/snap/snap`. First
-inference pulls the model GGUF (~1.5 GB), then offline.
+`linux-x86_64-vulkan`. The macOS build isn't notarized, so a tarball
+quarantined by the browser may need
+`xattr -d com.apple.quarantine ~/snap/snap`.
 
-Once a day `snap` checks GitHub for a newer release and prints a line on
-stderr — never on stdout, never in `-p`. `SNAP_NO_UPDATE_CHECK=1` turns
-it off.
+Then:
 
-Or build from source — llama.cpp is vendored and compiled at first
-build (~2 min), Metal on by default on Apple Silicon:
+```bash
+snap serve   # minicpm5-2b on port 8018, then open http://localhost:8018/playground
+```
+
+The first run downloads the model GGUF once (1.5 to 4 GB depending on the
+model); after that everything runs offline. Once a day `snap` checks
+GitHub for a newer release and prints a line on stderr, never on stdout
+and never in `-p`; `SNAP_NO_UPDATE_CHECK=1` turns the check off.
+
+### Commands
+
+```bash
+snap models                                 # the tested models
+snap -p '{"state":"…","questions":{"urgent":{"type":"noul"}}}'   # one-shot request
+snap -p request.json                        # the same, from a file (stdin works too)
+snap serve --model qwen3.8-4b --port 8018   # HTTP server
+snap ps                                     # running servers (pid, model, uptime, state)
+snap stop                                   # stop the only server; --all / --port / --pid for more
+snap evaluate eval/cases.jsonl              # accuracy + brier/ece + consistency
+snap calibrate eval/cases.jsonl -o cal.json # fit temperatures into a calibration file
+snap bench --requests 20                    # latency and throughput
+```
+
+`--model` takes a name from `snap models`, and only from that tested set.
+A GGUF that loads is not a GGUF that answers correctly, so a new
+candidate gets a row in `src/models.rs` only after it passes the eval
+cases.
+
+`--ctx` (default 8192 tokens, about 6k words) is the KV pool. Every
+prompt, meaning state, question and options, must fit in it, and the
+questions in flight share it with the cache; more questions than fit
+simply run in more waves. The pool is reserved in full at startup: about
+42 KB per token for minicpm5-2b, about 144 KB per token for spark-4b (its
+sliding-window layers keep full-size KV so that prefixes can be forked),
+and about 32 KB per token for qwen3.8-4b plus about 0.85 GB of recurrent
+state. That is roughly 0.34 / 1.1 / 0.25 GB at `8192` and 1.3 / 4.5 / 1
+GB at `32768`, on top of the weights. Inputs that don't fit are rejected
+with a 422, never truncated, so raise the pool only when your states need
+it: `snap serve --ctx 32768`. The default is deliberately not the model's
+maximum: spark advertises 1M tokens, which would mean a reservation of
+about 140 GB.
+
+`--threads` (default 0, meaning all available cores) sets llama.cpp's
+decode threads. It matters on CPU-only builds and barely at all on GPU
+backends; llama.cpp's own default of 4 starves prefill on a bigger box.
+
+### From source
+
+llama.cpp is vendored and compiled on the first build (about 2 minutes),
+with Metal on by default on Apple Silicon:
 
 ```bash
 make setup    # rustup + cmake/clang check
@@ -365,82 +508,55 @@ make test     # unit tests + functional smoke (pulls minicpm, ~1.5 GB)
 make lint     # cargo fmt --check + clippy -D warnings
 ```
 
-### Build variants
-
 The default build targets the host: Metal on Apple Silicon, baseline CPU
-elsewhere. GPU and portable-CPU variants are cargo features:
+elsewhere. GPU backends and portable CPU builds are cargo features,
+additive and combinable:
 
 ```bash
-make build FEATURES="cuda"              # NVIDIA — needs CUDA toolkit
-make build FEATURES="vulkan"            # AMD/Intel/generic GPU driver
+make build FEATURES="cuda"              # NVIDIA, needs the CUDA toolkit
+make build FEATURES="rocm"              # AMD, needs ROCm
+make build FEATURES="vulkan"            # AMD, Intel or any Vulkan driver
 make build FEATURES="dynamic-backends"  # every CPU variant, dispatched at load
 ```
 
-`dynamic-backends` ships `snap` plus `libggml*`/`libllama*` runtime libs
-and `libggml-cpu-*.so` modules — the portable pick for servers. Single-file instead: `RUSTFLAGS="-C target-cpu=x86-64-v3"
-cargo build --release` (AVX2, ~2013+ CPUs). CI builds all of them per
-platform — see `.github/workflows/`.
-
-```bash
-snap models                                 # known shortcuts
-snap -p '{"state":"…","questions":{"urgent":{"type":"noul"}}}'   # one-shot, claude-style
-snap -p request.json                        # same thing, from a file (stdin works too)
-snap serve --model qwen3.8-4b --port 8018   # HTTP server
-snap ps                                   # running servers (pid, model, uptime, state)
-snap stop                                 # stop the one server; --all / --port / --pid for more
-snap evaluate eval/cases.jsonl              # accuracy + brier/ece + consistency
-snap calibrate eval/cases.jsonl -o cal.json # fit temperatures -> calibration file
-snap bench --requests 20                    # latency/throughput
-```
-
-`--model` takes a name from `snap models` — the tested set only. A GGUF
-that loads is not a GGUF that answers correctly; new candidates get a
-row in `src/models.rs` after they pass the eval cases.
-
-`--ctx` (default 8192 tokens ≈ ~6k words) is the KV pool: every prompt —
-state + question + options — must fit in it, and the questions in flight
-share it with the cache (more questions than fit just run in more
-waves). It is reserved in full at startup: ~42 KB/token for minicpm5-2b,
-~144 KB/token for spark-4b (its sliding-window layers keep full-size KV so
-prefixes can be forked), ~32 KB/token for qwen3.8-4b plus ~0.85 GB of
-recurrent state. `8192` ≈ 0.34 / 1.1 / 0.25 GB, `32768` ≈ 1.3 / 4.5 /
-1 GB on top of the weights. Long inputs are rejected 422 (never
-truncated), so raise it only when your states need it:
-`snap serve --ctx 32768`. Deliberately not "model max": spark advertises
-1M tokens, which would be ~140 GB of reservation.
-
-`--threads` (default 0 = all available cores) sets llama.cpp's decode
-threads — relevant on CPU-only builds; on GPU backends it barely matters.
-llama.cpp's own default is 4, which starves prefill on a bigger box.
+`metal`, `opencl`, `openmp`, `mkl` and `static-stdcxx` are available the
+same way. `dynamic-backends` ships `snap` together with the
+`libggml*`/`libllama*` runtime libraries and the `libggml-cpu-*.so`
+modules, and it is the portable pick for servers. For a single file
+instead, `RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release`
+builds for AVX2 (x86 CPUs from about 2013 on). CI builds every release
+variant per platform; see `.github/workflows/`.
 
 ## HTTP
 
 | endpoint | purpose |
 |---|---|
-| `POST /v1/systemone` | the API — Jev wire (`noul` / `choice` / `score`) + `numeric`, abstain, `mode` extensions |
-| `GET /v1/models` | served model id |
-| `GET /healthz` | readiness — answers only after engine warm-up |
-| `GET /playground` | built-in console, embedded in the binary |
+| `POST /v1/systemone` | the API: Jev wire (`noul` / `choice` / `score`) plus the `numeric`, abstain, `mode` and `layout` extensions |
+| `GET /v1/models` | the model this process serves |
+| `POST /v1/models` | `{"model": "<name>"}` loads another model from the tested set and swaps it in; the current one keeps serving until the new one is ready |
+| `GET /healthz` | readiness: answers only after the engine warm-up |
+| `GET /playground` | the built-in console, embedded in the binary |
 
-`snap serve` registers a pidfile so other terminals can see it: `snap ps`
-lists every running server (including `starting` while the model loads
-and strays answering on :8018), `snap stop` shuts one down — bare `stop`
-when there's exactly one, `--port`/`--pid`/`--all` otherwise. SIGTERM
-drains in-flight requests; `--force` is SIGKILL.
+`snap serve` registers a pidfile so that other terminals can see it.
+`snap ps` lists every running server, including those still `starting`
+while the model loads and strays answering on :8018. `snap stop` shuts
+one down: bare `stop` when there is exactly one, `--port`, `--pid` or
+`--all` otherwise. SIGTERM drains the requests in flight; `--force` sends
+SIGKILL.
 
 ## Playground
 
-`snap serve` already carries it — no assets, no build step:
+`snap serve` already carries it, with no assets and no build step:
 
 ```bash
 snap serve --model spark-4b   # then open http://localhost:8018/playground
 ```
 
-- **`/playground`** — an API console. Build a request channel per
-  question (all five types), flip between builder, raw JSON and cURL,
-  and read every answer as a probability map on a shared 0–100% scale
-  plus the `x_snap` internals (decode/total ms, tokens decoded vs prompt
-  tokens, cache hits, waves). `⌘↵` runs.
+`/playground` is an API console. It builds a request one question at a
+time, across all five question types, switches between the form, raw JSON
+and cURL, and shows every answer as a probability map on a shared 0–100%
+scale, together with the `x_snap` internals (decode and total ms, tokens
+decoded against prompt tokens, cache hits, waves). `⌘↵` runs the request.
 
 ## Production
 
@@ -448,17 +564,17 @@ snap serve --model spark-4b   # then open http://localhost:8018/playground
 ./snap serve --model qwen3.8-4b --host 0.0.0.0 --port 8018
 ```
 
-- **One process = one resident model.** Requests serialize on the engine;
-  parallelism lives *inside* a request (one batched decode per wave). Scale
-  with N processes behind a load balancer.
-- **Memory** ≈ weights + KV (`--ctx` × the per-token cost above) +
-  recurrent state on hybrids. Peak RSS at 8192: minicpm5-2b 1.9 GB,
-  qwen3.8-4b 3.8 GB, spark-4b 5.4 GB.
-- **Boot** ~4 s on an M1 Max once the GGUF is downloaded (mmap, resident
-  head, warm-up requests). `/healthz` is your readiness probe.
-- **Logs** quiet by default (warnings only); `--debug` or
-  `RUST_LOG=llamac=info` for llama.cpp internals on stderr.
-- Over-context input → 422. Never silently truncated.
+- **One process, one resident model.** Requests serialize on the engine,
+  and the parallelism lives inside a request, as one batched decode per
+  wave. To scale, run N processes behind a load balancer.
+- **Memory** is roughly the weights plus the KV pool (`--ctx` times the
+  per-token cost above) plus the recurrent state on hybrids. Peak RSS at
+  8192: minicpm5-2b 1.9 GB, qwen3.8-4b 3.8 GB, spark-4b 5.4 GB.
+- **Boot** takes about 4 s on an M1 Max once the GGUF is downloaded (mmap,
+  resident head, warm-up requests). `/healthz` is the readiness probe.
+- **Logs** are quiet by default (warnings only); `--debug` or
+  `RUST_LOG=llamac=info` shows llama.cpp internals on stderr.
+- **Over-context input** gets a 422 and is never silently truncated.
 
 ```ini
 [Service]
@@ -469,13 +585,33 @@ Environment=RUST_LOG=info
 
 ## Limits
 
-- `choice` scales to 256 options via per-option probes; `score` and
-  `numeric` stay inside the 26-letter alphabet.
-- Hybrid/recurrent models run the same batched path with fewer parallel
-  sequences (17 instead of 65 — each pins a recurrent-state row), so large
-  question sets take more waves there.
-- Probabilities are calibrated only after `snap calibrate` — and only as
+- A request holds up to 64 questions.
+- `choice` scales to 256 options through per-option probes; `score` and
+  `numeric` stay inside the 26-letter alphabet, special slots included,
+  and a `numeric` question uses 2 to 24 anchors.
+- Hybrid and recurrent models run the same batched path with fewer
+  parallel sequences (17 instead of 65, since each pins a recurrent-state
+  row), so large question sets take more waves there.
+- Probabilities are calibrated only after `snap calibrate`, and only as
   far as your eval data resembles production.
+
+## Next to Jev and SemIf
+
+The two closest projects are Jev, the hosted original, and
+[SemIf](https://github.com/TheoLeeCJ/SemIf), an open research scorer.
+
+| | snap | Jev | SemIf |
+|---|---|---|---|
+| deployment | local, one Rust binary | hosted service | local Python, WebGPU demo |
+| open weights | GGUF | no | Qwen |
+| Jev-compatible HTTP API | yes | the original | no, CLI only |
+| numeric answers | yes | no | no |
+| calibrated probabilities | per question type | claimed | per workload |
+| TypeSafe public eval | 73% on a 4B model | ~88%, self-reported | not reported |
+
+The Jev column comes from its public description and the SemIf column
+from its repository. Jev is a hosted product made by its own authors;
+snap is an independent implementation of the same API.
 
 ---
 
