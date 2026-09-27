@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- engine: model ids get the `snap-` prefix once — a GGUF named `snap1 2B` is `snap1-2b`, not `snap-snap1-2b`; every other model keeps its id and its calibrations
 - training: the fine-tuning pipeline lands in `training/` — data preparation, teacher review flags, prompt export, LoRA, GGUF merge and paired evaluation, documented in TRAINING.md; code only, data and runs stay local
 - license: MIT `LICENSE` file at the root — Cargo.toml already declared MIT, the text was missing
 - cli: `export-prompts` renders through `decide`'s own compile step and honors `--layout` plus the case `layout`/`expand`/`compact_state` pins — header preamble and catalog included, byte-exact with what evaluate decodes; choices past 26 letters are skipped instead of panicking; ids must be unique; `--output` is claimed before the model loads and removed on a failed run

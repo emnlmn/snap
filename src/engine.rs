@@ -95,6 +95,22 @@ pub struct Engine {
     pub calibration: Option<Calibration>,
 }
 
+/// `snap-<general.name>[-<file_type>]`, lowercased. Our own fine-tunes are
+/// already named `snap<version>` (`snap1 2B` -> `snap1-2b`): no second prefix.
+fn model_id(name: &str, quant: Option<&str>) -> String {
+    let slug = name.to_lowercase().replace(' ', "-");
+    let ours = slug.strip_prefix("snap").is_some_and(|rest| {
+        rest.is_empty()
+            || rest.starts_with(['-', '.'])
+            || rest.starts_with(|c: char| c.is_ascii_digit())
+    });
+    let base = if ours { slug } else { format!("snap-{slug}") };
+    match quant {
+        Some(q) => format!("{base}-{q}"),
+        None => base,
+    }
+}
+
 fn state_text(state: &Value, compact: bool) -> String {
     if compact {
         prompts::render_state_compact(state)
@@ -119,12 +135,7 @@ impl Engine {
         let eng = Llama::load(model_path, n_ctx, n_batch, n_threads).and_then(|llama| {
             let name = llama.meta("general.name").unwrap_or(stem);
             let quant = llama.meta("general.file_type");
-            let model_id = format!(
-                "snap-{}{}",
-                name.to_lowercase().replace(' ', "-"),
-                quant.map(|q| format!("-{q}")).unwrap_or_default()
-            );
-            Engine::new(Box::new(llama), model_id)
+            Engine::new(Box::new(llama), model_id(&name, quant.as_deref()))
         });
         match &eng {
             Ok(_) => eprintln!("ready in {:.1}s", t0.elapsed().as_secs_f32()),
@@ -679,6 +690,15 @@ mod tests {
 
     fn req(v: Value) -> DecideRequest {
         serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn model_id_prefixes_once() {
+        assert_eq!(model_id("MiniCPM5-2B", Some("15")), "snap-minicpm5-2b-15");
+        assert_eq!(model_id("snap1 2B", Some("15")), "snap1-2b-15");
+        assert_eq!(model_id("snap1.1 2B", None), "snap1.1-2b");
+        assert_eq!(model_id("Snap 2B", Some("7")), "snap-2b-7");
+        assert_eq!(model_id("Snappy 7B", Some("7")), "snap-snappy-7b-7");
     }
 
     fn big_choice(n: usize) -> Value {
