@@ -1,0 +1,7 @@
+# eval twins — generated rows whose state embeds eval-case text verbatim.
+# Found by the long-state containment check (validate.py) + manual review.
+s0026-018
+s0039-056
+s0103-045
+s0067-005
+# s0124-004 is a borderline near-dup — kept, flagged for review

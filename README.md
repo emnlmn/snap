@@ -287,7 +287,8 @@ use `<domain>-NN` ids and adversarial cases `edge-<stress>-NN`.
 `snap export-prompts` reads the same case files and writes, one JSONL
 record per case, the exact prompt `evaluate` decodes for it — chat template
 applied, token ids, resolved layout, letter-to-key slots. It is the
-supervision surface snap-ft trains on. A choice with more options than the
+supervision surface the fine-tuning pipeline trains on (see
+[TRAINING.md](TRAINING.md)). A choice with more options than the
 26 letters has no single prompt, so it is skipped (with a note on stderr)
 instead of blocking the run; ids must be unique and `--output` is
 create-only.
@@ -413,16 +414,16 @@ train rows can feed fine-tuning; the test split never does.
 
 Every report is a create-only JSON — a file name is a run, never
 repeated, never overwritten. The standard battery (evaluate + bench +
-typed-decisions) is one command, in the training repo:
+typed-decisions) is one command, in `training/`:
 
 ```bash
-cd ../snap-ft
+cd training
 BASE_GGUF=none eval/compare.sh qwen3.8-4b qwen-4b        # solo run
-eval/compare.sh runs/snap-ft-2b.gguf run1                # paired vs base
-python3 ../snap-rs/eval/history.py                       # the whole timeline
+eval/compare.sh runs/gguf/snap-2b-q4_k_m.gguf run1       # paired vs base
+python3 ../eval/history.py                               # the whole timeline
 ```
 
-`history.py` scans `results/` here and `snap-ft`'s `eval/results/` and
+`history.py` scans `results/` and `training/eval/results/` and
 prints one line per report — accuracy, ECE, KL, latency — so whether a
 change helped or regressed is read off a table, not reconstructed from
 memory. Old runs stay on disk as history; a paired view of two specific

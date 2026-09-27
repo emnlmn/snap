@@ -57,7 +57,7 @@ make serve        # build + run the HTTP server (MODEL=minicpm5-2b default)
   overwrite existing files. Keep it that way.
 - **Training export is decode.** `snap export-prompts` renders through
   `engine::compile`, the step `decide` itself uses, and maps cases via
-  `evaluate::build_req` — never assemble a prompt beside it; snap-ft trains
+  `evaluate::build_req` — never assemble a prompt beside it; `training/` trains
   on those bytes.
 
 ## Code style
@@ -91,6 +91,11 @@ make serve        # build + run the HTTP server (MODEL=minicpm5-2b default)
   > `~/.snap/run`) — `snap ps`/`snap stop` read it. Kill paths live in
   `instances.rs`; never signal pid 0 (unix: whole process group).
 - `.serena/` and `.impeccable/` are local tooling dirs (gitignored).
+- `training/` is the fine-tuning pipeline (Python; commands run from
+  `training/`, documented in [TRAINING.md](TRAINING.md)). Only code is
+  tracked: its data, runs, GGUFs and eval results stay local
+  (`training/.gitignore`). The synthetic-data generator is not part of
+  this repository — don't add it, its prompts or its specs here.
 - `openapi.yaml` documents the HTTP surface — keep it in sync with server.rs.
 
 ## Writing to the user

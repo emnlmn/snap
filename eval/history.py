@@ -9,7 +9,7 @@ Suites recognized:
   bench   snap bench reports      (p50/p95/req_s on the default scenario)
   other   anything else           (listed by name so nothing hides)
 
-Scans snap-rs/results/ and snap-ft/eval/results/ when they exist; extra
+Scans results/ and training/eval/results/ when they exist; extra
 dirs can be appended as argv.
 """
 
@@ -24,7 +24,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from typed_decisions import decisions, load as td_load  # noqa: E402
 
-ROOTS = [HERE.parent / "results", HERE.parent.parent / "snap-ft" / "eval" / "results"]
+ROOTS = [HERE.parent / "results", HERE.parent / "training" / "eval" / "results"]
 ROWS = []
 
 

@@ -1,0 +1,10 @@
+datasets>=4
+pyarrow>=14
+pyyaml>=6
+# torch deliberately absent: pod images ship a CUDA build, and `torch>=…`
+# here would replace it with the PyPI CPU wheel. pod_setup.sh asserts CUDA.
+transformers>=4.45
+peft>=0.13
+accelerate>=0.34
+sentencepiece>=0.2
+safetensors>=0.4

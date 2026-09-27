@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+*.log
+# everything the pipeline produces stays local: data, splits, labels,
+# manifests, reports, adapters, GGUFs and eval results
+data/**/*.jsonl
+data/**/*.json
+data/**/*.parquet
+data/raw/_work/
+smoke/
+runs/
+models/
+eval/results/
+.DS_Store
