@@ -1105,7 +1105,7 @@ footer { padding: 56px 0 64px; }
   <div class="wrap">
     <div class="head">
       <h2 id="bench-h">Latency and accuracy on the same weights.</h2>
-      <p class="sub">All numbers are medians of <code>snap bench --requests 20</code> on an Apple M1 Max with Metal, and every one is reproducible with <code>snap bench</code> and <code>snap evaluate eval/*.jsonl</code>.</p>
+      <p class="sub">All numbers are medians of <code>snap bench --requests 20</code> on an Apple M1 Max with Metal, and every one is reproducible with <code>snap bench</code> and <code>snap evaluate eval/cases.jsonl</code>.</p>
     </div>
 
     <div class="race">
@@ -1137,13 +1137,13 @@ footer { padding: 56px 0 64px; }
         <p class="note">All the prompts in a request are decoded in one batched call that shares their common prefix, on every architecture; the direct row decodes each question on its own, for comparison. Qwen’s hybrid architecture runs 17 parallel sequences instead of 65, and snap picks the right path at startup.</p>
       </div>
       <div class="tcard">
-        <h3>Accuracy · eval/cases — base vs edge tiers</h3>
+        <h3>Accuracy · eval/cases.jsonl, 301 cases</h3>
         <div class="tbl-wrap"><table class="t">
-          <thead><tr><th>model</th><th>base</th><th>edge</th><th>ms/case</th></tr></thead>
+          <thead><tr><th>model</th><th>accuracy</th><th>ms/case</th></tr></thead>
           <tbody>
-            <tr><td>qwen3.8-4b <small class="note">Q4_K_M</small></td><td class="m hi"><span class="acc-bar"><i style="--v:94.2"></i></span>94.2%</td><td class="m hi">79.0%</td><td class="m">~210</td></tr>
-            <tr><td>spark-4b <small class="note">Q8_0</small></td><td class="m"><span class="acc-bar"><i style="--v:92.3"></i></span>92.3%</td><td class="m hi">79.0%</td><td class="m">~180</td></tr>
-            <tr><td>minicpm5-2b <small class="note">Q4_K_M</small></td><td class="m"><span class="acc-bar"><i style="--v:80.8"></i></span>80.8%</td><td class="m">57.9%</td><td class="m">~95</td></tr>
+            <tr><td>qwen3.8-4b <small class="note">Q4_K_M</small></td><td class="m hi"><span class="acc-bar"><i style="--v:86.4"></i></span>86.4%</td><td class="m">~300</td></tr>
+            <tr><td>spark-4b <small class="note">Q8_0</small></td><td class="m"><span class="acc-bar"><i style="--v:85.7"></i></span>85.7%</td><td class="m">~245</td></tr>
+            <tr><td>minicpm5-2b <small class="note">Q4_K_M</small></td><td class="m"><span class="acc-bar"><i style="--v:69.1"></i></span>69.1%</td><td class="m">~135</td></tr>
           </tbody>
         </table></div>
         <p class="note">Raw probabilities aren’t calibrated. <code>snap calibrate</code> fits one temperature per question type on your labeled cases, ties it to the model and prompt version, and prints the calibration error (ECE) before and after.</p>
