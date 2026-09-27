@@ -3,3 +3,5 @@
 .serena
 .impeccable
 eval/typesafe
+eval/typed-decisions
+__pycache__/
