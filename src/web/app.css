@@ -131,7 +131,8 @@ code { font: .92em var(--mono); color: var(--soft); }
   padding: 4px 6px 4px 4px; border-radius: 8px;
   color: var(--text); text-decoration: none;
 }
-.brand img { display: block; width: 24px; height: 24px; }
+.brand svg { display: block; width: 24px; height: 24px; }
+:root[data-theme="dark"] .brand svg { color: var(--accent); }
 .brand span { font-weight: 700; font-stretch: 110%; font-size: 15px; letter-spacing: -.02em; }
 .slash { flex: none; width: 1px; height: 18px; margin: 0 8px 0 4px; background: var(--line-hi); transform: rotate(20deg); }
 .status {

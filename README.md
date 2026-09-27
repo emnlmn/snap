@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" width="180" alt="snap logo"/>
+  <img src="assets/logo.svg" width="150" alt="snap logo"/>
 </p>
 
 <h1 align="center">snap</h1>

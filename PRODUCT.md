@@ -60,8 +60,9 @@ decode. Deterministic, no API keys, and data never leaves the machine.
 
 ## Brand Commitments
 
-- Name: SNAP / snap. Mascot: the crocodile head in `assets/logo.png`
-  (purple→cyan gradient on near-black). Tagline voice from the README:
+- Name: SNAP / snap. Mark: the snapping jaw, a square head with one eye and an
+  open jaw (`assets/mark.svg`). The app icon puts it in lime on ink
+  (`assets/logo.svg`, `assets/logo.png`). Tagline voice from the README:
   "One pass. One distribution. The jaw snaps shut."
 - Voice: terse, technical, confident, a little dry.
 

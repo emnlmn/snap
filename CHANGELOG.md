@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- brand: the snapping-jaw mark replaces the crocodile — README, console header and favicon, site; svg + png in `assets/`
 - engine: model ids get the `snap-` prefix once — a GGUF named `snap1 2B` is `snap1-2b`, not `snap-snap1-2b`; every other model keeps its id and its calibrations
 - training: the fine-tuning pipeline lands in `training/` — data preparation, teacher review flags, prompt export, LoRA, GGUF merge and paired evaluation, documented in TRAINING.md; code only, data and runs stay local
 - license: MIT `LICENSE` file at the root — Cargo.toml already declared MIT, the text was missing
