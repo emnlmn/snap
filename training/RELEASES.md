@@ -17,8 +17,10 @@ a training never produces the public name until it is tagged here.
 - trained on the v2 corpus minus all `tdc-*` rows; typed-decisions
   score is workflow-unseen (verified zero state overlap, train+test)
 - eval reports: `training/eval/results/v2/` (`*-solo.*` files)
-- calibration: `runs/run2-clean/gguf/calibration.json`
-  (bound to model id `snap1-2b-15`, prompt v4 — ships with the repo)
+- calibration: `runs/run2-clean/calibration-dev.json` — **not shipped**:
+  fitted on the internal dev set, it sharpens probabilities and worsened
+  TD ECE 0.043→0.087 (temperatures <1 on an already-calibrated domain).
+  Ship raw; users calibrate on their own data with `snap calibrate`
 
 Run history: `run1` = first fine-tune (never published);
 `run2-full` = same corpus including typed-decisions train rows
