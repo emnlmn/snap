@@ -6,9 +6,9 @@ with a `snap*` name ship on Hugging Face. The name lives inside the GGUF
 (`general.name`), so `snap serve` reports e.g. `snap1-2b-15` — rerunning
 a training never produces the public name until it is tagged here.
 
-| name | run | quant files | base | key results |
+| name | run | repo | quant files | key results |
 |---|---|---|---|---|
-| snap1-2b | runs/run2-clean | q4_k_m, q8_0 | MiniCPM5-2B | TD 0.624 zero-shot; exam 85.1%; holdout 71.3% |
+| snap1-2b | runs/run2-clean | logitlab/snap1-2b-GGUF | q4_k_m, q8_0, bf16 | TD 0.624 zero-shot; exam 85.1%; holdout 71.3% |
 
 ## snap1-2b (run2-clean, 2025-09-28)
 

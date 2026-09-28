@@ -29,8 +29,17 @@ pub const MODELS: &[(&str, &str, &str)] = &[
         "XHToken/Spark-X2.5-4B-GGUF",
         "Spark-X2.5-4B-Q4_K_M.gguf",
     ),
-    ("snap1-2b", "emnlmn/snap1-2b", "snap1-2b-q4_k_m.gguf"),
-    ("snap1-2b-q8", "emnlmn/snap1-2b", "snap1-2b-q8_0.gguf"),
+    ("snap1-2b", "logitlab/snap1-2b-GGUF", "snap1-2b-q4_k_m.gguf"),
+    (
+        "snap1-2b-q8",
+        "logitlab/snap1-2b-GGUF",
+        "snap1-2b-q8_0.gguf",
+    ),
+    (
+        "snap1-2b-bf16",
+        "logitlab/snap1-2b-GGUF",
+        "snap1-2b-bf16.gguf",
+    ),
 ];
 
 pub const DEFAULT_MODEL: &str = "minicpm5-2b";
