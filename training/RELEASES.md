@@ -12,14 +12,13 @@ a training never produces the public name until it is tagged here.
 
 ## snap1-2b (run2-clean, 2025-09-28)
 
-- `snap1-2b-q4_k_m.gguf` sha256 `fbf24e74a4a79ee9063fb000186eedc712039b6fd1533de4cb24c89491de611e` (pre-rename hash; renamed copy differs only in header metadata)
-- `snap1-2b-q8_0.gguf` — see `runs/run2-clean/SHA256SUMS` (same caveat)
+- sha256 of all three published files: `runs/run2-clean/gguf/SHA256SUMS`
+  (hashes cover the renamed files — `general.name` = "snap1 2B")
 - trained on the v2 corpus minus all `tdc-*` rows; typed-decisions
   score is workflow-unseen (verified zero state overlap, train+test)
 - eval reports: `training/eval/results/v2/` (`*-solo.*` files)
-- calibration: `training/eval/results/v2/calibrations/ft-B.json`
-  (bound to the pre-rename id `snap-ft-2b-v2clean-merged-hf-15`;
-  recalibrate under the public name before shipping)
+- calibration: `runs/run2-clean/gguf/calibration.json`
+  (bound to model id `snap1-2b-15`, prompt v4 — ships with the repo)
 
 Run history: `run1` = first fine-tune (never published);
 `run2-full` = same corpus including typed-decisions train rows
