@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-09-28
 
 - models: snap1-2b, MiniCPM5-2B fine-tuned for the letter readout, joins the tested set as the default — typed-decisions 0.624 zero-shot (base 0.502), eval suite 85.0% (base 69.1%), same speed; q4_k_m, q8_0 and bf16 from `logitlab/snap1-2b-GGUF`
 - brand: the snapping-jaw mark replaces the crocodile — README, console header and favicon, site; svg + png in `assets/`
