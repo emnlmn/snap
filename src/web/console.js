@@ -1106,10 +1106,15 @@ $("srv").onclick = async (e) => {
   let items = [];
   try {
     const j = await (await fetch("/v1/models")).json();
-    items = (j.data || []).map((m) => ({
+    // one row per HF repo — quant variants stay resolvable by name,
+    // the picker shows each model at its default quantization only
+    const seen = new Set();
+    const rows = (j.data || []).filter((m) => !seen.has(m.repo) && seen.add(m.repo));
+    const activeRepo = (j.data || []).find((m) => m.active)?.repo;
+    items = rows.map((m) => ({
       label: m.id, code: true,
       hint: (m.file || "").replace(/\.gguf$/i, ""),
-      current: m.active ?? m.id === currentName,
+      current: m.repo === activeRepo || (m.active ?? m.id === currentName),
       on: () => switchModel(m.id),
     }));
   } catch { /* fall through to the single-item menu */ }
