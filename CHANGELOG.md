@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- models: snap1-2b, MiniCPM5-2B fine-tuned for the letter readout, joins the tested set as the default — typed-decisions 0.624 zero-shot (base 0.502), eval suite 85.0% (base 69.1%), same speed; q4_k_m, q8_0 and bf16 from `logitlab/snap1-2b-GGUF`
 - brand: the snapping-jaw mark replaces the crocodile — README, console header and favicon, site; svg + png in `assets/`
 - engine: model ids get the `snap-` prefix once — a GGUF named `snap1 2B` is `snap1-2b`, not `snap-snap1-2b`; every other model keeps its id and its calibrations
 - training: the fine-tuning pipeline lands in `training/` — data preparation, teacher review flags, prompt export, LoRA, GGUF merge and paired evaluation, documented in TRAINING.md; code only, data and runs stay local

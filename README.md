@@ -221,6 +221,9 @@ row above is the gain from prefix sharing and cached question heads. The
 hybrid qwen3.8 runs the same batched path with 17 parallel sequences
 instead of 65.
 
+snap1-2b, the default model, is MiniCPM5-2B fine-tuned for this readout:
+same architecture, so the first column is its speed too.
+
 ### …and against the same weights through Ollama
 
 Ollama 0.34.3 serving `openbmb/minicpm5-2b`, its own packaging of the same
@@ -301,12 +304,13 @@ expectation, so accuracy is scored on 301.
 
 | model | accuracy | balanced | ms/case |
 |---|---:|---:|---:|
-| qwen3.8-4b Q4_K_M | **86.4%** | **66.7%** | ~300 |
+| qwen3.8-4b Q4_K_M | **86.4%** | 66.7% | ~300 |
 | spark-4b Q8_0 | 85.7% | 57.5% | ~245 |
+| snap1-2b Q4_K_M | 85.0% | **69.8%** | ~130 |
 | minicpm5-2b Q4_K_M | 69.1% | 48.1% | ~135 |
 
-The 95% interval is about ±4 points at 301 cases, so the gap between the
-two 4B models is noise. Balanced accuracy averages recall over answer
+The 95% interval is about ±4 points at 301 cases, so the gaps among the
+top three are noise: snap1-2b, a 2B model, answers like the 4B ones. Balanced accuracy averages recall over answer
 positions (A, B, C…), so rare late positions, such as numeric anchors or
 the tail of a long choice list, weigh as much as A and B: that is why it
 sits well below plain accuracy.
@@ -317,6 +321,7 @@ Accuracy per question type:
 |---|---:|---:|---:|---:|---:|
 | qwen3.8-4b | 91% | 91% | 84% | 86% | 58% |
 | spark-4b | 83% | 95% | 95% | 79% | 76% |
+| snap1-2b | 87% | 86% | 100% | 93% | 58% |
 | minicpm5-2b | 68% | 74% | 90% | 67% | 52% |
 
 `numeric` is the weakest type on every model: a value read off anchor
@@ -329,13 +334,16 @@ runs:
 |---|---:|---:|---:|
 | qwen3.8-4b Q4_K_M | 0.200 | 0.121 | 67.0% |
 | spark-4b Q8_0 | 0.242 | 0.059 | 86.0% |
+| snap1-2b Q4_K_M | 0.214 | 0.131 | 63.1% |
 | minicpm5-2b Q4_K_M | 0.457 | 0.124 | 66.8% |
 
 The ECE column is the reason calibration exists, and accuracy alone
 doesn't show it. spark comes out of the box close to calibrated, with
 86.0% mean confidence at 85.7% accuracy. qwen is *under*confident, with
 67% confidence at 86% accuracy, and `snap calibrate` brings its ECE from
-0.121 to 0.047 out of fold (see [Calibration](#calibration)).
+0.121 to 0.047 out of fold (see [Calibration](#calibration)). snap1-2b is
+underconfident on these cases too, with 63% confidence at 85% accuracy, while
+on typed-decisions its raw ECE is 0.043: calibration depends on the data.
 
 Stability, as the share of answers that survive a perturbation that
 shouldn't change them (option reversal applies only to the 127 `choice`
@@ -345,12 +353,14 @@ cases):
 |---|---:|---:|---:|
 | qwen3.8-4b | 87% | 85% | 84% |
 | spark-4b | 83% | 77% | 83% |
+| snap1-2b | 88% | 84% | 85% |
 | minicpm5-2b | 69% | 72% | 79% |
 
 Reversing the option order flips almost a third of MiniCPM's choices:
 letter and position bias is the main weakness of small models answering
-by letter. MiniCPM-2B is the option for speed and footprint; the 4B
-models are the production pick.
+by letter. snap1-2b, the same weights fine-tuned for this readout, keeps
+88% of them and holds like the 4B models at MiniCPM's speed and footprint,
+which is why it is the default.
 
 ### TypeSafe's public cases
 
@@ -394,6 +404,8 @@ reads the state at all. `score --detail` prints it per question — a run
 collapsing ≥95% of answers on a question is predicting the prior, not
 reading (minicpm5-2b zero-shot: 6/20 questions constant, acc 0.502;
 qwen3.8-4b: 8/20, acc 0.561, but its wins concentrate on lucky constants).
+snap1-2b, fine-tuned on other workflows only and so zero-shot here: 2/20
+constant, acc 0.624, KL 0.304, Brier 0.170, ECE 0.043.
 
 ```bash
 python3 eval/typed_decisions.py fetch       # test + train, pinned revision
@@ -511,7 +523,7 @@ quarantined by the browser may need
 Then:
 
 ```bash
-snap serve   # minicpm5-2b on port 8018, then open http://localhost:8018/playground
+snap serve   # snap1-2b on port 8018, then open http://localhost:8018/playground
 ```
 
 The first run downloads the model GGUF once (1.5 to 4 GB depending on the
@@ -543,7 +555,7 @@ cases.
 prompt, meaning state, question and options, must fit in it, and the
 questions in flight share it with the cache; more questions than fit
 simply run in more waves. The pool is reserved in full at startup: about
-42 KB per token for minicpm5-2b, about 144 KB per token for spark-4b (its
+42 KB per token for minicpm5-2b and snap1-2b, about 144 KB per token for spark-4b (its
 sliding-window layers keep full-size KV so that prefixes can be forked),
 and about 32 KB per token for qwen3.8-4b plus about 0.85 GB of recurrent
 state. That is roughly 0.34 / 1.1 / 0.25 GB at `8192` and 1.3 / 4.5 / 1
@@ -630,7 +642,7 @@ decoded against prompt tokens, cache hits, waves). `⌘↵` runs the request.
   wave. To scale, run N processes behind a load balancer.
 - **Memory** is roughly the weights plus the KV pool (`--ctx` times the
   per-token cost above) plus the recurrent state on hybrids. Peak RSS at
-  8192: minicpm5-2b 1.9 GB, qwen3.8-4b 3.8 GB, spark-4b 5.4 GB.
+  8192: minicpm5-2b and snap1-2b 1.9 GB, qwen3.8-4b 3.8 GB, spark-4b 5.4 GB.
 - **Boot** takes about 4 s on an M1 Max once the GGUF is downloaded (mmap,
   resident head, warm-up requests). `/healthz` is the readiness probe.
 - **Logs** are quiet by default (warnings only); `--debug` or

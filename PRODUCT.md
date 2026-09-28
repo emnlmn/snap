@@ -38,7 +38,7 @@ decode. Deterministic, no API keys, and data never leaves the machine.
 - Served by the same single Rust binary that exposes `POST /v1/systemone`,
   `GET /v1/models`, `GET /healthz`. One resident model per process;
   requests serialize on the engine.
-- Tested models: minicpm5-2b, spark-4b, qwen3.8-4b (see `snap models`).
+- Tested models: snap1-2b (default), minicpm5-2b, spark-4b, qwen3.8-4b (see `snap models`).
 - Internals already in every response under `x_snap`: `total_ms`,
   `prefill_ms`, `cached_head_tokens`, `shared_prefix_tokens`,
   `rewind` (kv|snapshot), `suffix_decode` (batched|sequential),

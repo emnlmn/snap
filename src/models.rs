@@ -42,7 +42,7 @@ pub const MODELS: &[(&str, &str, &str)] = &[
     ),
 ];
 
-pub const DEFAULT_MODEL: &str = "minicpm5-2b";
+pub const DEFAULT_MODEL: &str = "snap1-2b";
 
 /// Resolve a tested-model name to a local GGUF path, downloading if needed.
 /// An explicit path to an existing .gguf is honored as-is — the MODELS
