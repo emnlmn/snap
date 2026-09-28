@@ -255,15 +255,15 @@ reproduces the table.
 ### …and against a hosted API
 
 `eval/vs_openai.py` sends the same prompts and JSON schemas to
-gpt-5.6-luna with reasoning turned off, medians of 5 requests (each call
+gpt-6-luna with reasoning turned off, medians of 5 requests (each call
 is billed). The time includes network and queue, because that is the
 wait a pipeline sees when the model it would call instead is an API away.
 
 | workload | OpenAI, JSON + probabilities | OpenAI, JSON answers | snap (M1 Max) |
 |---|---:|---:|---:|
-| 1 question | 1677 ms (60 tok) | 1170 ms (13 tok) | 54 ms |
-| 4 questions | 2829 ms (219 tok) | 1235 ms (31 tok) | 135 ms |
-| 8 questions | 3707 ms (431 tok) | 2013 ms (55 tok) | 263 ms |
+| 1 question | 939 ms (60 tok) | 1327 ms (13 tok) | 54 ms |
+| 4 questions | 1840 ms (219 tok) | 1186 ms (31 tok) | 135 ms |
+| 8 questions | 2699 ms (431 tok) | 1125 ms (55 tok) | 263 ms |
 
 ## Accuracy
 
