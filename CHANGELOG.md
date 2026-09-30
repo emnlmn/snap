@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 - 2026-10-01
+
+- prompts: object/array states always render TOON (spec v4.1, encode-only) — `[N]` lengths and `{fields}`/`[N:]` tabular headers; PROMPT_VERSION 5, calibrations bound to v4 must be refit
+- api: `compact_state` is gone — the yaml-lite renderer it selected is deleted; the tolerant envelope still accepts the flag and ignores it, so Jev clients are unaffected
+- engine: `SNAP_STATE_FORMAT=json` and `snap evaluate --state-format json|toon` keep a debug escape for format bisection; eval reports label the forced renderer
+- eval: three-renderer benchmark, 108 structured-state cases × 4 models — yaml-lite and TOON answered identically on every case, JSON cost ~1% more tokens; the standard format wins
+
 ## 0.3.0 - 2026-09-28
 
 - models: snap1-2b, MiniCPM5-2B fine-tuned for the letter readout, joins the tested set as the default — typed-decisions 0.624 zero-shot (base 0.502), eval suite 85.0% (base 69.1%), same speed; q4_k_m, q8_0 and bf16 from `logitlab/snap1-2b-GGUF`
