@@ -124,6 +124,13 @@ them, and the defaults preserve Jev semantics:
 | request `layout` | `auto` (default), `state_first`, `question_first`, `header`, `catalog` |
 | request `expand` | `probes` (default) or `pages`: how a choice with more than 26 options expands |
 
+`state` takes a string or any JSON value — objects and arrays reach the
+model rendered as [TOON](https://github.com/toon-format/toon): `key: value`
+lines and one `key[N]{fields}` header per uniform table, the data without
+the JSON punctuation. On the eval suite's structured states that costs
+~1% fewer prompt tokens than JSON and answers identically to the bespoke
+compact lines it replaces.
+
 `layout` decides where the question sits relative to the state:
 
 - `state_first` puts the state first, so a long document is prefilled
