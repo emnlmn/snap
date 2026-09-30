@@ -282,8 +282,6 @@ def answer(args) -> None:
 
     def body(row):
         b = {"state": json.loads(row["state"]), "questions": json.loads(row["questions"])}
-        if args.compact_state:
-            b["compact_state"] = True
         return b | ({"layout": args.layout} if args.layout != "auto" else {})
 
     post(args.url, body(rows[0]), args.timeout)  # warm-up, not timed
@@ -316,7 +314,7 @@ def answer(args) -> None:
     run = {
         "benchmark": REPO, "revision": REVISION, "split": "test",
         "kind": args.kind, "note": args.note, "url": args.url, "model": model,
-        "layout": args.layout, "compact_state": args.compact_state,
+        "layout": args.layout,
         "started": started, "seconds": round(time.time() - t0, 1),
         "cases": cases,
     }
@@ -443,8 +441,6 @@ def main() -> None:
     a.add_argument("--note", default="", help="free text kept in the report (GGUF, quant, run id)")
     a.add_argument("--layout", default="auto",
                    choices=["auto", "state_first", "question_first", "header", "catalog"])
-    a.add_argument("--compact-state", action="store_true",
-                   help="snap's compact_state: structured states as one field per line")
     a.add_argument("--limit", type=int, default=0,
                    help="N evenly spaced cases, every workflow covered (smoke runs)")
     a.add_argument("--timeout", type=float, default=300)

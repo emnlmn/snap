@@ -80,8 +80,7 @@ def eval_case(case):
     """Strip a labeled row down to the snap-evaluate case shape."""
     out = {"id": case["id"], "state": case["state"],
            "question": case["question"], "expect": case["expect"]}
-    for k in ("requires_abstain", "variants", "layout", "expand",
-              "compact_state"):
+    for k in ("requires_abstain", "variants", "layout", "expand"):
         if k in case:
             out[k] = case[k]
     return out

@@ -4,7 +4,7 @@
 //!   {"id": "route-01", "state": {...}, "question": {<Question fields>},
 //!    "expect": {"choice"|"boolean"|"level"|"score"|"value"|"status": ..., "tol": float}}
 //!
-//! One question per case, keyed "q"; optional `layout`/`expand`/`compact_state`
+//! One question per case, keyed "q"; optional `layout`/`expand`
 //! pin the request knobs. `export_prompts` renders the very same requests
 //! for training.
 
@@ -81,7 +81,6 @@ pub(crate) fn build_req(
         // --layout wins; else cases may pin one for A/B runs; else auto
         layout: layout.or(pinned).unwrap_or(Layout::Auto),
         expand: pin(case, "expand")?.unwrap_or_default(),
-        compact_state: pin(case, "compact_state")?.unwrap_or(false),
     })
 }
 
@@ -551,7 +550,13 @@ pub fn evaluate(
         }));
     }
     prog.finish();
-    Ok(report(&engine.model_id, rows, dist, cons))
+    // a forced renderer goes in the label: a report file must say which
+    // prompt produced these numbers, not quietly blend in
+    let label = match engine.state_format {
+        Some(f) => format!("{}/{}", engine.model_id, f.as_str()),
+        None => engine.model_id.clone(),
+    };
+    Ok(report(&label, rows, dist, cons))
 }
 
 pub fn evaluate_url(
@@ -583,7 +588,7 @@ pub fn evaluate_url(
         let payload = json!({
             "state": req.state, "questions": req.questions,
             "temperature": req.temperature, "mode": "shared", "layout": layout_str,
-            "expand": expand_str, "compact_state": req.compact_state,
+            "expand": expand_str,
         });
         let t0 = Instant::now();
         let out: Value = ureq::post(&format!("{url}/v1/systemone"))
@@ -854,12 +859,9 @@ mod tests {
     fn build_req_reads_case_pins() {
         use crate::schema::Expand;
         let case = json!({"id": "p", "state": "s", "question": {"type": "boolean"},
-                          "layout": "header", "expand": "pages", "compact_state": true});
+                          "layout": "header", "expand": "pages"});
         let r = build_req(&case, false, None).unwrap();
-        assert_eq!(
-            (r.layout, r.expand, r.compact_state),
-            (Layout::Header, Expand::Pages, true)
-        );
+        assert_eq!((r.layout, r.expand), (Layout::Header, Expand::Pages));
         // --layout wins over the pin
         let r = build_req(&case, false, Some(Layout::Catalog)).unwrap();
         assert_eq!(r.layout, Layout::Catalog);
@@ -867,23 +869,16 @@ mod tests {
         for bare in [
             json!({"id": "b", "state": "s", "question": {"type": "boolean"}}),
             json!({"id": "n", "state": "s", "question": {"type": "boolean"},
-                   "layout": null, "expand": null, "compact_state": null}),
+                   "layout": null, "expand": null}),
         ] {
             let r = build_req(&bare, false, None).unwrap();
-            assert_eq!(
-                (r.layout, r.expand, r.compact_state),
-                (Layout::Auto, Expand::Probes, false)
-            );
+            assert_eq!((r.layout, r.expand), (Layout::Auto, Expand::Probes));
         }
     }
 
     #[test]
     fn build_req_rejects_bad_pins() {
-        for (k, v) in [
-            ("layout", json!("sideways")),
-            ("expand", json!(3)),
-            ("compact_state", json!("yes")),
-        ] {
+        for (k, v) in [("layout", json!("sideways")), ("expand", json!(3))] {
             let mut case = json!({"id": "x", "state": "s", "question": {"type": "boolean"}});
             case[k] = v;
             let e = build_req(&case, false, None).unwrap_err().to_string();
@@ -914,7 +909,7 @@ mod tests {
         let cases = [
             json!({"id": "a", "state": "buy now", "question": noul}),
             json!({"id": "b", "state": "buy now", "question": noul, "layout": "header"}),
-            json!({"id": "c", "state": {"k": "v"}, "question": noul, "compact_state": true}),
+            json!({"id": "c", "state": {"k": "v"}, "question": noul}),
             json!({"id": "d", "state": "s", "question": {"type": "choice", "criteria": big}}),
         ];
         let (recs, skipped) = export(&cases, None).unwrap();

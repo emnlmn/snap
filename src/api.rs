@@ -9,7 +9,7 @@ use crate::schema::{default_layout, default_mode, DecideRequest, Expand, Layout,
 
 /// Jev wire format, tolerant of extra SDK keys. Optional snap extensions:
 /// per-question `allow_abstain` (default false, same as every other entry
-/// point), request `mode`, `layout`, `expand`, `compact_state`.
+/// point), request `mode`, `layout`, `expand`.
 #[derive(Debug, Deserialize)]
 pub struct SystemoneRequest {
     #[serde(default)]
@@ -24,8 +24,6 @@ pub struct SystemoneRequest {
     pub layout: Layout,
     #[serde(default)]
     pub expand: Expand,
-    #[serde(default)]
-    pub compact_state: bool,
 }
 
 fn one() -> f64 {
@@ -42,7 +40,6 @@ impl SystemoneRequest {
             mode: self.mode,
             layout: self.layout,
             expand: self.expand,
-            compact_state: self.compact_state,
         }
     }
 }

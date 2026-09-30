@@ -249,13 +249,6 @@ components:
             `pages` splits candidates into equal-size pages of ≤26 real
             choices — far fewer items, but probabilities are page-conditional
             and abstention is disabled (each page must pick).
-        compact_state:
-          type: boolean
-          default: false
-          description: |
-            Render object states as compact lines ("key: value", csv-style
-            rows for uniform object arrays) instead of JSON — a few percent
-            fewer tokens on heavily structured states.
       additionalProperties: true  # envelope is tolerant of extra SDK keys
 
     Question:

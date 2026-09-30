@@ -88,6 +88,9 @@ enum Cmd {
         /// force a prompt layout for all cases (auto|state_first|question_first|header|catalog)
         #[arg(long, value_parser = parse_layout)]
         layout: Option<crate::schema::Layout>,
+        /// force a state renderer for all cases (json|toon) — debug A/B knob
+        #[arg(long, value_parser = parse_state_format)]
+        state_format: Option<engine::StateFormat>,
         /// write full report JSON (create-only)
         #[arg(long)]
         output: Option<String>,
@@ -196,6 +199,10 @@ fn decide_request(m: &ModelArgs, req: api::SystemoneRequest) -> Result<()> {
 fn parse_layout(s: &str) -> std::result::Result<crate::schema::Layout, String> {
     serde_json::from_value::<crate::schema::Layout>(serde_json::json!(s))
         .map_err(|_| "expected auto|state_first|question_first|header|catalog".to_string())
+}
+
+fn parse_state_format(s: &str) -> std::result::Result<engine::StateFormat, String> {
+    engine::StateFormat::parse(s).map_err(|e| e.to_string())
 }
 
 /// `snap serve` body — model load + warmup + blocking axum loop.
@@ -469,16 +476,25 @@ fn main() -> Result<()> {
             no_abstain,
             no_perturb,
             layout,
+            state_format,
             output,
         } => {
             init_logs(m.debug);
             let cases = evaluate::load_cases(file)?;
             let rep = if let Some(url) = url {
+                if state_format.is_some() {
+                    anyhow::bail!(
+                        "--state-format is in-process only; set SNAP_STATE_FORMAT on the server"
+                    );
+                }
                 evaluate::evaluate_url(url, &cases, *limit, *no_abstain, !*no_perturb, *layout)?
             } else {
                 let path = models::resolve(&m.model)?;
                 let mut eng =
                     engine::Engine::load(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
+                if let Some(f) = state_format {
+                    eng.state_format = Some(*f);
+                }
                 if let Some(c) = &m.calibration {
                     eng.load_calibration(c)?;
                 }

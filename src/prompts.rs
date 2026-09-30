@@ -1,6 +1,6 @@
 //! Prompt compilation: state + typed question -> one user message ending on a letter slot.
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::schema::{Layout, QType, Question};
 
@@ -13,7 +13,8 @@ pub const ABOVE: &str = "__above__";
 /// Layout::Catalog added, compact_state rendering added.
 /// v4: empty choice descriptions show the key, request text tokenized
 /// without special tokens.
-pub const PROMPT_VERSION: u32 = 4;
+/// v5: states always render TOON — the compact_state flag is gone.
+pub const PROMPT_VERSION: u32 = 5;
 
 pub const SYSTEM: &str = "You are a decision engine. Given a state and a question, you evaluate the options and reply with only the letter of the best option. Never explain.";
 
@@ -52,116 +53,353 @@ pub fn render_state(state: &Value) -> String {
     }
 }
 
-/// yaml-lite state rendering: same data without the JSON punctuation noise —
-/// "key: value" lines, `- item` lists, scalars quoted only when ambiguous.
-/// Structured states cost ~10-20% fewer tokens than serde_json's output.
-pub fn render_state_compact(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        other => {
-            let mut s = String::new();
-            compact_lines(other, 0, &mut s);
-            s.trim_end().to_string()
-        }
-    }
-}
-
-/// Bare scalars: safe only when the text can't be misread as another type or
-/// eat the "key: " / ", " structure; anything else falls back to JSON quoting.
-fn bare_scalar(s: &str) -> bool {
-    !s.is_empty()
-        && !s.contains('\n')
-        && !s.contains(": ")
-        && !s.contains(", ")
-        && !s.ends_with(':')
-        && !s.starts_with(|c: char| "-[]{}\"'#,!?&*|>@`%".contains(c) || c.is_whitespace())
-        && !s.ends_with(char::is_whitespace)
-        && s.parse::<f64>().is_err()
-        && !matches!(
-            s,
-            "true" | "false" | "null" | "~" | "yes" | "no" | "on" | "off"
-        )
-}
-
-fn compact_scalar(v: &Value) -> String {
-    match v {
-        Value::String(s) if bare_scalar(s) => s.clone(),
-        other => serde_json::to_string(other).unwrap_or_default(),
-    }
-}
-
-/// Object-array table detection: all elements are objects sharing the same
-/// scalar-valued keys, so a csv row form works — JSON repeats every key name
-/// per row, which is where most of its waste lives. Returns the columns.
-fn table_keys(a: &[Value]) -> Option<Vec<String>> {
-    let first = a.first()?.as_object()?;
-    if first.is_empty() {
-        return None;
-    }
-    let keys: Vec<String> = first.keys().cloned().collect();
-    let uniform = a.iter().all(|x| {
-        x.as_object().is_some_and(|m| {
-            m.len() == keys.len()
-                && keys
-                    .iter()
-                    .all(|k| m.get(k).is_some_and(|v| !v.is_object() && !v.is_array()))
-        })
-    });
-    uniform.then_some(keys)
-}
-
-fn compact_lines(v: &Value, ind: usize, out: &mut String) {
-    let pad = "  ".repeat(ind);
-    match v {
-        Value::Object(m) => {
-            for (k, val) in m {
-                out.push_str(&pad);
-                out.push_str(k);
-                match val {
-                    Value::Object(_) | Value::Array(_) => {
-                        out.push_str(":\n");
-                        compact_lines(val, ind + 1, out);
-                    }
-                    _ => {
-                        out.push_str(": ");
-                        out.push_str(&compact_scalar(val));
-                        out.push('\n');
-                    }
-                }
-            }
-        }
-        Value::Array(a) => {
-            if let Some(cols) = table_keys(a) {
-                // uniform objects: column header once, then bare csv rows
-                out.push_str(&format!("{pad}({})\n", cols.join(", ")));
-                for x in a {
-                    let m = x.as_object().unwrap();
-                    let row: Vec<String> = cols.iter().map(|k| compact_scalar(&m[k])).collect();
-                    out.push_str(&format!("{pad}{}\n", row.join(", ")));
-                }
-            } else if a.iter().all(|x| !x.is_object() && !x.is_array()) {
-                // scalar lists inline — "key: a, b, c" beats a dash per item
-                let row: Vec<String> = a.iter().map(compact_scalar).collect();
-                out.push_str(&format!("{pad}{}\n", row.join(", ")));
-            } else {
-                for x in a {
-                    out.push_str(&format!("{pad}- {}\n", compact_scalar(x)));
-                }
-            }
-        }
-        _ => {
-            out.push_str(&pad);
-            out.push_str(&compact_scalar(v));
-            out.push('\n');
-        }
-    }
-}
-
 /// Shortest round-trip, deliberately not %g: anchors like
 /// `3.3333333333333335` look noisy, but rounding them to 6 or 3 significant
 /// digits lost 1-3 numeric cases per model on eval/{core,edge} (none gained).
 fn fmt_g(v: f64) -> String {
     format!("{v}")
+}
+
+/// TOON (spec v4.1, pinned — it's still a working draft) state rendering:
+/// the same JSON data model with declared array lengths `[N]` and per-table
+/// field lists `{f1,f2}` instead of repeated keys. Encode-only — answers are
+/// letters, snap never parses TOON back.
+pub fn render_state_toon(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        other => {
+            let mut s = String::new();
+            toon_root(other, &mut s);
+            s.trim_end().to_string()
+        }
+    }
+}
+
+/// A header field-list entry: a bare name, or a name carrying a nested group
+/// (`temp{min,max}`) for a column of nested-uniform objects.
+enum Field {
+    Leaf(String),
+    Group(String, Vec<Field>),
+}
+
+/// §9.3/§9.5 column walk: all objects non-empty with the same key set, every
+/// column uniform-primitive (all scalars) or nested-uniform (all non-empty
+/// objects, recursively uniform). Returns the field list in the first
+/// object's key order; None = not tabular-eligible.
+fn fields_of(objs: &[&Map<String, Value>]) -> Option<Vec<Field>> {
+    let first = objs.first()?;
+    if first.is_empty() {
+        return None;
+    }
+    let keys: Vec<&String> = first.keys().collect();
+    let uniform = objs
+        .iter()
+        .all(|m| m.len() == keys.len() && keys.iter().all(|k| m.contains_key(*k)));
+    if !uniform {
+        return None;
+    }
+    keys.iter()
+        .map(|k| {
+            let col: Vec<&Value> = objs.iter().map(|m| &m[k.as_str()]).collect();
+            if col
+                .iter()
+                .all(|v| v.as_object().is_some_and(|o| !o.is_empty()))
+            {
+                let subs: Vec<&Map<String, Value>> =
+                    col.iter().map(|v| v.as_object().unwrap()).collect();
+                Some(Field::Group(k.to_string(), fields_of(&subs)?))
+            } else if col.iter().all(|v| !v.is_object() && !v.is_array()) {
+                Some(Field::Leaf(k.to_string()))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// §9.3 tabular detection on an array of objects.
+fn tabular_fields(a: &[Value]) -> Option<Vec<Field>> {
+    if a.is_empty() {
+        return None;
+    }
+    let objs: Vec<&Map<String, Value>> = a.iter().map(|v| v.as_object()).collect::<Option<_>>()?;
+    fields_of(&objs)
+}
+
+/// §9.5 keyed tabular detection on an object: ≥2 entries, every value a
+/// non-empty object, uniform columns across them.
+fn keyed_fields(m: &Map<String, Value>) -> Option<Vec<Field>> {
+    if m.len() < 2 {
+        return None;
+    }
+    let objs: Vec<&Map<String, Value>> =
+        m.values().map(|v| v.as_object()).collect::<Option<_>>()?;
+    fields_of(&objs)
+}
+
+fn field_list(fields: &[Field]) -> String {
+    fields
+        .iter()
+        .map(|f| match f {
+            Field::Leaf(k) => toon_key(k),
+            Field::Group(k, subs) => format!("{}{{{}}}", toon_key(k), field_list(subs)),
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Row cells in depth-first leaf order over the field list.
+fn cells_of<'a>(m: &'a Map<String, Value>, fields: &[Field], out: &mut Vec<&'a Value>) {
+    for f in fields {
+        match f {
+            Field::Leaf(k) => out.push(&m[k.as_str()]),
+            Field::Group(k, subs) => cells_of(m[k.as_str()].as_object().unwrap(), subs, out),
+        }
+    }
+}
+
+fn row_cells(m: &Map<String, Value>, fields: &[Field]) -> String {
+    let mut cells = Vec::new();
+    cells_of(m, fields, &mut cells);
+    cells
+        .iter()
+        .map(|v| toon_scalar(v))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// §7.3: unquoted only for `^[A-Za-z_][A-Za-z0-9_.]*$`.
+fn toon_key(k: &str) -> String {
+    let bare = k.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        && k.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.');
+    if bare {
+        k.to_string()
+    } else {
+        toon_quote(k)
+    }
+}
+
+/// §7.1: the five escapes plus \uXXXX for other controls — serde_json's `\b`
+/// and `\f` are not TOON escapes.
+fn toon_quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// §4 number grammar lookalike: `^[+-]?[0-9]+(\.[0-9]+)?(e[+-]?[0-9]+)?$` —
+/// such strings must be quoted so they don't read back as numbers.
+fn numeric_like(s: &str) -> bool {
+    let b = s.as_bytes();
+    let mut i = (b.first() == Some(&b'+') || b.first() == Some(&b'-')) as usize;
+    let d0 = i;
+    while i < b.len() && b[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == d0 {
+        return false;
+    }
+    if b.get(i) == Some(&b'.') {
+        i += 1;
+        let d1 = i;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == d1 {
+            return false;
+        }
+    }
+    if matches!(b.get(i), Some(&b'e') | Some(&b'E')) {
+        i += 1;
+        if matches!(b.get(i), Some(&b'+') | Some(&b'-')) {
+            i += 1;
+        }
+        let d2 = i;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == d2 {
+            return false;
+        }
+    }
+    i == b.len()
+}
+
+/// §7.2: bare only when quoting isn't required. Comma is both the document
+/// and the active delimiter everywhere we emit, so it always forces quotes.
+fn toon_bare(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with([' ', '\t', '-', '#'])
+        && !s.ends_with([' ', '\t'])
+        && !s.contains(|c: char| {
+            matches!(c, ':' | '"' | '\\' | '[' | ']' | '{' | '}' | ',') || (c as u32) < 0x20
+        })
+        && !matches!(s, "true" | "false" | "null")
+        && !numeric_like(s)
+}
+
+fn toon_scalar(v: &Value) -> String {
+    match v {
+        Value::String(s) if toon_bare(s) => s.clone(),
+        Value::String(s) => toon_quote(s),
+        Value::Null => "null".into(),
+        Value::Bool(b) => b.to_string(),
+        Value::Number(n) => match (n.as_i64(), n.as_u64()) {
+            (Some(i), _) => i.to_string(),
+            (None, Some(u)) => u.to_string(),
+            (None, None) => {
+                let v = n.as_f64().unwrap_or_default();
+                if v == 0.0 {
+                    "0".into() // §2: -0 normalizes to 0
+                } else {
+                    fmt_g(v)
+                }
+            }
+        },
+        other => toon_quote(&value_text(other)),
+    }
+}
+
+/// Emits one object field. `pre` is the line prefix — the indent pad, or
+/// pad + "- " for a list-item object's first field (§10); `ind` is the
+/// field's own depth, so its scope's content lands at ind+1.
+fn toon_field(pre: &str, k: &str, val: &Value, ind: usize, out: &mut String) {
+    let key = toon_key(k);
+    match val {
+        Value::Object(m) if m.is_empty() => out.push_str(&format!("{pre}{key}:\n")),
+        Value::Object(m) => match keyed_fields(m) {
+            Some(fields) => {
+                out.push_str(&format!(
+                    "{pre}{key}[{}:]{{{}}}:\n",
+                    m.len(),
+                    field_list(&fields)
+                ));
+                for (ek, ev) in m {
+                    let row = row_cells(ev.as_object().unwrap(), &fields);
+                    out.push_str(&format!(
+                        "{}{}: {}\n",
+                        "  ".repeat(ind + 1),
+                        toon_key(ek),
+                        row
+                    ));
+                }
+            }
+            None => {
+                out.push_str(&format!("{pre}{key}:\n"));
+                for (k2, v2) in m {
+                    toon_field(&"  ".repeat(ind + 1), k2, v2, ind + 1, out);
+                }
+            }
+        },
+        Value::Array(a) => toon_array(pre, &key, a, ind, out),
+        _ => out.push_str(&format!("{pre}{key}: {}\n", toon_scalar(val))),
+    }
+}
+
+/// `key` is empty only at the root: a keyless header `[N]:`/`[N]{f}:`.
+fn toon_array(pre: &str, key: &str, a: &[Value], ind: usize, out: &mut String) {
+    if a.is_empty() {
+        // §9.1: key: [] in field position, [] at the root
+        if key.is_empty() {
+            out.push_str("[]\n");
+        } else {
+            out.push_str(&format!("{pre}{key}: []\n"));
+        }
+        return;
+    }
+    if a.iter().all(|v| !v.is_object() && !v.is_array()) {
+        let vals: Vec<String> = a.iter().map(toon_scalar).collect();
+        out.push_str(&format!("{pre}{key}[{}]: {}\n", a.len(), vals.join(",")));
+        return;
+    }
+    if let Some(fields) = tabular_fields(a) {
+        out.push_str(&format!(
+            "{pre}{key}[{}]{{{}}}:\n",
+            a.len(),
+            field_list(&fields)
+        ));
+        for x in a {
+            out.push_str(&format!(
+                "{}{}\n",
+                "  ".repeat(ind + 1),
+                row_cells(x.as_object().unwrap(), &fields)
+            ));
+        }
+        return;
+    }
+    out.push_str(&format!("{pre}{key}[{}]:\n", a.len()));
+    for x in a {
+        toon_item(x, ind + 1, out);
+    }
+}
+
+/// §9.4 list items at depth `ind`; §10 carries an object item's first field
+/// on the hyphen line, its scope content at ind+2.
+fn toon_item(v: &Value, ind: usize, out: &mut String) {
+    let pad = "  ".repeat(ind);
+    match v {
+        Value::Object(m) if m.is_empty() => out.push_str(&format!("{pad}-\n")),
+        Value::Object(m) => {
+            let mut it = m.iter();
+            let (k, val) = it.next().unwrap();
+            toon_field(&format!("{pad}- "), k, val, ind + 1, out);
+            for (k, val) in it {
+                toon_field(&format!("{pad}  "), k, val, ind + 1, out);
+            }
+        }
+        Value::Array(inner) if inner.is_empty() => out.push_str(&format!("{pad}- [0]:\n")),
+        Value::Array(inner) if inner.iter().all(|x| !x.is_object() && !x.is_array()) => {
+            let vals: Vec<String> = inner.iter().map(toon_scalar).collect();
+            out.push_str(&format!("{pad}- [{}]: {}\n", inner.len(), vals.join(",")));
+        }
+        Value::Array(inner) => {
+            // keyless fields-bearing headers aren't valid at item position
+            // (§6), so nested uniform arrays use list form, never tabular
+            out.push_str(&format!("{pad}- [{}]:\n", inner.len()));
+            for x in inner {
+                toon_item(x, ind + 1, out);
+            }
+        }
+        _ => out.push_str(&format!("{pad}- {}\n", toon_scalar(v))),
+    }
+}
+
+fn toon_root(v: &Value, out: &mut String) {
+    match v {
+        Value::Object(m) if m.is_empty() => {} // empty object: empty document
+        Value::Object(m) => match keyed_fields(m) {
+            Some(fields) => {
+                out.push_str(&format!("[{}:]{{{}}}:\n", m.len(), field_list(&fields)));
+                for (ek, ev) in m {
+                    out.push_str(&format!(
+                        "  {}: {}\n",
+                        toon_key(ek),
+                        row_cells(ev.as_object().unwrap(), &fields)
+                    ));
+                }
+            }
+            None => {
+                for (k, v2) in m {
+                    toon_field("", k, v2, 0, out);
+                }
+            }
+        },
+        Value::Array(a) => toon_array("", "", a, 0, out),
+        _ => out.push_str(&format!("{}\n", toon_scalar(v))),
+    }
 }
 
 /// Choice option label: the description alone — keys are often opaque
@@ -471,20 +709,75 @@ mod tests {
     }
 
     #[test]
-    fn render_state_compact_shape() {
+    fn toon_forms() {
+        // object + inline array + quoting
         let v = json!({"user": {"name": "ada", "n": 3}, "tags": ["x", "y"], "note": "see: this"});
-        let s = render_state_compact(&v);
-        assert!(s.contains("user:\n  name: ada\n  n: 3"));
-        assert!(s.contains("tags:\n  x, y"));
-        // ": " inside a string must stay quoted
-        assert!(s.contains("note: \"see: this\""));
-        // strings that look like scalars stay quoted too
-        assert!(render_state_compact(&json!({"v": "true"})).contains("\"true\""));
-        // plain strings pass through untouched
-        assert_eq!(render_state_compact(&json!("plain text")), "plain text");
-        // uniform object arrays become a csv table with one header line
+        let s = render_state_toon(&v);
+        assert!(s.contains("user:\n  name: ada\n  n: 3"), "{s}");
+        assert!(s.contains("tags[2]: x,y"), "{s}");
+        assert!(s.contains("note: \"see: this\""), "{s}");
+        // uniform object array: tabular form, header on the key line
         let v = json!({"items": [{"sku": "a", "qty": 1}, {"sku": "b", "qty": 2}]});
-        let s = render_state_compact(&v);
-        assert!(s.contains("items:\n  (sku, qty)\n  a, 1\n  b, 2"), "{s}");
+        assert_eq!(render_state_toon(&v), "items[2]{sku,qty}:\n  a,1\n  b,2");
+        // nested-uniform column folds into a field group
+        let v = json!({"fc": [{"d": "Mon", "t": {"min": -2, "max": 4}}]});
+        assert_eq!(render_state_toon(&v), "fc[1]{d,t{min,max}}:\n  Mon,-2,4");
+        // object of uniform objects: keyed tabular
+        let v = json!({"env": {"prod": {"r": 1, "d": false}, "stg": {"r": 2, "d": true}}});
+        assert_eq!(
+            render_state_toon(&v),
+            "env[2:]{r,d}:\n  prod: 1,false\n  stg: 2,true"
+        );
+        // non-uniform array: list form; object items carry their first field
+        let v = json!({"xs": [1, {"a": 2, "b": 3}]});
+        assert_eq!(render_state_toon(&v), "xs[2]:\n  - 1\n  - a: 2\n    b: 3");
+        // object item whose first field is tabular: rows sit at +2 (§10)
+        let v = json!({"xs": [{"rows": [{"a": 1}], "k": 2}]});
+        assert_eq!(
+            render_state_toon(&v),
+            "xs[1]:\n  - rows[1]{a}:\n      1\n    k: 2"
+        );
+        // empties
+        let v = json!({"o": {}, "a": [], "n": null});
+        assert_eq!(render_state_toon(&v), "o:\na: []\nn: null");
+        // root array, keyless header
+        assert_eq!(render_state_toon(&json!([1, 2])), "[2]: 1,2");
+        assert_eq!(
+            render_state_toon(&json!([{"a": 1}, {"a": 2}])),
+            "[2]{a}:\n  1\n  2"
+        );
+    }
+
+    #[test]
+    fn toon_quoting() {
+        let cases = [
+            ("", "\"\""),
+            (" x", "\" x\""),
+            ("x ", "\"x \""),
+            ("true", "\"true\""),
+            ("42", "\"42\""),
+            ("+5", "\"+5\""),
+            ("05", "\"05\""),
+            ("1e-6", "\"1e-6\""),
+            ("a,b", "\"a,b\""),
+            ("a:b", "\"a:b\""),
+            ("a[b", "\"a[b\""),
+            ("-x", "\"-x\""),
+            ("#c", "\"#c\""),
+            ("a\tb", "\"a\\tb\""),
+            ("a\nb", "\"a\\nb\""),
+            ("hi there", "hi there"),
+        ];
+        for (s, want) in cases {
+            let got = render_state_toon(&json!({"k": s}));
+            assert_eq!(got, format!("k: {want}"), "input {s:?}");
+        }
+        // keys follow §7.3: bare only for [A-Za-z_][A-Za-z0-9_.]*
+        assert_eq!(render_state_toon(&json!({"my key": 1})), "\"my key\": 1");
+        assert_eq!(render_state_toon(&json!({"a.b_c": 1})), "a.b_c: 1");
+        // -0 normalizes to 0
+        assert_eq!(render_state_toon(&json!({"v": -0.0})), "v: 0");
+        // strings still pass through untouched
+        assert_eq!(render_state_toon(&json!("plain")), "plain");
     }
 }

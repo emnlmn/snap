@@ -93,6 +93,34 @@ pub struct Engine {
     pub model_id: String,
     /// Fitted per-type temperatures (`snap calibrate`); None = T 1.0 everywhere.
     pub calibration: Option<Calibration>,
+    /// Debug escape hatch (`SNAP_STATE_FORMAT`, `snap evaluate
+    /// --state-format`); None renders TOON, the only production rendering.
+    pub state_format: Option<StateFormat>,
+}
+
+/// State renderings: TOON is the default; `json` survives only to bisect
+/// "is it the format?" without a rebuild.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StateFormat {
+    Json,
+    Toon,
+}
+
+impl StateFormat {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StateFormat::Json => "json",
+            StateFormat::Toon => "toon",
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "json" => Ok(StateFormat::Json),
+            "toon" => Ok(StateFormat::Toon),
+            _ => bail!("expected json|toon, got {s:?}"),
+        }
+    }
 }
 
 /// `snap-<general.name>[-<file_type>]`, lowercased. Our own fine-tunes are
@@ -111,11 +139,10 @@ fn model_id(name: &str, quant: Option<&str>) -> String {
     }
 }
 
-fn state_text(state: &Value, compact: bool) -> String {
-    if compact {
-        prompts::render_state_compact(state)
-    } else {
-        prompts::render_state(state)
+fn state_text(state: &Value, fmt: Option<StateFormat>) -> String {
+    match fmt.unwrap_or(StateFormat::Toon) {
+        StateFormat::Json => prompts::render_state(state),
+        StateFormat::Toon => prompts::render_state_toon(state),
     }
 }
 
@@ -153,6 +180,13 @@ impl Engine {
         let frame = (pre.to_string(), post.to_string());
         let head = llm.tokenize(&frame.0, true)?;
         let kv = Kv::new(&mut *llm, head.clone())?;
+        let state_format = std::env::var("SNAP_STATE_FORMAT")
+            .ok()
+            .map(|s| StateFormat::parse(&s))
+            .transpose()?;
+        if let Some(f) = state_format {
+            eprintln!("snap: state_format override: {}", f.as_str());
+        }
         Ok(Engine {
             llm,
             kv,
@@ -161,6 +195,7 @@ impl Engine {
             head,
             model_id,
             calibration: None,
+            state_format,
         })
     }
 
@@ -184,7 +219,6 @@ impl Engine {
             mode: Mode::Shared,
             layout: Layout::StateFirst,
             expand: Expand::default(),
-            compact_state: false,
         };
         self.decide(&req)?;
         let mut one = Map::new();
@@ -253,8 +287,11 @@ impl Engine {
     /// renders it — the shared prefix every question pays for once.
     /// Caller lands with the server-side usage probe (uncommitted work).
     #[allow(dead_code)]
-    pub fn state_tokens(&self, state: &Value, compact: bool) -> Result<usize> {
-        Ok(self.llm.tokenize(&state_text(state, compact), false)?.len())
+    pub fn state_tokens(&self, state: &Value) -> Result<usize> {
+        Ok(self
+            .llm
+            .tokenize(&state_text(state, self.state_format), false)?
+            .len())
     }
 
     /// Render a one-question request exactly as `decide` sends it through
@@ -265,7 +302,7 @@ impl Engine {
     /// the letter budget expands into several decode items).
     pub fn render_prompt(&self, req: &DecideRequest) -> Result<Option<Value>> {
         req.validate()?;
-        let (compiled, units) = compile(req)?;
+        let (compiled, units) = compile(req, self.state_format)?;
         if !compiled.expanded.is_empty() {
             return Ok(None);
         }
@@ -299,7 +336,7 @@ impl Engine {
         req.validate()?;
         let t0 = Instant::now();
         let calib = |b: &str| self.calibration.as_ref().map_or(1.0, |c| c.temp(b));
-        let (compiled, units) = compile(req)?;
+        let (compiled, units) = compile(req, self.state_format)?;
         let layout = compiled.layout;
 
         let shared = req.mode == Mode::Shared;
@@ -430,7 +467,7 @@ impl Engine {
 /// Compile a request into its decode units and what their messages share:
 /// over-budget choices expanded, state rendered, layout resolved, header
 /// preamble or catalog laid out.
-fn compile(req: &DecideRequest) -> Result<(Compiled, Vec<Unit>)> {
+fn compile(req: &DecideRequest, fmt: Option<StateFormat>) -> Result<(Compiled, Vec<Unit>)> {
     // expand over-budget choices first: the layout heuristic wants the
     // real item count (a 30-option choice is 30 probes sharing the state)
     let mut units: Vec<Unit> = Vec::new();
@@ -461,7 +498,7 @@ fn compile(req: &DecideRequest) -> Result<(Compiled, Vec<Unit>)> {
         }
     }
 
-    let state = state_text(&req.state, req.compact_state);
+    let state = state_text(&req.state, fmt);
     let qs: Vec<&Question> = units.iter().map(|u| &u.1).collect();
     let layout = resolve_layout(req.layout, &qs, any_abstain, state.len());
     let preamble: Vec<String> = if layout == Layout::Header {
@@ -780,13 +817,14 @@ mod tests {
         ];
         let state = json!({"ticket": "refund please", "items": ["latte", "pane"]});
         for layout in LAYOUTS {
-            for compact in [false, true] {
+            for fmt in [StateFormat::Toon, StateFormat::Json] {
+                eng.state_format = Some(fmt);
                 for qj in &shapes {
                     let r = req(json!({"state": state, "questions": {"q": qj},
-                                       "layout": layout, "compact_state": compact}));
+                                       "layout": layout}));
                     let rec = eng.render_prompt(&r).unwrap().unwrap();
                     let out = eng.decide(&r).unwrap();
-                    let at = format!("{layout}/compact={compact}: {qj}");
+                    let at = format!("{layout}/{}: {qj}", fmt.as_str());
                     assert_eq!(rec["layout"], out["x_snap"]["layout"], "{at}");
                     let toks: Vec<i32> = serde_json::from_value(rec["token_ids"].clone()).unwrap();
                     let q: Question = serde_json::from_value(qj.clone()).unwrap();

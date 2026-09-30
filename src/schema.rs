@@ -188,10 +188,6 @@ pub struct DecideRequest {
     /// How over-26-option choices expand (see `expand_choice`).
     #[serde(default)]
     pub expand: Expand,
-    /// Render the state as yaml-lite lines instead of compact JSON — fewer
-    /// punctuation tokens on structured states.
-    #[serde(default)]
-    pub compact_state: bool,
 }
 
 impl DecideRequest {

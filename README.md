@@ -123,7 +123,6 @@ them, and the defaults preserve Jev semantics:
 | request `mode` | `shared` (default: shared text decoded once, spans cached across requests) or `direct` (every question decoded alone, the reference path) |
 | request `layout` | `auto` (default), `state_first`, `question_first`, `header`, `catalog` |
 | request `expand` | `probes` (default) or `pages`: how a choice with more than 26 options expands |
-| request `compact_state` | default `false`; `true` renders object states as compact lines or CSV rows |
 
 `layout` decides where the question sits relative to the state:
 
@@ -282,7 +281,7 @@ generates three stability probes per case: the option order reversed
 and an unrelated context injected; `--no-perturb` skips them.
 
 Line format: `{"id", "state", "question", "expect", "variants"?,
-"requires_abstain"?, "layout"?, "expand"?, "compact_state"?}`. The pins are
+"requires_abstain"?, "layout"?, "expand"?}`. The pins are
 the request's own knobs on that case — a malformed pin is an error, not a
 quiet default, and `--layout` overrides all of them. Base cases
 use `<domain>-NN` ids and adversarial cases `edge-<stress>-NN`.

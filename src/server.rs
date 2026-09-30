@@ -82,8 +82,7 @@ async fn tokenize(
     Json(req): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let state = req.get("state").cloned().unwrap_or_default();
-    let compact = req["compact_state"].as_bool().unwrap_or(false);
-    let n = tokio::task::spawn_blocking(move || s.engine().state_tokens(&state, compact))
+    let n = tokio::task::spawn_blocking(move || s.engine().state_tokens(&state))
         .await
         .map_err(|e| err422(anyhow::anyhow!(e)))?
         .map_err(err422)?;
