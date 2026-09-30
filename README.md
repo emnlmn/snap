@@ -106,7 +106,7 @@ prompt tokens against the tokens actually decoded
 (`usage.input_tokens`), `cached_head_tokens`, `shared_prefix_tokens`,
 `cache_hits`/`cache_misses`, `waves`, and decode and total milliseconds.
 
-## The API — drop-in Jev, extended
+## The API: drop-in Jev, extended
 
 `POST /v1/systemone` speaks the TypeSafe/Jev wire format. A client
 written for Jev works unchanged against a local `snap serve`: same `noul`,
@@ -124,7 +124,7 @@ them, and the defaults preserve Jev semantics:
 | request `layout` | `auto` (default), `state_first`, `question_first`, `header`, `catalog` |
 | request `expand` | `probes` (default) or `pages`: how a choice with more than 26 options expands |
 
-`state` takes a string or any JSON value — objects and arrays reach the
+`state` takes a string or any JSON value. Objects and arrays reach the
 model rendered as [TOON](https://github.com/toon-format/toon): `key: value`
 lines and one `key[N]{fields}` header per uniform table, the data without
 the JSON punctuation. On the eval suite's structured states that costs
@@ -289,13 +289,13 @@ and an unrelated context injected; `--no-perturb` skips them.
 
 Line format: `{"id", "state", "question", "expect", "variants"?,
 "requires_abstain"?, "layout"?, "expand"?}`. The pins are
-the request's own knobs on that case — a malformed pin is an error, not a
+the request's own knobs on that case. A malformed pin is an error, not a
 quiet default, and `--layout` overrides all of them. Base cases
 use `<domain>-NN` ids and adversarial cases `edge-<stress>-NN`.
 
 `snap export-prompts` reads the same case files and writes, one JSONL
-record per case, the exact prompt `evaluate` decodes for it — chat template
-applied, token ids, resolved layout, letter-to-key slots. It is the
+record per case, the exact prompt `evaluate` decodes for it: chat template
+applied, token ids, resolved layout and letter-to-key slots. It is the
 supervision surface the fine-tuning pipeline trains on (see
 [TRAINING.md](TRAINING.md)). A choice with more options than the
 26 letters has no single prompt, so it is skipped (with a note on stderr)
@@ -406,7 +406,7 @@ the card reads ~0.75 as saturation). It replays the dataset's own
 numbers line up with the card's (Jev 1.13.0 zero-shot: 0.727). What it
 catches that `eval/cases.jsonl` cannot: the same question repeats over
 100 different states, so **argmax constancy** measures whether the model
-reads the state at all. `score --detail` prints it per question — a run
+reads the state at all. `score --detail` prints it per question. A run
 collapsing ≥95% of answers on a question is predicting the prior, not
 reading (minicpm5-2b zero-shot: 6/20 questions constant, acc 0.502;
 qwen3.8-4b: 8/20, acc 0.561, but its wins concentrate on lucky constants).
@@ -422,7 +422,7 @@ python3 eval/typed_decisions.py score results/typed-decisions/*.json --detail
 ```
 
 `--kind` is required and means what the card means: `zero-shot` if the
-model never trained on these workflows, `in-domain` if it did — a run
+model never trained on these workflows, `in-domain` if it did: a run
 fine-tuned on the benchmark's train split is in-domain, and its number is
 not a generalization claim. Runs of different kinds are reported but
 flagged as not comparable. The corpus `tasksource-jev-typed-decisions`
@@ -430,7 +430,7 @@ train rows can feed fine-tuning; the test split never does.
 
 ### Runs and history
 
-Every report is a create-only JSON — a file name is a run, never
+Every report is a create-only JSON: a file name is a run, never
 repeated, never overwritten. The standard battery (evaluate + bench +
 typed-decisions) is one command, in `training/`:
 
@@ -442,7 +442,7 @@ python3 ../eval/history.py                               # the whole timeline
 ```
 
 `history.py` scans `results/` and `training/eval/results/` and
-prints one line per report — accuracy, ECE, KL, latency — so whether a
+prints one line per report (accuracy, ECE, KL, latency), so whether a
 change helped or regressed is read off a table, not reconstructed from
 memory. Old runs stay on disk as history; a paired view of two specific
 reports is `eval/typed_decisions.py score A.json B.json --against A.json`.
@@ -450,43 +450,19 @@ reports is `eval/typed_decisions.py score A.json B.json --against A.json`.
 ## Calibration
 
 Raw letter probabilities are honest but uncalibrated: `0.9` does not mean
-"right 90% of the time" until you measure it. `snap calibrate` runs your
-eval cases, collects every distribution with its ground-truth target and
-fits one temperature per question type:
+"right 90% of the time" until you measure it. `snap calibrate` fits one
+temperature per question type on your own labeled cases, and the file it
+writes is loaded with `--calibration` (`serve`, `-p`, `evaluate`, `bench`):
 
 ```bash
-snap calibrate --model qwen3.8-4b eval/cases.jsonl -o calibration.json
-# fitted on 295 cases (8 skipped)
-#   boolean  T=0.558
-#   choice   T=0.395
-#   numeric  T=0.867
-#   score    T=0.573
-# ece  0.121 raw -> 0.041 in-sample | 0.047 out-of-fold  CI95 [0.037, 0.087]
-# gain is CI-separated from raw at 95% — real, not fitting noise
+snap calibrate --model qwen3.8-4b my-cases.jsonl -o calibration.json
 snap serve --model qwen3.8-4b --calibration calibration.json
 ```
 
-A temperature below 1 sharpens the distribution, and here all four are
-below 1: qwen3.8 is *under*confident on every question type. The last
-line is the verdict. In this run the whole out-of-fold interval sits
-below the raw ECE, so the gain is real; when the interval overlaps the
-raw value, snap prints `caveat: … gain not proven at this n` instead.
-
-The report prints three ECE numbers with different meanings. **Raw** is
-the starting point. **In-sample** is scored on the same cases the fit
-saw, optimistic by construction and kept for reference. **Out-of-fold**
-is the honest one: every case is scored with a temperature fitted on the
-*other* folds (5-fold, group-disjoint, so a case's variants never leak
-across folds). The 95% bootstrap interval resamples whole cases, and the
-report flags whether the gain separates from raw at that confidence. At
-these sample sizes, read the interval, not the point.
-
-The calibration file binds to the exact model id and prompt version, and
-a file fitted on another build refuses to load. `--calibration` is
-accepted by `serve`, `-p`, `evaluate` and `bench`. This is post-hoc
-scaling, not retraining: a single scalar corrects over- or
-under-confidence, not the shape of the distribution, and it holds only as
-far as your eval data resembles production traffic.
+The report scores the gain out of fold, with a bootstrap interval, so it
+says when calibration did not help. The file binds to the exact model id and
+prompt version and refuses to load on any other build. How to prepare the
+cases, how many, and how to read the report: [CALIBRATION.md](CALIBRATION.md).
 
 ## Quickstart
 
@@ -633,7 +609,7 @@ snap serve --model spark-4b   # then open http://localhost:8018/playground
 
 `/playground` is an API console. It builds a request one question at a
 time, across all five question types, switches between the form, raw JSON
-and cURL, and shows every answer as a probability map on a shared 0–100%
+and cURL, and shows every answer as a probability map on a shared 0 to 100%
 scale, together with the `x_snap` internals (decode and total ms, tokens
 decoded against prompt tokens, cache hits, waves). `⌘↵` runs the request.
 
