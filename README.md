@@ -17,6 +17,10 @@
   <a href="https://opensource.org/license/mit"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="license: MIT"/></a>
 </p>
 
+<p align="center">
+  <img src="assets/demo.gif" width="700" alt="snap in the terminal"/>
+</p>
+
 ---
 
 snap is a decision engine for LLM pipelines. The input is your data plus
@@ -53,7 +57,7 @@ batched `llama_decode` call.
   "answers": {
     "route":  {"choice": "billing", "probabilities": {"billing": 0.87, "tech": 0.13}},
     "urgent": {"noul": 0.97, "boolean": true, "confidence": 0.94},
-    "impact": {"level": 2, "score": 0.81}
+    "impact": {"level": 2, "score": 1.62, "legend": {"0": "low", "1": "mid", "2": "high"}}
   }
 }
 ```
@@ -155,8 +159,8 @@ compact lines it replaces.
 The resolved layout is reported in `x_snap`.
 
 Answers carry extras on top of the Jev shape, which Jev clients simply
-ignore: `status`, `confidence`, `coverage`, the full `probabilities`, and
-typed fields (`boolean`, `level`, `value`).
+ignore: `status`, `confidence`, `coverage`, `level`, and typed fields
+(`boolean`, `value`).
 
 A `choice` is not bounded by the alphabet: past 26 options, up to 256,
 the question expands. With `expand: probes`, the default, each option gets
@@ -415,7 +419,7 @@ constant, acc 0.624, KL 0.304, Brier 0.170, ECE 0.043.
 
 ```bash
 python3 eval/typed_decisions.py fetch       # test + train, pinned revision
-snap serve --model minicpm5-2b &
+snap serve &
 python3 eval/typed_decisions.py answer --kind zero-shot \
     --out results/typed-decisions/minicpm5-2b.json
 python3 eval/typed_decisions.py score results/typed-decisions/*.json --detail
