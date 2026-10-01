@@ -6,6 +6,7 @@
 - api: `compact_state` is gone — the yaml-lite renderer it selected is deleted; the tolerant envelope still accepts the flag and ignores it, so Jev clients are unaffected
 - engine: `SNAP_STATE_FORMAT=json` and `snap evaluate --state-format json|toon` keep a debug escape for format bisection; eval reports label the forced renderer
 - eval: three-renderer benchmark, 108 structured-state cases × 4 models — yaml-lite and TOON answered identically on every case, JSON cost ~1% more tokens; the standard format wins
+- cli: `snap models` is a docker-style group — the list shows size on disk + real cache path, `pull`/`rm` manage the shared HF cache; resolve+load+calibrate fold into one `ModelArgs::engine`
 
 ## 0.3.0 - 2026-09-28
 

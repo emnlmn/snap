@@ -57,6 +57,28 @@ struct ModelArgs {
     debug: bool,
 }
 
+impl ModelArgs {
+    /// resolve --model (pulling on first use), load the engine,
+    /// fit --calibration when given.
+    fn engine(&self) -> Result<engine::Engine> {
+        let mut eng =
+            engine::Engine::load(&models::resolve(&self.model)?, self.ctx, 1024, self.threads)?;
+        if let Some(c) = &self.calibration {
+            eng.load_calibration(c)?;
+        }
+        Ok(eng)
+    }
+
+    /// untouched top-level flags — the -p guard's check
+    fn is_default(&self) -> bool {
+        self.model == models::DEFAULT_MODEL
+            && self.ctx == 8192
+            && self.threads == 0
+            && !self.debug
+            && self.calibration.is_none()
+    }
+}
+
 #[derive(Subcommand)]
 enum Cmd {
     /// HTTP server (decisions + systemone APIs)
@@ -133,8 +155,11 @@ enum Cmd {
         #[arg(long, short)]
         output: String,
     },
-    /// list known model shortcuts
-    Models,
+    /// inspect and manage the local model cache (default: list)
+    Models {
+        #[command(subcommand)]
+        cmd: Option<ModelCmd>,
+    },
     /// ping a running server
     Check {
         #[arg(long, default_value = "http://127.0.0.1:8018")]
@@ -157,6 +182,18 @@ enum Cmd {
         #[arg(long)]
         force: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum ModelCmd {
+    /// tested models: name, size on disk, where they live
+    #[command(visible_alias = "ls")]
+    List,
+    /// download a model's GGUF (a bare --model name pulls on first use too)
+    Pull { name: String },
+    /// delete a pulled model's GGUF from the cache
+    #[command(visible_alias = "remove")]
+    Rm { name: String },
 }
 
 /// The request behind -p / decide: inline JSON wins, then a path that
@@ -186,11 +223,7 @@ fn read_request(spec: Option<&str>) -> Result<String> {
 }
 
 fn decide_request(m: &ModelArgs, req: api::SystemoneRequest) -> Result<()> {
-    let path = models::resolve(&m.model)?;
-    let mut eng = engine::Engine::load(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
-    if let Some(c) = &m.calibration {
-        eng.load_calibration(c)?;
-    }
+    let mut eng = m.engine()?;
     let out = api::from_native(&eng.decide(&req.to_native())?);
     println!("{}", serde_json::to_string_pretty(&out)?);
     Ok(())
@@ -207,11 +240,7 @@ fn parse_state_format(s: &str) -> std::result::Result<engine::StateFormat, Strin
 
 /// `snap serve` body — model load + warmup + blocking axum loop.
 fn serve(m: &ModelArgs, host: &str, port: u16) -> Result<()> {
-    let path = models::resolve(&m.model)?;
-    let mut eng = engine::Engine::load(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
-    if let Some(c) = &m.calibration {
-        eng.load_calibration(c)?;
-    }
+    let mut eng = m.engine()?;
     // warm the backend pipelines before the port opens — the first
     // real request shouldn't pay shader-compile + buffer setup
     if let Err(e) = eng.warmup() {
@@ -261,6 +290,29 @@ fn print_ps(live: &[instances::Instance]) {
             uptime,
             state
         );
+    }
+}
+
+/// `snap models` — name, disk size, real path (docker-images-style).
+fn print_models() {
+    println!("{:<14} {:>7}  PATH", "NAME", "SIZE");
+    for &(name, repo, file) in models::MODELS {
+        match models::cached(repo, file) {
+            Some(p) => {
+                let size = p.metadata().map(|m| m.len()).unwrap_or(0);
+                println!("{name:<14} {:>7}  {}", fmt_bytes(size), p.display());
+            }
+            None => println!("{name:<14} {:>7}  -", "-"),
+        }
+    }
+}
+
+fn fmt_bytes(b: u64) -> String {
+    const GB: u64 = 1_000_000_000;
+    if b >= GB {
+        format!("{:.1} GB", b as f64 / GB as f64)
+    } else {
+        format!("{} MB", b / 1_000_000)
     }
 }
 
@@ -365,21 +417,26 @@ fn main() -> Result<()> {
     if cli.print || cli.request.is_some() {
         anyhow::bail!("-p/--print takes no subcommand");
     }
-    if cli.m.model != models::DEFAULT_MODEL
-        || cli.m.ctx != 8192
-        || cli.m.threads != 0
-        || cli.m.debug
-        || cli.m.calibration.is_some()
-    {
+    if !cli.m.is_default() {
         anyhow::bail!("model flags belong after the subcommand (top-level is -p only)");
     }
     version::nag(); // stderr only, ~once a day — never in -p mode
     match cmd {
-        Cmd::Models => {
-            for (name, repo, file) in models::MODELS {
-                println!("  {name:14} {repo}/{file}");
+        Cmd::Models { cmd } => match cmd {
+            None | Some(ModelCmd::List) => print_models(),
+            Some(ModelCmd::Pull { name }) => {
+                println!("{name}: {}", models::pull(name)?.display());
             }
-        }
+            Some(ModelCmd::Rm { name }) => {
+                if let Some(i) = instances::list().iter().find(|i| i.info.model == *name) {
+                    anyhow::bail!(
+                        "{name} is serving on :{0} — `snap stop --port {0}` first",
+                        i.info.port
+                    );
+                }
+                println!("{name}: removed ({})", fmt_bytes(models::remove(name)?));
+            }
+        },
         Cmd::Check { url } => {
             let out: serde_json::Value =
                 ureq::get(&format!("{}/healthz", url.trim_end_matches('/')))
@@ -421,9 +478,8 @@ fn main() -> Result<()> {
             }
             // the model loads in here: an existing --output fails before it
             let export = |w: &mut dyn Write| {
-                let path = models::resolve(&m.model)?;
                 let eng =
-                    engine::Engine::load(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
+                    engine::Engine::load(&models::resolve(&m.model)?, m.ctx, 1024, m.threads)?;
                 evaluate::export_prompts(&eng, &cases, *layout, w)
             };
             match output {
@@ -444,9 +500,7 @@ fn main() -> Result<()> {
             if files.is_empty() {
                 anyhow::bail!("calibrate needs at least one eval/*.jsonl file");
             }
-            let path = models::resolve(&m.model)?;
-            let mut eng =
-                engine::Engine::load(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
+            let mut eng = m.engine()?;
             let mut cases = Vec::new();
             for f in files {
                 cases.extend(evaluate::load_cases(f)?);
@@ -489,14 +543,9 @@ fn main() -> Result<()> {
                 }
                 evaluate::evaluate_url(url, &cases, *limit, *no_abstain, !*no_perturb, *layout)?
             } else {
-                let path = models::resolve(&m.model)?;
-                let mut eng =
-                    engine::Engine::load(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
+                let mut eng = m.engine()?;
                 if let Some(f) = state_format {
                     eng.state_format = Some(*f);
-                }
-                if let Some(c) = &m.calibration {
-                    eng.load_calibration(c)?;
                 }
                 evaluate::evaluate(&mut eng, &cases, *limit, *no_abstain, !*no_perturb, *layout)?
             };
@@ -516,12 +565,7 @@ fn main() -> Result<()> {
             let rows = if let Some(url) = url {
                 bench::run_http(url, *requests, *concurrency)?
             } else {
-                let path = models::resolve(&m.model)?;
-                let mut eng =
-                    engine::Engine::load(path.to_string_lossy().as_ref(), m.ctx, 1024, m.threads)?;
-                if let Some(c) = &m.calibration {
-                    eng.load_calibration(c)?;
-                }
+                let mut eng = m.engine()?;
                 bench::run_local(&mut eng, *requests)?
             };
             bench::print_bench(&rows);

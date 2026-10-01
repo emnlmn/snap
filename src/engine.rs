@@ -16,6 +16,7 @@
 //! `catalog` keeps `[head+QUESTIONS list]` (the same question set, the state
 //! decoded once after it).
 
+use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
@@ -148,22 +149,25 @@ fn state_text(state: &Value, fmt: Option<StateFormat>) -> String {
 
 impl Engine {
     /// Load a GGUF on the production llama.cpp backend.
-    pub fn load(model_path: &str, n_ctx: i32, n_batch: i32, n_threads: i32) -> Result<Self> {
+    pub fn load(model_path: &Path, n_ctx: i32, n_batch: i32, n_threads: i32) -> Result<Self> {
         let t0 = Instant::now();
-        let path = std::path::Path::new(model_path);
-        let stem = path
+        let stem = model_path
             .file_stem()
             .map_or_else(|| "model".into(), |s| s.to_string_lossy().into_owned());
         eprint!(
             "snap: loading {} … ",
-            path.file_name()
-                .map_or(model_path.into(), |s| s.to_string_lossy())
+            model_path.file_name().map_or_else(
+                || model_path.as_os_str().to_string_lossy(),
+                |s| s.to_string_lossy()
+            )
         );
-        let eng = Llama::load(model_path, n_ctx, n_batch, n_threads).and_then(|llama| {
-            let name = llama.meta("general.name").unwrap_or(stem);
-            let quant = llama.meta("general.file_type");
-            Engine::new(Box::new(llama), model_id(&name, quant.as_deref()))
-        });
+        let eng = Llama::load(&model_path.to_string_lossy(), n_ctx, n_batch, n_threads).and_then(
+            |llama| {
+                let name = llama.meta("general.name").unwrap_or(stem);
+                let quant = llama.meta("general.file_type");
+                Engine::new(Box::new(llama), model_id(&name, quant.as_deref()))
+            },
+        );
         match &eng {
             Ok(_) => eprintln!("ready in {:.1}s", t0.elapsed().as_secs_f32()),
             Err(_) => eprintln!("failed"),

@@ -115,7 +115,7 @@ async fn switch_model(
             return Ok(s2.active().model_id.clone());
         }
         let path = crate::models::resolve(&name2)?;
-        let mut eng = Engine::load(path.to_string_lossy().as_ref(), n_ctx, 1024, n_threads)?;
+        let mut eng = Engine::load(&path, n_ctx, 1024, n_threads)?;
         if let Err(e) = eng.warmup() {
             eprintln!("snap: warmup failed: {e}");
         }

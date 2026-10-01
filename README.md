@@ -516,7 +516,9 @@ and never in `-p`; `SNAP_NO_UPDATE_CHECK=1` turns the check off.
 ### Commands
 
 ```bash
-snap models                                 # the tested models
+snap models                                 # tested set: size on disk, cache path
+snap models pull qwen3.8-4b                 # download now (first --model use pulls anyway)
+snap models rm qwen3.8-4b                   # free the disk
 snap -p '{"state":"…","questions":{"urgent":{"type":"noul"}}}'   # one-shot request
 snap -p request.json                        # the same, from a file (stdin works too)
 snap serve --model qwen3.8-4b --port 8018   # HTTP server

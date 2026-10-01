@@ -6,7 +6,7 @@
 //!
 //! Scenarios:
 //!   single-1q      small state, 1 question         -> per-decision latency
-//!   shared-{4,8}q  small state, 4|8 questions      -> batched decode
+//!   shared-{4,5,8}q  small state, 4|5|8 questions  -> batched decode
 //!   direct-{4,8}q  same, mode direct               -> nothing shared (reference)
 //!   doc-8q         ~1.8 KB document, 8 questions   -> document decoded once
 //!   state-4k       ~4 KB state, 1 question         -> prefill scaling
@@ -113,10 +113,11 @@ fn scenarios(
 ) -> Result<Vec<Value>> {
     call(&payload(small_state(usize::MAX), 8, "shared"))?; // warm-up + question heads
     let mut rows = Vec::new();
-    let runs: [Scenario; 7] = [
+    let runs: [Scenario; 8] = [
         ("single-1q", 1, |i| payload(small_state(i), 1, "shared")),
         ("shared-4q", 4, |i| payload(small_state(i), 4, "shared")),
         ("direct-4q", 4, |i| payload(small_state(i), 4, "direct")),
+        ("shared-5q", 5, |i| payload(small_state(i), 5, "shared")),
         ("shared-8q", 8, |i| payload(small_state(i), 8, "shared")),
         ("direct-8q", 8, |i| payload(small_state(i), 8, "direct")),
         ("doc-8q", 8, |i| payload(doc_state(i), 8, "shared")),
