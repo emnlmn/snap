@@ -222,6 +222,8 @@ h3 { font-weight: 640; font-size: 18px; line-height: 1.3; letter-spacing: -.01em
 .copy:hover { background: var(--paper-2); color: var(--text); }
 .micro { font-size: 13.5px; color: var(--faint); }
 .micro a { color: var(--muted); }
+.get .micro { text-wrap: balance; }
+.micro .nw { white-space: nowrap; }
 .get { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .get-os { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; font-size: 14px; color: var(--muted); }
 .get-os > span { margin-right: 8px; }
@@ -246,17 +248,6 @@ h3 { font-weight: 640; font-size: 18px; line-height: 1.3; letter-spacing: -.01em
 .cp.ok .cp-ok { display: inline; }
 .dl { justify-self: start; height: 56px; padding: 0 22px; font-size: 16px; border-radius: 16px; }
 .dl svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-/* the step after install is always in view; copying the install lights it */
-.then {
-  display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 3px 5px 3px 18px;
-  border-radius: 11px; font-size: 14px; color: var(--muted); transition: background .5s var(--ease);
-}
-.then b { flex: none; font-weight: 600; color: var(--faint); transition: color .3s; }
-.then code { flex: 1; min-width: 0; font-size: 13px; color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.then .copy { background: transparent; }
-.then .copy:hover { background: var(--paper-2); }
-.got .then { background: var(--wash); }
-.got .then b { color: var(--green-deep); }
 .ink .cmd { background: var(--ink-3); border-color: var(--ink-hi); }
 .ink .cmd code { color: var(--ink-text); }
 .ink .cmd .p { color: var(--lime); }
@@ -609,6 +600,19 @@ table.t { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .acc-bar { display: inline-block; width: 56px; height: 6px; border-radius: 3px; background: var(--paper-2); margin-right: 10px; vertical-align: 1px; overflow: hidden; }
 .acc-bar i { display: block; height: 100%; background: var(--green); width: calc(var(--v) * 1%); }
 
+/* ---------- model ---------- */
+.mdl { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 56px; align-items: start; }
+.mfacts { border-top: 1px solid var(--line); }
+.mfacts > div { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: 16px; align-items: baseline; padding: 13px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; color: var(--soft); }
+.mfacts dt { font-size: 13px; color: var(--faint); }
+.mfacts dd { text-wrap: pretty; }
+.mfacts code { font-size: 13px; }
+.mdl .t td:first-child, .mdl .t th:first-child { white-space: normal; }
+.mdl-side h3 { font-size: 16px; margin: 36px 0 12px; }
+.weak { list-style: none; padding: 0; border-top: 1px solid var(--line); }
+.weak li { padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; line-height: 1.5; color: var(--soft); text-wrap: pretty; }
+.mdl-side .links { margin-top: 28px; display: flex; gap: 10px; flex-wrap: wrap; }
+
 /* ---------- api ---------- */
 .api { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); gap: 72px; align-items: start; }
 .api > div:first-child { position: sticky; top: 104px; } /* the text stays beside the longer example */
@@ -706,7 +710,7 @@ footer { padding: 56px 0 64px; }
   section { padding: 88px 0; }
   .top nav, .top .gh-t { display: none; }
   .hero { padding-top: 56px; }
-  .hero-row, .head, .api, .tables, .alpha { grid-template-columns: minmax(0, 1fr); }
+  .hero-row, .head, .api, .tables, .mdl, .alpha { grid-template-columns: minmax(0, 1fr); }
   .api > div:first-child { position: static; }
   .head { margin-bottom: 44px; }
   .head .sub { justify-self: start; }
@@ -804,7 +808,7 @@ footer { padding: 56px 0 64px; }
       <a href="#use-cases">Use cases</a>
       <a href="#how">How it works</a>
       <a href="#security">Security</a>
-      <a href="#benchmarks">Benchmarks</a>
+      <a href="#performance">Performance</a>
       <a href="#api">API</a>
       <i class="nav-ind" aria-hidden="true"></i>
     </nav>
@@ -844,8 +848,7 @@ footer { padding: 56px 0 64px; }
           <button class="cp" data-copy="install"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.8"/><path d="M10.5 3.2V3a1.5 1.5 0 0 0-1.5-1.5H3.8A1.5 1.5 0 0 0 2.3 3v5.2a1.5 1.5 0 0 0 1.5 1.5h.2"/></svg><span class="cp-t">Copy</span><span class="cp-ok">Copied</span></button>
         </div>
         <a class="btn primary dl" href="https://github.com/emnlmn/snap/releases/latest" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8.5M4.5 7 8 10.5 11.5 7M2.5 13.5h11"/></svg>Download for Windows · x86_64</a>
-        <p class="then"><b>then</b><code class="os-then">snap serve</code><button class="copy" data-copy="then">copy</button></p>
-        <p class="micro">Open source (MIT) · runs on your hardware · Jev wire-compatible · <a href="https://github.com/emnlmn/snap/releases/latest">all downloads</a></p>
+        <p class="micro"><span class="nw">Open source (MIT) ·</span> <span class="nw"><a href="https://huggingface.co/logitlab/snap1-2b-GGUF">snap1-2b model</a> ·</span> <span class="nw"><a href="https://github.com/emnlmn/snap/releases/latest">all downloads</a></span></p>
       </div>
     </div>
 
@@ -1101,6 +1104,56 @@ footer { padding: 56px 0 64px; }
   </div>
 </section>
 
+<div id="performance">
+<!-- ======================= MODEL ======================= -->
+<section id="model" class="band" aria-labelledby="model-h">
+  <div class="wrap">
+    <div class="head">
+      <h2 id="model-h">A 2B model trained for the readout.</h2>
+      <p class="sub">snap1-2b is MiniCPM5-2B fine-tuned with LoRA on the exact prompt bytes snap serves. The loss is a softmax over the option letters, read the way snap reads them. It is the default model: <code>snap serve</code> pulls it on first run and works offline after that.</p>
+    </div>
+
+    <div class="mdl">
+      <div class="tcard">
+        <h3>snap1-2b against the model it started from</h3>
+        <div class="tbl-wrap"><table class="t">
+          <thead><tr><th>measure</th><th>MiniCPM5-2B</th><th>snap1-2b</th></tr></thead>
+          <tbody>
+            <tr><td>typed-decisions, accuracy, zero-shot</td><td class="m">0.485</td><td class="m hi">0.643</td></tr>
+            <tr><td>typed-decisions, calibration error (ECE)</td><td class="m">0.320</td><td class="m hi">0.034</td></tr>
+            <tr><td>snap eval suite, 301 cases</td><td class="m">69.4%</td><td class="m hi">85.0%</td></tr>
+            <tr><td>5-question request, M1 Max</td><td class="m">545 ms</td><td class="m hi">550 ms</td></tr>
+            <tr><td>5-question request, RTX 4090</td><td class="m">—</td><td class="m hi">48 ms</td></tr>
+          </tbody>
+        </table></div>
+        <p class="note"><a href="https://huggingface.co/datasets/LocalLLaMA/typed-decisions">typed-decisions</a> is 400 states and 2,000 questions the model never saw in training, scored on raw probabilities with no calibration file. Measured with snap 0.4.0 on an Apple M1 Max unless stated. 0.4.0 renders state as TOON: the base model loses 1.7 points on it and snap1-2b gains 1.9, so part of the gap is the renderer. Speed is the base model’s; the fine-tune changes weights, not compute.</p>
+      </div>
+
+      <div class="mdl-side">
+        <dl class="mfacts">
+          <div><dt>Files</dt><dd><code>q4_k_m</code> 1.5 GB (default) · <code>q8_0</code> 2.7 GB · <code>bf16</code> 5.0 GB</dd></div>
+          <div><dt>Licence</dt><dd>Apache-2.0</dd></div>
+          <div><dt>Languages</dt><dd>English and Italian</dd></div>
+          <div><dt>Answers</dt><dd>Choice, yes/no, score, numeric and “cannot tell”</dd></div>
+          <div><dt>Training</dt><dd>Public decision datasets and in-house synthetic cases. The pipeline is in the repo.</dd></div>
+        </dl>
+
+        <h3>Where it is weak</h3>
+        <ul class="weak">
+          <li>Numeric questions near the edge of a range, or outside it.</li>
+          <li>Long documents read less well and cost more: a 4 KB state takes about 1.8 s on an M1 Max.</li>
+          <li>No arithmetic and no multi-step reasoning. On typed-decisions it scores 0.643 where Jev reports 0.727.</li>
+        </ul>
+
+        <div class="links">
+          <a class="btn ghost" href="https://huggingface.co/logitlab/snap1-2b-GGUF">Model card</a>
+          <a class="btn ghost" href="https://github.com/emnlmn/snap/tree/main/training">Training pipeline</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ======================= BENCHMARKS ======================= -->
 <section id="benchmarks" class="band" aria-labelledby="bench-h">
   <div class="wrap">
@@ -1118,24 +1171,24 @@ footer { padding: 56px 0 64px; }
       <div class="rrow"><span class="w">4 questions</span><div class="rbars"><div class="rb o3"><i style="--v:100.0"></i><span>3704 ms · 282 tokens</span></div><div class="rb o2"><i style="--v:9.2"></i><span>342 ms · 26 tokens</span></div><div class="rb o"><i style="--v:6.9"></i><span>257 ms · 4 tokens</span></div><div class="rb s"><i style="--v:3.6"></i><span>135 ms · 0 tokens</span></div></div><span class="delta">−48%</span></div>
       <div class="rrow"><span class="w">8 questions</span><div class="rbars"><div class="rb o3"><i style="--v:100.0"></i><span>7874 ms · 562 tokens</span></div><div class="rb o2"><i style="--v:9.3"></i><span>732 ms · 50 tokens</span></div><div class="rb o"><i style="--v:6.4"></i><span>504 ms · 8 tokens</span></div><div class="rb s"><i style="--v:3.3"></i><span>263 ms · 0 tokens</span></div></div><span class="delta">−48%</span></div>
       <div class="rrow"><span class="w">5 KB state, 1 question</span><div class="rbars"><div class="rb o3"><i style="--v:100.0"></i><span>3872 ms · 73 tokens</span></div><div class="rb o2"><i style="--v:70.7"></i><span>2738 ms · 8 tokens</span></div><div class="rb o"><i style="--v:68.4"></i><span>2650 ms · 1 token</span></div><div class="rb s"><i style="--v:57.5"></i><span>2226 ms · 0 tokens</span></div></div><span class="delta">−16%</span></div>
-      <p class="note" style="margin-top:14px">Both engines run MiniCPM5-2B on the same machine, every request uses data neither has seen, and times are the median of 15 runs. The percentage compares snap with Ollama’s fastest option in each row, which is always one letter per question: the quickest Ollama can go, but it gives you text to parse, no probabilities, and one request per question (when we asked for all the letters in one reply, it stopped early). JSON under a schema is what a pipeline actually uses, and with probabilities it carries the same information as a snap answer, written one token at a time. You can reproduce it with <code>eval/vs_ollama.py</code>.</p>
+      <p class="note" style="margin-top:14px">Both engines run MiniCPM5-2B on the same machine, every request uses data neither has seen, and times are the median of 15 runs. The percentage compares snap with Ollama’s fastest option in each row, which is always one letter per question: the quickest Ollama can go, but it gives you text to parse, no probabilities, and one request per question (when we asked for all the letters in one reply, it stopped early). JSON under a schema is what a pipeline actually uses, and with probabilities it carries the same information as a snap answer, written one token at a time. Measured with an earlier snap (0.2); reproduce it with <code>eval/vs_ollama.py</code>.</p>
     </div>
 
     <div class="tables">
       <div class="tcard">
         <h3>Latency with a shared state</h3>
         <div class="tbl-wrap"><table class="t">
-          <thead><tr><th>scenario</th><th>minicpm5-2b</th><th>spark-4b</th><th>qwen3.8-4b</th></tr></thead>
+          <thead><tr><th>scenario</th><th>snap1-2b</th><th>spark-4b</th><th>qwen3.8-4b</th></tr></thead>
           <tbody>
             <tr><td>single question</td><td class="m">50 ms</td><td class="m">89 ms</td><td class="m">82 ms</td></tr>
             <tr><td>4 questions, shared</td><td class="m">126 ms <small>32/q</small></td><td class="m">232 ms <small>58/q</small></td><td class="m">227 ms <small>57/q</small></td></tr>
-            <tr><td>8 questions, shared</td><td class="m">252 ms <small>32/q</small></td><td class="m">406 ms <small>51/q</small></td><td class="m">472 ms <small>59/q</small></td></tr>
-            <tr><td>8 questions, direct</td><td class="m">1170 ms <small>146/q</small></td><td class="m">2158 ms <small>270/q</small></td><td class="m">2381 ms <small>298/q</small></td></tr>
-            <tr><td>8 questions on a 1.8 KB document</td><td class="m">1887 ms <small>236/q</small></td><td class="m">3278 ms <small>410/q</small></td><td class="m">3327 ms <small>416/q</small></td></tr>
-            <tr><td>4 KB state, 1 question</td><td class="m">1364 ms</td><td class="m">2476 ms</td><td class="m">2164 ms</td></tr>
+            <tr><td>8 questions, shared</td><td class="m">248 ms <small>31/q</small></td><td class="m">406 ms <small>51/q</small></td><td class="m">472 ms <small>59/q</small></td></tr>
+            <tr><td>8 questions, direct</td><td class="m">1320 ms <small>165/q</small></td><td class="m">2158 ms <small>270/q</small></td><td class="m">2381 ms <small>298/q</small></td></tr>
+            <tr><td>8 questions on a 1.8 KB document</td><td class="m">1776 ms <small>222/q</small></td><td class="m">3278 ms <small>410/q</small></td><td class="m">3327 ms <small>416/q</small></td></tr>
+            <tr><td>4 KB state, 1 question</td><td class="m">1767 ms</td><td class="m">2476 ms</td><td class="m">2164 ms</td></tr>
           </tbody>
         </table></div>
-        <p class="note">All the prompts in a request are decoded in one batched call that shares their common prefix, on every architecture; the direct row decodes each question on its own, for comparison. Qwen’s hybrid architecture runs 17 parallel sequences instead of 65, and snap picks the right path at startup.</p>
+        <p class="note">snap1-2b was measured with snap 0.4.0; the spark and qwen columns come from an earlier version. All the prompts in a request are decoded in one batched call that shares their common prefix, on every architecture; the direct row decodes each question on its own, for comparison. Qwen’s hybrid architecture runs 17 parallel sequences instead of 65, and snap picks the right path at startup.</p>
       </div>
       <div class="tcard">
         <h3>Accuracy · eval/cases.jsonl, 301 cases</h3>
@@ -1144,14 +1197,18 @@ footer { padding: 56px 0 64px; }
           <tbody>
             <tr><td>qwen3.8-4b <small class="note">Q4_K_M</small></td><td class="m hi"><span class="acc-bar"><i style="--v:86.4"></i></span>86.4%</td><td class="m">~300</td></tr>
             <tr><td>spark-4b <small class="note">Q8_0</small></td><td class="m"><span class="acc-bar"><i style="--v:85.7"></i></span>85.7%</td><td class="m">~245</td></tr>
-            <tr><td>minicpm5-2b <small class="note">Q4_K_M</small></td><td class="m"><span class="acc-bar"><i style="--v:69.1"></i></span>69.1%</td><td class="m">~135</td></tr>
+            <tr><td>snap1-2b <small class="note">Q4_K_M, fine-tuned</small></td><td class="m"><span class="acc-bar"><i style="--v:85.0"></i></span>85.0%</td><td class="m">~144</td></tr>
+            <tr><td>minicpm5-2b <small class="note">Q4_K_M</small></td><td class="m"><span class="acc-bar"><i style="--v:69.4"></i></span>69.4%</td><td class="m">~154</td></tr>
           </tbody>
         </table></div>
+        <p class="note">snap1-2b is MiniCPM5-2B fine-tuned for this readout (<a href="https://huggingface.co/logitlab/snap1-2b-GGUF">model card</a>); the two 2B rows were measured with snap 0.4.0, the 4B rows with an earlier version. On typed-decisions, zero-shot, snap1-2b scores 0.643 accuracy against 0.485 for the base model (raw probabilities, ECE 0.034, M1 Max); Jev’s reported figure is 0.727.</p>
         <p class="note">Raw probabilities aren’t calibrated. <code>snap calibrate</code> fits one temperature per question type on your labeled cases, ties it to the model and prompt version, and prints the calibration error (ECE) before and after.</p>
       </div>
     </div>
   </div>
 </section>
+
+</div>
 
 <!-- ======================= API ======================= -->
 <section id="api" class="ink" aria-labelledby="api-h">
@@ -1285,7 +1342,7 @@ footer { padding: 56px 0 64px; }
       </div>
       <div>
         <h3 class="foot-h">Product</h3>
-        <ul><li><a href="#use-cases">Use cases</a></li><li><a href="#how">How it works</a></li><li><a href="#security">Security</a></li><li><a href="#benchmarks">Benchmarks</a></li></ul>
+        <ul><li><a href="#use-cases">Use cases</a></li><li><a href="#how">How it works</a></li><li><a href="#security">Security</a></li><li><a href="#performance">Performance</a></li></ul>
       </div>
       <div>
         <h3 class="foot-h">Developers</h3>
@@ -1695,7 +1752,6 @@ function setOS(o) {
   os = o;
   $$('[data-os]').forEach(b => b.setAttribute('aria-pressed', b.dataset.os === o));
   $$('.os-cmd').forEach(e => e.textContent = OS[o].cmd || '');
-  $$('.os-then').forEach(e => e.textContent = OS[o].then);
   $$('.cmd.inst').forEach(e => { e.hidden = !OS[o].cmd; e.classList.toggle('over', $('code', e).scrollWidth > $('code', e).clientWidth + 1); });
   $$('.dl').forEach(e => { e.hidden = !OS[o].dl; if (OS[o].dl) e.href = OS[o].dl; });
   setPlat(o);
@@ -1736,7 +1792,7 @@ if (guess === 'linux') navigator.userAgentData?.getHighEntropyValues?.(['archite
 $$('[data-copy]').forEach(b => b.addEventListener('click', async () => {
   const k = b.dataset.copy;
   const install = k === 'install' || (k === 'dock' && !got);
-  const text = install ? OS[os].cmd : k === 'then' || k === 'dock' ? OS[os].then : k === 'plat' ? INSTALL[plat].text : COPY[k];
+  const text = install ? OS[os].cmd : k === 'dock' ? OS[os].then : k === 'plat' ? INSTALL[plat].text : COPY[k];
   try {
     await navigator.clipboard.writeText(text);
   } catch {
@@ -1749,7 +1805,6 @@ $$('[data-copy]').forEach(b => b.addEventListener('click', async () => {
   else { b.textContent = 'copied'; setTimeout(() => b.textContent = 'copy', 1600); }
   if (install && !got) {
     got = true;
-    document.body.classList.add('got');
     setTimeout(dockSync, 1200);
   }
 }));
