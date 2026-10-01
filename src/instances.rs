@@ -248,6 +248,9 @@ fn is_snap(pid: u32) -> bool {
         .starts_with("\"snap.exe")
 }
 
+// tasklist gives no argv on windows — is_snap checks the image name only,
+// so this helper is unix-only outside test builds
+#[cfg(any(unix, test))]
 fn cmdline_is_serve(cmd: &str) -> bool {
     let mut it = cmd.split_whitespace();
     let Some(bin) = it.next() else {
