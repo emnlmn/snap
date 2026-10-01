@@ -451,7 +451,7 @@ impl Engine {
         Ok(json!({
             "answers": answers,
             "model": self.model_id,
-            "usage": {"input_tokens": stats.decoded},
+            "usage": {"input_tokens": stats.decoded, "output_tokens": 0},
             "x_snap": {
                 "layout": layout_str(layout),
                 "decoded_items": items.len(),

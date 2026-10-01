@@ -30,6 +30,12 @@ fn one() -> f64 {
     1.0
 }
 
+/// Whether `k` is a level description (a legend value) — those get re-keyed
+/// by index, while special keys (`__abstain__`) pass through untouched.
+fn leg_contains(legend: &Map<String, Value>, k: &str) -> bool {
+    legend.values().any(|d| d.as_str() == Some(k))
+}
+
 impl SystemoneRequest {
     pub fn to_native(&self) -> DecideRequest {
         DecideRequest {
@@ -78,9 +84,36 @@ pub fn from_native(native: &Value) -> Value {
                 a.insert("probabilities".into(), ans["probabilities"].clone());
             } else if ans.get("score").is_some() {
                 a.insert("type".into(), json!("score"));
-                a.insert("score".into(), ans["score"].clone());
                 a.insert("level".into(), ans["level"].clone());
-                a.insert("probabilities".into(), ans["probabilities"].clone());
+                match ans["legend"].as_object() {
+                    Some(legend) if !legend.is_empty() => {
+                        // Jev scale: the expected level index in [0, n-1],
+                        // probabilities keyed "0".."n-1" and a legend that
+                        // maps each index to its rubric text
+                        let s = ans["score"].as_f64().unwrap_or(0.0) * (legend.len() - 1) as f64;
+                        a.insert("score".into(), json!((s * 1e4).round() / 1e4));
+                        a.insert("legend".into(), Value::Object(legend.clone()));
+                        let mut probs = Map::new();
+                        if let Some(src) = ans["probabilities"].as_object() {
+                            for (idx, desc) in legend {
+                                if let Some(v) = desc.as_str().and_then(|d| src.get(d)) {
+                                    probs.insert(idx.clone(), v.clone());
+                                }
+                            }
+                            for (k, v) in src {
+                                let described = leg_contains(legend, k);
+                                if !probs.contains_key(k) && !described {
+                                    probs.insert(k.clone(), v.clone());
+                                }
+                            }
+                        }
+                        a.insert("probabilities".into(), Value::Object(probs));
+                    }
+                    _ => {
+                        a.insert("score".into(), ans["score"].clone());
+                        a.insert("probabilities".into(), ans["probabilities"].clone());
+                    }
+                }
             } else {
                 a.insert("type".into(), json!("numeric"));
                 a.insert(
@@ -162,16 +195,44 @@ mod tests {
             "answers": {
                 "c": {"status": "decided", "confidence": 0.5, "choice": "opt",
                       "probabilities": {"opt": 0.9}},
-                "s": {"status": "decided", "confidence": 0.5, "score": 0.7, "level": 2,
-                      "probabilities": {"a": 0.1, "b": 0.9}}
+                "s": {"status": "decided", "confidence": 0.5, "score": 0.7, "level": 1,
+                      "probabilities": {"a": 0.1, "b": 0.9, "__abstain__": 0.0},
+                      "legend": {"0": "a", "1": "b"}},
+                "old": {"status": "decided", "confidence": 0.5, "score": 0.7, "level": 1,
+                        "probabilities": {"a": 0.1, "b": 0.9}}
             },
             "model": "m", "usage": {}, "x_snap": {}
         });
         let out = from_native(&native);
         assert_eq!(out["answers"]["c"]["type"], "choice");
         assert_eq!(out["answers"]["c"]["choice"], "opt");
-        assert_eq!(out["answers"]["s"]["type"], "score");
-        assert_eq!(out["answers"]["s"]["score"], 0.7);
-        assert_eq!(out["answers"]["s"]["level"], 2);
+        let s = &out["answers"]["s"];
+        assert_eq!(s["type"], "score");
+        // Jev shape: score is the expected level index, probabilities are
+        // keyed "0".."n-1", legend carries the descriptions
+        assert_eq!(s["score"], 0.7); // 0.7 * (2-1)
+        assert_eq!(s["level"], 1);
+        assert_eq!(s["legend"], json!({"0": "a", "1": "b"}));
+        assert_eq!(
+            s["probabilities"],
+            json!({"0": 0.1, "1": 0.9, "__abstain__": 0.0})
+        );
+        // a native answer without legend keeps the snap shape
+        let old = &out["answers"]["old"];
+        assert_eq!(old["score"], 0.7);
+        assert_eq!(old["probabilities"]["a"], 0.1);
+    }
+
+    #[test]
+    fn score_rescales_by_level_count() {
+        let native = json!({
+            "answers": {"s": {"status": "decided", "confidence": 0.5, "score": 0.5,
+                             "level": 2, "probabilities": {"x": 0.2, "y": 0.3, "z": 0.5},
+                             "legend": {"0": "x", "1": "y", "2": "z"}}},
+            "model": "m", "usage": {}, "x_snap": {}
+        });
+        let s = &from_native(&native)["answers"]["s"];
+        assert_eq!(s["score"], 1.0); // 0.5 * (3-1)
+        assert_eq!(s["probabilities"], json!({"0": 0.2, "1": 0.3, "2": 0.5}));
     }
 }

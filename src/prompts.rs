@@ -412,6 +412,16 @@ fn option_label(key: &str, desc: &str) -> String {
     }
 }
 
+/// A criterion description rendered for the prompt. `null` is the SDK's
+/// "undescribed" marker — the caller's fallback (option key, level index)
+/// decides what the model reads instead.
+fn desc_text(v: &Value) -> String {
+    match v {
+        Value::Null => String::new(),
+        other => value_text(other),
+    }
+}
+
 /// Map a typed question to ordered letter slots.
 pub fn slots_for(q: &Question) -> Vec<Slot> {
     let mut opts = match q.qtype {
@@ -421,11 +431,20 @@ pub fn slots_for(q: &Question) -> Vec<Slot> {
         QType::Choice => match q.criteria.as_ref().unwrap() {
             Value::Object(m) => m
                 .iter()
-                .map(|(k, v)| Slot::new(k.clone(), option_label(k, &value_text(v))))
+                .map(|(k, v)| Slot::new(k.clone(), option_label(k, &desc_text(v))))
                 .collect(),
             Value::Array(a) => a
                 .iter()
-                .map(|v| Slot::new(value_text(v), value_text(v)))
+                .enumerate()
+                .map(|(i, v)| {
+                    let t = desc_text(v);
+                    let t = if t.is_empty() {
+                        format!("option {}", i + 1)
+                    } else {
+                        t
+                    };
+                    Slot::new(t.clone(), t)
+                })
                 .collect(),
             _ => vec![],
         },
@@ -433,7 +452,10 @@ pub fn slots_for(q: &Question) -> Vec<Slot> {
             Value::Array(a) => a
                 .iter()
                 .enumerate()
-                .map(|(i, v)| Slot::new(i.to_string(), value_text(v)))
+                .map(|(i, v)| {
+                    let t = desc_text(v);
+                    Slot::new(i.to_string(), if t.is_empty() { i.to_string() } else { t })
+                })
                 .collect(),
             _ => vec![],
         },
@@ -470,7 +492,20 @@ pub fn question_block(q: &Question, slots: &[Slot]) -> Vec<String> {
         lines.push(q.instructions.clone());
     }
     match q.qtype {
-        QType::Boolean | QType::Noul => lines.push("Answer yes or no.".into()),
+        QType::Boolean | QType::Noul => {
+            lines.push("Answer yes or no.".into());
+            // SDK criteria {"true":…, "false":…} describe the two outcomes —
+            // they ride as question text; the yes/no slots never rename, so
+            // P(yes) keeps its meaning
+            if let Some(Value::Object(m)) = &q.criteria {
+                for (label, key) in [("Yes", "true"), ("No", "false")] {
+                    let t = m.get(key).map(desc_text).unwrap_or_default();
+                    if !t.is_empty() {
+                        lines.push(format!("{label}: {t}"));
+                    }
+                }
+            }
+        }
         QType::Numeric => lines.push(format!(
             "Pick the closest value in range [{}, {}], or below/above the range.",
             fmt_g(q.min.unwrap()),
@@ -619,6 +654,17 @@ mod tests {
         // an empty description still shows the key
         let s = slots_for(&q(json!({"type": "choice", "criteria": {"refund": ""}})));
         assert_eq!(s[0].text, "refund");
+        // null (SDK "undescribed") falls back to the key, never "null"
+        let s = slots_for(&q(json!({
+            "type": "choice", "criteria": {"a": null, "b": "bee"}
+        })));
+        assert_eq!(s[0].key, "a");
+        assert_eq!(s[0].text, "a");
+        assert_eq!(s[1].text, "bee");
+        // array form: a null entry gets a stable generated key
+        let s = slots_for(&q(json!({"type": "choice", "criteria": ["x", null]})));
+        assert_eq!(s[1].key, "option 2");
+        assert_eq!(s[1].text, "option 2");
     }
 
     #[test]
@@ -631,6 +677,35 @@ mod tests {
         assert_eq!(s[0].key, "0");
         assert_eq!(s[2].key, "2");
         assert_eq!(s[2].text, "high");
+        // an undescribed level (null) shows its index, not the word "null"
+        let s = slots_for(&q(
+            json!({"type": "score", "criteria": ["low", null, "high"]}),
+        ));
+        assert_eq!(s[1].key, "1");
+        assert_eq!(s[1].text, "1");
+    }
+
+    #[test]
+    fn noul_criteria_describe_the_outcomes() {
+        // SDK noul criteria ride as question text; slots stay yes/no
+        let qu = q(json!({
+            "type": "noul", "instructions": "Refund?",
+            "criteria": {"true": "explicit money-back request", "false": "anything else"}
+        }));
+        let s = slots_for(&qu);
+        assert_eq!(s[0].key, "yes");
+        assert_eq!(s[1].key, "no");
+        let block = question_block(&qu, &s).join("\n");
+        assert!(block
+            .contains("Answer yes or no.\nYes: explicit money-back request\nNo: anything else"));
+        assert!(block.contains("A) Yes"));
+        // no criteria, or a criteria shape that isn't the {true,false} map — unchanged
+        let qu = q(json!({"type": "noul", "instructions": "Refund?"}));
+        let block = question_block(&qu, &slots_for(&qu)).join("\n");
+        assert!(!block.contains("\nYes:"));
+        let qu = q(json!({"type": "noul", "criteria": ["x", "y"]}));
+        let block = question_block(&qu, &slots_for(&qu)).join("\n");
+        assert!(!block.contains("\nYes:"));
     }
 
     #[test]

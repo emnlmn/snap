@@ -43,12 +43,22 @@ pub(crate) fn default_mode() -> Mode {
     Mode::Shared
 }
 
+/// Jev's EntryType: text, a JSON value, or null. The prompt reads a string —
+/// null means "no instructions", other values render as compact JSON.
+fn entry_text<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<String, D::Error> {
+    Ok(match Option::<Value>::deserialize(d)? {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::String(s)) => s,
+        Some(other) => other.to_string(),
+    })
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Question {
     #[serde(rename = "type")]
     pub qtype: QType,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "entry_text")]
     pub instructions: String,
     /// choice: object {key: description} or list of option strings;
     /// score: list of level descriptions ordered low -> high.
@@ -244,6 +254,20 @@ mod tests {
             serde_json::from_value::<Question>(json!({"type": "boolean", "question": "?"}))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn instructions_take_the_full_entry_type() {
+        // the SDK sends null for unset instructions, and JSON is legal
+        let q: Question =
+            serde_json::from_value(json!({"type": "noul", "instructions": null})).unwrap();
+        assert_eq!(q.instructions, "");
+        let q: Question =
+            serde_json::from_value(json!({"type": "noul", "instructions": {"a": 1}})).unwrap();
+        assert_eq!(q.instructions, "{\"a\":1}");
+        let q: Question =
+            serde_json::from_value(json!({"type": "noul", "instructions": ["x"]})).unwrap();
+        assert_eq!(q.instructions, "[\"x\"]");
     }
 
     #[test]

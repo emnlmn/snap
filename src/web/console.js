@@ -965,12 +965,14 @@ function ansHTML(name, spec, a, prev) {
 
 function pendingRows(spec, type) {
   const crit = spec.criteria || {};
+  // score probabilities arrive keyed by level index (legend holds the texts)
   const keys = type === "noul" ? ["yes", "no"]
     : type === "choice" ? Object.keys(crit)
-    : type === "score" ? [...crit].map(String)
+    : type === "score" ? [...crit].map((_, j) => String(j))
     : Array.from({ length: Math.min(64, spec.granularity ?? 8) }, (_, j) => `bin${j}`);
   if (spec.allow_abstain) keys.push("__abstain__");
-  return keys.map((k) => [k, 0, false, type === "choice" ? crit[k] : undefined]);
+  return keys.map((k) => [k, 0, false,
+    type === "choice" ? crit[k] : type === "score" ? crit[+k] : undefined]);
 }
 
 function distHTML(rows, prev, pending) {
@@ -1074,8 +1076,11 @@ function answerView(a, spec) {
     return { headline: SPECIAL[a.choice] || (a.choice ?? "—"), rows: probs.map(([k, p]) => [k, p, k === a.choice, crit[k]]) };
   }
   if (a.type === "score") {
-    return { headline: top || "—", sub: `level ${(a.level ?? 0) + 1} of ${probs.length} · score ${(a.score ?? 0).toFixed(2)}`,
-      rows: probs.map(([k, p]) => [k, p, k === top]) };
+    const legend = a.legend || {};
+    const n = Object.keys(legend).length || probs.length;
+    return { headline: (legend[top] ?? top) || "—",
+      sub: `level ${(a.level ?? 0) + 1} of ${n} · score ${(a.score ?? 0).toFixed(2)}`,
+      rows: probs.map(([k, p]) => [k, p, k === top, legend[k]]) };
   }
   // out of bounds: the answer is the edge the engine picked, not the mean of
   // what little mass stayed in range — that reads as a detail instead

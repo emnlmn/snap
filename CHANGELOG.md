@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- api: the TypeSafe JS SDK runs unchanged against `snap serve` — question
+  `instructions` take the full `EntryType` (text, JSON, or null), `null`
+  criterion descriptions render the option key or level index instead of the
+  word "null", noul `{true, false}` criteria reach the prompt as outcome
+  descriptions (the slots stay yes/no, so `noul` keeps meaning P(yes)),
+  score answers carry the Jev shape (`score` is the expected level index in
+  0..n−1, `legend` maps indexes to rubric text, `probabilities` are keyed by
+  index), `usage.output_tokens` is 0, `GET /v1/models` answers the SDK's
+  `{models: [...]}` shape, and responses carry `x-typesafe-request-id`
+
 ## 0.4.0 - 2026-10-01
 
 - prompts: object/array states always render TOON (spec v4.1, encode-only) — `[N]` lengths and `{fields}`/`[N:]` tabular headers; PROMPT_VERSION 5, calibrations bound to v4 must be refit

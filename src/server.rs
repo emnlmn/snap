@@ -1,13 +1,15 @@
 //! Axum surface: the single POST /v1/systemone API (Jev wire + snap extras).
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use axum::extract::State;
+use axum::extract::{Request, State};
 use axum::http::header::CONTENT_TYPE;
-use axum::http::StatusCode;
-use axum::response::{Html, IntoResponse, Json, Redirect};
+use axum::http::{HeaderValue, StatusCode};
+use axum::middleware::Next;
+use axum::response::{Html, IntoResponse, Json, Redirect, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use serde_json::{json, Value};
@@ -70,6 +72,11 @@ async fn models(State(s): State<Arc<AppState>>) -> Json<Value> {
         "data": crate::models::MODELS.iter().map(|(n, repo, file)| json!({
             "id": n, "object": "model", "created": 0, "owned_by": "snap",
             "repo": repo, "file": file, "active": *n == active,
+        })).collect::<Vec<_>>(),
+        // the TypeSafe SDK reads `models` — {name, description, release_date}
+        "models": crate::models::MODELS.iter().map(|(n, repo, file)| json!({
+            "name": n, "description": format!("{repo}/{file}"),
+            "release_date": "", "active": *n == active,
         })).collect::<Vec<_>>(),
     }))
 }
@@ -203,6 +210,17 @@ async fn pg_font_mono() -> impl IntoResponse {
         include_bytes!("web/fonts/jetbrains-mono-latin.woff2").as_slice(),
     )
 }
+/// The TypeSafe SDK echoes `x-typesafe-request-id` in errors and logs;
+/// a per-process counter is all a local server needs.
+async fn request_id(req: Request, next: Next) -> Response {
+    static N: AtomicU64 = AtomicU64::new(1);
+    let id = format!("snap-{}", N.fetch_add(1, Ordering::Relaxed));
+    let mut res = next.run(req).await;
+    res.headers_mut()
+        .insert("x-typesafe-request-id", HeaderValue::from_str(&id).unwrap());
+    res
+}
+
 /// SIGTERM (`snap stop`) or SIGINT — drain in-flight requests, then exit.
 async fn shutdown_signal() {
     #[cfg(unix)]
@@ -253,6 +271,7 @@ pub async fn serve(
         .route("/playground/missile", get(pg_missile))
         .route("/playground/missile.css", get(pg_missile_css))
         .route("/playground/missile.js", get(pg_missile_js))
+        .layer(axum::middleware::from_fn(request_id))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind((host, port))
         .await

@@ -111,17 +111,18 @@ paths:
                     type: score
                     status: contested
                     confidence: 0.31
-                    score: 0.62
+                    score: 1.24
                     level: 1
-                    probabilities: {"minor annoyance": 0.2, "real cost": 0.45, "business critical": 0.35}
+                    legend: {"0": "minor annoyance", "1": "real cost", "2": "business critical"}
+                    probabilities: {"0": 0.2, "1": 0.45, "2": 0.35}
                   refund:
                     type: numeric
                     status: decided
                     confidence: 0.76
                     value: 212.5
                     probabilities: {__below__: 0.02, __above__: 0.05, __abstain__: 0.01}
-                model: snap-minicpm5-2b-q4_k_m
-                usage: {input_tokens: 184}
+                model: snap-snap1-2b-q4_k_m
+                usage: {input_tokens: 184, output_tokens: 0}
                 x_snap:
                   layout: state_first
                   decoded_items: 3
@@ -165,7 +166,8 @@ paths:
               schema: {$ref: '#/components/schemas/ModelList'}
               example:
                 object: list
-                data: [{id: snap-minicpm5-2b-q4_k_m, object: model, created: 0, owned_by: snap}]
+                data: [{id: snap-snap1-2b-q4_k_m, object: model, created: 0, owned_by: snap}]
+                models: [{name: snap1-2b, description: "logitlab/snap1-2b-GGUF/snap1-2b-q4_k_m.gguf", release_date: "", active: true}]
 
   /healthz:
     get:
@@ -270,9 +272,11 @@ components:
       type: object
       properties:
         instructions:
-          type: string
           default: ""
-          description: Natural-language framing of the question.
+          description: |
+            Natural-language framing of the question — the SDK's `EntryType`:
+            text, a JSON object or array, or null (absent). Non-text values
+            render as compact JSON in the prompt.
         allow_abstain:
           type: boolean
           default: false
@@ -292,6 +296,15 @@ components:
               type: string
               enum: [noul, boolean]
               description: Yes/no question (`boolean` is an alias; responses always report `noul`).
+            criteria:
+              type: object
+              properties:
+                "true": {description: "What a yes means; rendered into the question text."}
+                "false": {description: "What a no means."}
+              additionalProperties: false
+              description: |
+                Optional Jev `{"true": …, "false": …}` outcome descriptions.
+                They join the question text; the answer stays P(yes).
 
     ChoiceQuestion:
       allOf:
@@ -306,17 +319,19 @@ components:
               description: |
                 The option set — 2 to 256 options. Object form maps answer keys
                 to descriptions (keys are what `choice` returns); array form
-                uses the strings themselves. Up to 26 options (25 with
-                `allow_abstain`) are read as single-letter logits; beyond that
-                each option is scored by its own yes/no probe and the yes-masses
-                normalize into the returned distribution.
+                uses the strings themselves. A `null` description leaves the
+                option undescribed — the key/index is what the model reads.
+                Up to 26 options (25 with `allow_abstain`) are read as
+                single-letter logits; beyond that each option is scored by its
+                own yes/no probe and the yes-masses normalize into the returned
+                distribution.
               oneOf:
                 - type: object
                   minProperties: 2
-                  additionalProperties: {type: string}
+                  additionalProperties: {type: [string, "null"]}
                 - type: array
                   minItems: 2
-                  items: {type: string}
+                  items: {type: [string, "null"]}
 
     ScoreQuestion:
       allOf:
@@ -330,8 +345,12 @@ components:
             criteria:
               type: array
               minItems: 2
-              items: {type: string}
-              description: Level descriptions ordered low → high. `score` is the probability-weighted position in [0, 1]; `level` is the winning index.
+              items: {type: [string, "null"]}
+              description: |
+                Level descriptions ordered low → high; `null` leaves a level
+                undescribed (its index is what the model reads). `score` is the
+                probability-weighted level index in [0, n−1]; `level` is the
+                winning index.
 
     NumericQuestion:
       allOf:
@@ -377,6 +396,7 @@ components:
           type: object
           properties:
             input_tokens: {type: integer, description: "Tokens actually decoded by this request — shared text once, cached spans not at all (expansion probes included). Nothing is ever generated, so there is no output side."}
+            output_tokens: {type: integer, description: "Always 0 — nothing is ever generated."}
         x_snap:
           type: object
           description: Honest internals — exactly what the engine did.
@@ -466,17 +486,24 @@ components:
       allOf:
         - $ref: '#/components/schemas/AnswerBase'
         - type: object
-          required: [score, level, probabilities]
+          required: [score, level, legend, probabilities]
           properties:
             type: {type: string, enum: [score]}
-            score: {type: number, minimum: 0, maximum: 1, description: Probability-weighted position along the criteria scale.}
+            score:
+              type: number
+              minimum: 0
+              description: The Jev field — expected level index in [0, n−1], between integers when the mass is spread.
             level:
               type: [integer, "null"]
               description: Index of the winning level (0-based); null when a special slot won.
+            legend:
+              type: object
+              additionalProperties: {type: string}
+              description: 'Rubric map: level index ("0".."n−1") → description text.'
             probabilities:
               type: object
               additionalProperties: {type: number}
-              description: Keyed by level description text.
+              description: Keyed by level index; includes `__abstain__` when enabled.
 
     NumericAnswer:
       allOf:
@@ -506,6 +533,16 @@ components:
               object: {type: string, enum: [model]}
               created: {type: integer}
               owned_by: {type: string}
+        models:
+          type: array
+          description: The same rows in the TypeSafe SDK's ModelCard shape.
+          items:
+            type: object
+            properties:
+              name: {type: string}
+              description: {type: string}
+              release_date: {type: string}
+              active: {type: boolean}
 
     Health:
       type: object

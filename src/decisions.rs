@@ -119,8 +119,10 @@ pub fn decode(q: &Question, slots: &[Slot], logits: &[f64], temperature: f64) ->
                 },
             );
             let mut lm = Map::new();
+            let mut legend = Map::new();
             for (si, s) in &levels {
                 lm.insert(s.text.clone(), json!(r6(probs[*si])));
+                legend.insert(s.key.clone(), json!(s.text.as_str()));
             }
             for (i, s) in slots.iter().enumerate() {
                 if s.key == ABSTAIN {
@@ -128,6 +130,9 @@ pub fn decode(q: &Question, slots: &[Slot], logits: &[f64], temperature: f64) ->
                 }
             }
             out.insert("probabilities".into(), Value::Object(lm));
+            // Jev's rubric map: level index -> its text. The wire re-keys
+            // probabilities by index; the legend carries the descriptions.
+            out.insert("legend".into(), Value::Object(legend));
         }
         QType::Numeric => {
             let interior: Vec<(usize, &Slot)> = slots
