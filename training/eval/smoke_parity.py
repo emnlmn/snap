@@ -11,7 +11,7 @@ see different tokens/logits for the same prompt:
      restricted softmax over the row's letters (shared keys only).
 
 Usage:
-  snap serve --model minicpm5-2b --port 8099 &
+  snap serve --port 8099 &
   python3 eval/smoke_parity.py data/train/export-layerA.jsonl \
       --cases data/labeled/layerA.jsonl --n 60 --server http://127.0.0.1:8099
 """

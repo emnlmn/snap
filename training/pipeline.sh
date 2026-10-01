@@ -44,7 +44,7 @@ for layer in A B; do
   [ "$layer" = "A" ] && extra="--max-per-source ${MAX_PER_SOURCE:-0}"
   [ -f data/drop-ids.txt ] && extra="$extra --drop-ids data/drop-ids.txt"
   python3 lora/export_prompts.py "data/labeled/layer${layer}.jsonl" \
-      --out "$out" --model minicpm5-2b --permute 2 $extra
+      --out "$out" --model snap1-2b --permute 2 $extra
 done
 
 echo "== merge + split (global state/chain groups)"

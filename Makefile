@@ -3,7 +3,7 @@
 # cargo lives in ~/.cargo/bin (rustup shim): resolve to an absolute path,
 # the user shell PATH is unreliable inside make.
 CARGO ?= $(shell command -v cargo 2>/dev/null || echo $(HOME)/.cargo/bin/cargo)
-MODEL ?= minicpm5-2b
+MODEL ?= snap1-2b
 # backend features, e.g. `make build FEATURES="vulkan"` — see Cargo.toml [features]
 FEATURES ?=
 

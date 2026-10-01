@@ -259,16 +259,13 @@ def distribution(q: dict, ans: dict) -> dict:
         p = float(ans["noul"])  # P(yes), the Jev field
         return {"false": 1.0 - p, "true": p}
     probs = ans.get("probabilities") or {}
-    if q["type"] == "choice":
-        keys = list(q["criteria"])
-    else:  # score: snap keys each level by its description text
-        keys = [c if isinstance(c, str) else json.dumps(c) for c in q["criteria"]]
-        if len(set(keys)) != len(keys):
-            raise SystemExit(f"score with duplicate level texts: {keys}")
+    # choice keys are the criteria labels, score keys the level indexes —
+    # both are exactly labels(q)
+    keys = labels(q)
     missing = [k for k in keys if k not in probs]
     if missing:
         raise SystemExit(f"answer has no probability for {missing}: {ans}")
-    return {lab: float(probs[k]) for lab, k in zip(labels(q), keys)}
+    return {k: float(probs[k]) for k in keys}
 
 
 def answer(args) -> None:

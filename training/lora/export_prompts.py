@@ -26,7 +26,7 @@ key/text, not position.
 
 Usage:
   python3 lora/export_prompts.py data/labeled/layerA.jsonl \
-      --out data/train/export-layerA.jsonl [--model minicpm5-2b]
+      --out data/train/export-layerA.jsonl [--model snap1-2b]
 """
 import argparse
 import hashlib
