@@ -1,7 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 - 2026-10-02
 
+- prompts: noul `{true, false}` criteria render as `Yes:`/`No:` outcome
+  lines in the question block and `null` descriptions fall back to the
+  option key or level index — PROMPT_VERSION 6; calibrations bound to v5
+  must be refit, ordinary requests are byte-identical
 - api: the TypeSafe JS SDK runs unchanged against `snap serve` — question
   `instructions` take the full `EntryType` (text, JSON, or null), `null`
   criterion descriptions render the option key or level index instead of the
@@ -11,6 +15,14 @@
   0..n−1, `legend` maps indexes to rubric text, `probabilities` are keyed by
   index), `usage.output_tokens` is 0, `GET /v1/models` answers the SDK's
   `{models: [...]}` shape, and responses carry `x-typesafe-request-id`
+- eval: typed-decisions on v6 — 0.655 accuracy against 0.643 on 0.4.0, all
+  from noul (+4 points, the outcome lines); choice and score unchanged,
+  ECE 0.041 raw, M1 Max
+- instances: windows build fixed — `cmdline_is_serve` is unix+test only,
+  tasklist has no argv
+- models: leftover minicpm5-2b defaults move to snap1-2b
+- site/readme: snap1-2b model section + Performance nav, terminal demo
+  gif, score example shows the Jev legend shape
 
 ## 0.4.0 - 2026-10-01
 
