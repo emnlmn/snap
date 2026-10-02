@@ -14,7 +14,9 @@ pub const ABOVE: &str = "__above__";
 /// v4: empty choice descriptions show the key, request text tokenized
 /// without special tokens.
 /// v5: states always render TOON — the compact_state flag is gone.
-pub const PROMPT_VERSION: u32 = 5;
+/// v6: noul/boolean {true, false} criteria render as Yes:/No: outcome
+/// lines; null criterion descriptions fall back to key or level index.
+pub const PROMPT_VERSION: u32 = 6;
 
 pub const SYSTEM: &str = "You are a decision engine. Given a state and a question, you evaluate the options and reply with only the letter of the best option. Never explain.";
 
