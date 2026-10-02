@@ -1126,7 +1126,7 @@ footer { padding: 56px 0 64px; }
             <tr><td>5-question request, RTX 4090</td><td class="m">—</td><td class="m hi">48 ms</td></tr>
           </tbody>
         </table></div>
-        <p class="note"><a href="https://huggingface.co/datasets/LocalLLaMA/typed-decisions">typed-decisions</a> is 400 states and 2,000 questions the model never saw in training, scored on raw probabilities with no calibration file. Measured with snap 0.5.0 on an Apple M1 Max unless stated. 0.5.0 renders state as TOON: the base model loses 1.7 points on it and snap1-2b gains 1.9, so part of the gap is the renderer. Speed is the base model’s; the fine-tune changes weights, not compute.</p>
+        <p class="note"><a href="https://huggingface.co/datasets/LocalLLaMA/typed-decisions">typed-decisions</a> is 400 states and 2,000 questions the model never saw in training, scored on raw probabilities with no calibration file. Measured with snap 0.5.0 on an Apple M1 Max unless stated; the RTX 4090 row is the median on a fast CUDA host, and latency depends on the host. Since 0.4.0 snap renders state as TOON: on it the base model drops (0.502 → 0.486) while snap1-2b gains (0.624 → 0.655), and the yes/no outcome lines added in 0.5.0 are most of the latest gain, so part of the gap is the renderer. Speed is the base model’s; the fine-tune changes weights, not compute.</p>
       </div>
 
       <div class="mdl-side">
