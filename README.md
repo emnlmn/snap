@@ -306,20 +306,20 @@ supervision surface the fine-tuning pipeline trains on (see
 instead of blocking the run; ids must be unique and `--output` is
 create-only.
 
-The numbers below come from the 303 cases of `eval/cases.jsonl`, measured
+The numbers below come from the 306 cases of `eval/cases.jsonl`, measured
 with the API's own defaults (`layout: auto`, no abstain slot unless a
 case asks for one), which is exactly what `/v1/systemone` serves. The two
 `edge-contested` cases have no single right answer and carry no
-expectation, so accuracy is scored on 301.
+expectation, so accuracy is scored on 304.
 
 | model | accuracy | balanced | ms/case |
 |---|---:|---:|---:|
 | qwen3.8-4b Q4_K_M | **86.4%** | 66.7% | ~300 |
 | spark-4b Q8_0 | 85.7% | 57.5% | ~245 |
-| snap1-2b Q4_K_M | 85.0% | **69.8%** | ~130 |
-| minicpm5-2b Q4_K_M | 69.1% | 48.1% | ~135 |
+| snap1-2b Q4_K_M | 85.2% | **76.0%** | ~130 |
+| minicpm5-2b Q4_K_M | 69.7% | 36.0% | ~145 |
 
-The 95% interval is about ±4 points at 301 cases, so the gaps among the
+The 95% interval is about ±4 points at 304 cases, so the gaps among the
 top three are noise: snap1-2b, a 2B model, answers like the 4B ones. Balanced accuracy averages recall over answer
 positions (A, B, C…), so rare late positions, such as numeric anchors or
 the tail of a long choice list, weigh as much as A and B: that is why it
@@ -331,8 +331,8 @@ Accuracy per question type:
 |---|---:|---:|---:|---:|---:|
 | qwen3.8-4b | 91% | 91% | 84% | 86% | 58% |
 | spark-4b | 83% | 95% | 95% | 79% | 76% |
-| snap1-2b | 87% | 86% | 100% | 93% | 58% |
-| minicpm5-2b | 68% | 74% | 90% | 67% | 52% |
+| snap1-2b | 87% | 85% | 100% | 93% | 58% |
+| minicpm5-2b | 70% | 73% | 90% | 67% | 52% |
 
 `numeric` is the weakest type on every model: a value read off anchor
 letters misses more often than a label does.
@@ -344,8 +344,8 @@ runs:
 |---|---:|---:|---:|
 | qwen3.8-4b Q4_K_M | 0.200 | 0.121 | 67.0% |
 | spark-4b Q8_0 | 0.242 | 0.059 | 86.0% |
-| snap1-2b Q4_K_M | 0.214 | 0.131 | 63.1% |
-| minicpm5-2b Q4_K_M | 0.457 | 0.124 | 66.8% |
+| snap1-2b Q4_K_M | 0.208 | 0.128 | 63.6% |
+| minicpm5-2b Q4_K_M | 0.447 | 0.106 | 66.6% |
 
 The ECE column is the reason calibration exists, and accuracy alone
 doesn't show it. spark comes out of the box close to calibrated, with
@@ -353,7 +353,7 @@ doesn't show it. spark comes out of the box close to calibrated, with
 67% confidence at 86% accuracy, and `snap calibrate` brings its ECE from
 0.121 to 0.047 out of fold (see [Calibration](#calibration)). snap1-2b is
 underconfident on these cases too, with 63% confidence at 85% accuracy, while
-on typed-decisions its raw ECE is 0.043: calibration depends on the data.
+on typed-decisions its raw ECE is 0.041: calibration depends on the data.
 
 Stability, as the share of answers that survive a perturbation that
 shouldn't change them (option reversal applies only to the 127 `choice`
@@ -363,8 +363,8 @@ cases):
 |---|---:|---:|---:|
 | qwen3.8-4b | 87% | 85% | 84% |
 | spark-4b | 83% | 77% | 83% |
-| snap1-2b | 88% | 84% | 85% |
-| minicpm5-2b | 69% | 72% | 79% |
+| snap1-2b | 89% | 86% | 85% |
+| minicpm5-2b | 68% | 74% | 81% |
 
 Reversing the option order flips almost a third of MiniCPM's choices:
 letter and position bias is the main weakness of small models answering
@@ -391,8 +391,8 @@ python3 eval/typesafe_public.py score results/typesafe-public/snap-qwen38.json
 ```
 
 qwen3.8-4b on an M1 Max reaches **73.2%** agreement over the 373
-decisions (Security 35/48, AgentTrace 32/49, Invoice 130/184, CustomerSvc
-76/92): 87% on yes/no questions, 56% on scores and 48% on choices, at
+decisions (Security 35/48, AgentTrace 33/49, Invoice 130/184, CustomerSvc
+75/92): 87% on yes/no questions, 56% on scores and 48% on choices, at
 about 1.1 s per decision. The misses are not random. Half of them are on
 the invoices, where whole families of questions cross-check a document of
 about 7k tokens (is this line really delivered, is this price really
@@ -412,10 +412,10 @@ catches that `eval/cases.jsonl` cannot: the same question repeats over
 100 different states, so **argmax constancy** measures whether the model
 reads the state at all. `score --detail` prints it per question. A run
 collapsing ≥95% of answers on a question is predicting the prior, not
-reading (minicpm5-2b zero-shot: 6/20 questions constant, acc 0.502;
+reading (minicpm5-2b zero-shot: 8/20 questions constant, acc 0.486;
 qwen3.8-4b: 8/20, acc 0.561, but its wins concentrate on lucky constants).
 snap1-2b, fine-tuned on other workflows only and so zero-shot here: 2/20
-constant, acc 0.624, KL 0.304, Brier 0.170, ECE 0.043.
+constant, acc 0.655, KL 0.292, Brier 0.159, ECE 0.041.
 
 ```bash
 python3 eval/typed_decisions.py fetch       # test + train, pinned revision

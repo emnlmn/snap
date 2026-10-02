@@ -1119,14 +1119,14 @@ footer { padding: 56px 0 64px; }
         <div class="tbl-wrap"><table class="t">
           <thead><tr><th>measure</th><th>MiniCPM5-2B</th><th>snap1-2b</th></tr></thead>
           <tbody>
-            <tr><td>typed-decisions, accuracy, zero-shot</td><td class="m">0.485</td><td class="m hi">0.643</td></tr>
-            <tr><td>typed-decisions, calibration error (ECE)</td><td class="m">0.320</td><td class="m hi">0.034</td></tr>
-            <tr><td>snap eval suite, 301 cases</td><td class="m">69.4%</td><td class="m hi">85.0%</td></tr>
-            <tr><td>5-question request, M1 Max</td><td class="m">545 ms</td><td class="m hi">550 ms</td></tr>
+            <tr><td>typed-decisions, accuracy, zero-shot</td><td class="m">0.486</td><td class="m hi">0.655</td></tr>
+            <tr><td>typed-decisions, calibration error (ECE)</td><td class="m">0.316</td><td class="m hi">0.041</td></tr>
+            <tr><td>snap eval suite, 304 cases</td><td class="m">69.7%</td><td class="m hi">85.2%</td></tr>
+            <tr><td>5-question request, M1 Max</td><td class="m">607 ms</td><td class="m hi">534 ms</td></tr>
             <tr><td>5-question request, RTX 4090</td><td class="m">—</td><td class="m hi">48 ms</td></tr>
           </tbody>
         </table></div>
-        <p class="note"><a href="https://huggingface.co/datasets/LocalLLaMA/typed-decisions">typed-decisions</a> is 400 states and 2,000 questions the model never saw in training, scored on raw probabilities with no calibration file. Measured with snap 0.4.0 on an Apple M1 Max unless stated. 0.4.0 renders state as TOON: the base model loses 1.7 points on it and snap1-2b gains 1.9, so part of the gap is the renderer. Speed is the base model’s; the fine-tune changes weights, not compute.</p>
+        <p class="note"><a href="https://huggingface.co/datasets/LocalLLaMA/typed-decisions">typed-decisions</a> is 400 states and 2,000 questions the model never saw in training, scored on raw probabilities with no calibration file. Measured with snap 0.5.0 on an Apple M1 Max unless stated. 0.5.0 renders state as TOON: the base model loses 1.7 points on it and snap1-2b gains 1.9, so part of the gap is the renderer. Speed is the base model’s; the fine-tune changes weights, not compute.</p>
       </div>
 
       <div class="mdl-side">
@@ -1142,7 +1142,7 @@ footer { padding: 56px 0 64px; }
         <ul class="weak">
           <li>Numeric questions near the edge of a range, or outside it.</li>
           <li>Long documents read less well and cost more: a 4 KB state takes about 1.8 s on an M1 Max.</li>
-          <li>No arithmetic and no multi-step reasoning. On typed-decisions it scores 0.643 where Jev reports 0.727.</li>
+          <li>No arithmetic and no multi-step reasoning. On typed-decisions it scores 0.655 where Jev reports 0.727.</li>
         </ul>
 
         <div class="links">
@@ -1188,20 +1188,20 @@ footer { padding: 56px 0 64px; }
             <tr><td>4 KB state, 1 question</td><td class="m">1767 ms</td><td class="m">2476 ms</td><td class="m">2164 ms</td></tr>
           </tbody>
         </table></div>
-        <p class="note">snap1-2b was measured with snap 0.4.0; the spark and qwen columns come from an earlier version. All the prompts in a request are decoded in one batched call that shares their common prefix, on every architecture; the direct row decodes each question on its own, for comparison. Qwen’s hybrid architecture runs 17 parallel sequences instead of 65, and snap picks the right path at startup.</p>
+        <p class="note">snap1-2b was measured with snap 0.5.0; the spark and qwen columns come from an earlier version. All the prompts in a request are decoded in one batched call that shares their common prefix, on every architecture; the direct row decodes each question on its own, for comparison. Qwen’s hybrid architecture runs 17 parallel sequences instead of 65, and snap picks the right path at startup.</p>
       </div>
       <div class="tcard">
-        <h3>Accuracy · eval/cases.jsonl, 301 cases</h3>
+        <h3>Accuracy · eval/cases.jsonl, 304 cases</h3>
         <div class="tbl-wrap"><table class="t">
           <thead><tr><th>model</th><th>accuracy</th><th>ms/case</th></tr></thead>
           <tbody>
             <tr><td>qwen3.8-4b <small class="note">Q4_K_M</small></td><td class="m hi"><span class="acc-bar"><i style="--v:86.4"></i></span>86.4%</td><td class="m">~300</td></tr>
             <tr><td>spark-4b <small class="note">Q8_0</small></td><td class="m"><span class="acc-bar"><i style="--v:85.7"></i></span>85.7%</td><td class="m">~245</td></tr>
-            <tr><td>snap1-2b <small class="note">Q4_K_M, fine-tuned</small></td><td class="m"><span class="acc-bar"><i style="--v:85.0"></i></span>85.0%</td><td class="m">~144</td></tr>
-            <tr><td>minicpm5-2b <small class="note">Q4_K_M</small></td><td class="m"><span class="acc-bar"><i style="--v:69.4"></i></span>69.4%</td><td class="m">~154</td></tr>
+            <tr><td>snap1-2b <small class="note">Q4_K_M, fine-tuned</small></td><td class="m"><span class="acc-bar"><i style="--v:85.2"></i></span>85.2%</td><td class="m">~130</td></tr>
+            <tr><td>minicpm5-2b <small class="note">Q4_K_M</small></td><td class="m"><span class="acc-bar"><i style="--v:69.7"></i></span>69.7%</td><td class="m">~145</td></tr>
           </tbody>
         </table></div>
-        <p class="note">snap1-2b is MiniCPM5-2B fine-tuned for this readout (<a href="https://huggingface.co/logitlab/snap1-2b-GGUF">model card</a>); the two 2B rows were measured with snap 0.4.0, the 4B rows with an earlier version. On typed-decisions, zero-shot, snap1-2b scores 0.643 accuracy against 0.485 for the base model (raw probabilities, ECE 0.034, M1 Max); Jev’s reported figure is 0.727.</p>
+        <p class="note">snap1-2b is MiniCPM5-2B fine-tuned for this readout (<a href="https://huggingface.co/logitlab/snap1-2b-GGUF">model card</a>); the two 2B rows were measured with snap 0.5.0, the 4B rows with an earlier version. On typed-decisions, zero-shot, snap1-2b scores 0.655 accuracy against 0.486 for the base model (raw probabilities, ECE 0.041, M1 Max); Jev’s reported figure is 0.727.</p>
         <p class="note">Raw probabilities aren’t calibrated. <code>snap calibrate</code> fits one temperature per question type on your labeled cases, ties it to the model and prompt version, and prints the calibration error (ECE) before and after.</p>
       </div>
     </div>
