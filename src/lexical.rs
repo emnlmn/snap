@@ -168,39 +168,109 @@ fn stop(w: &str) -> bool {
     STOP.binary_search(&w).is_ok()
 }
 
-/// Plural, -ing and -ed endings off, so `connections`, `policies` and
-/// `stopped` meet `connection`, `policy` and `stop`. Plurals go first, so
-/// `strings` and `string` land together. Length floors keep short words
-/// whole (`bus`, `thing`, `need`) and `ss`/`us`/`is` endings are no plurals
-/// (`class`, `status`, `analysis`). ASCII only.
-fn stem(w: &mut String) {
+/// Porter's vowels: a, e, i, o, u, and `y` after a consonant.
+fn vowels(w: &[u8]) -> impl Iterator<Item = bool> + '_ {
+    let mut prev = true;
+    w.iter().map(move |&c| {
+        prev = matches!(c, b'a' | b'e' | b'i' | b'o' | b'u') || (c == b'y' && !prev);
+        prev
+    })
+}
+
+fn has_vowel(w: &[u8]) -> bool {
+    vowels(w).any(|v| v)
+}
+
+/// Porter's measure m: the vowel runs followed by a consonant, [C](VC)^m[V].
+fn measure(w: &[u8]) -> usize {
+    vowels(w)
+        .fold((false, 0), |(was, m), v| (v, m + (was && !v) as usize))
+        .1
+}
+
+/// Porter's *o: ends consonant, vowel, consonant, the last not w, x or y.
+fn cvc(w: &[u8]) -> bool {
     let n = w.len();
-    if n > 4 && w.ends_with("ies") {
-        w.truncate(n - 3);
-        w.push('y');
-    } else if w.ends_with("sses") {
-        w.truncate(n - 2);
-    } else if n > 3
-        && w.ends_with('s')
-        && !w.ends_with("ss")
-        && !w.ends_with("us")
-        && !w.ends_with("is")
-    {
+    n >= 3
+        && vowels(w).skip(n - 3).eq([false, true, false])
+        && !matches!(w[n - 1], b'w' | b'x' | b'y')
+}
+
+/// The double consonant a suffix left behind (`runn`, `stopp`). `l`, `s`, `z`
+/// and `f` double in the word itself (`call`, `pass`, `buzz`, `diff`), and so
+/// does a short stem (`add`, `err`).
+fn doubled(w: &[u8]) -> bool {
+    matches!(w, [_, _, .., x, y] if x == y && x.is_ascii_lowercase() && !b"aeioulsfz".contains(x))
+}
+
+/// Porter's stemmer cut down to inflections: plurals (step 1a), -ed and -ing
+/// (1b), y → i (1c), the final e and ll (5). `removes`, `removed` and
+/// `remove` all land on `remov`, `closed` and `close` on `close`. The
+/// derivational steps are out: this stage wants `connections` to meet
+/// `connection`, not `connect`. Plain Porter splits some families that code is
+/// full of, so this bends: `us`/`is` endings are no plurals (`status`,
+/// `focus`), `doubled` spares `diff` and `add`, and 1b runs again on a whole
+/// word it leaves (`embedded` → `embed` → `emb`, `exceeded` → `exceed`), never
+/// on a stem that only lost its e (`preceded` → `preced`). Like Porter's own
+/// code, it leaves words of one or two letters alone (`rs`, `os`). ASCII only.
+fn stem(w: &mut String) {
+    if w.len() < 3 {
+        return;
+    }
+    // 1a: plurals
+    if w.ends_with("sses") || w.ends_with("ies") {
+        w.truncate(w.len() - 2);
+    } else if w.ends_with('s') && !w.ends_with("ss") && !w.ends_with("us") && !w.ends_with("is") {
         w.pop();
     }
-    let n = w.len();
-    let cut = if n > 5 && w.ends_with("ing") {
-        3
-    } else if n > 4 && w.ends_with("ed") {
-        2
-    } else {
-        return;
-    };
-    w.truncate(n - cut);
-    // `running` → `run`; but `call`, `pass`, `diff` and `add` keep the double
-    // letter of the word itself, or `called` and `call` would part ways
-    if matches!(w.as_bytes(), [_, _, .., x, y] if x == y && x.is_ascii_lowercase() && !b"aeioulsfz".contains(x))
-    {
+    // 1b: -ed and -ing, when a vowel stays
+    loop {
+        let n = w.len();
+        if w.ends_with("eed") {
+            if measure(&w.as_bytes()[..n - 3]) > 0 {
+                w.pop();
+            }
+            break;
+        }
+        let cut = if w.ends_with("ed") {
+            2
+        } else if w.ends_with("ing") {
+            3
+        } else {
+            break;
+        };
+        if !has_vowel(&w.as_bytes()[..n - cut]) {
+            break;
+        }
+        w.truncate(n - cut);
+        let mut again = false;
+        if w.ends_with("at") || w.ends_with("bl") || w.ends_with("iz") {
+            w.push('e');
+        } else if doubled(w.as_bytes()) {
+            w.pop();
+            again = true;
+        } else if measure(w.as_bytes()) == 1 && cvc(w.as_bytes()) {
+            w.push('e');
+        }
+        if !(again || w.ends_with("eed")) {
+            break;
+        }
+    }
+    // 1c: y → i, so `policies` and `policy` meet
+    if w.ends_with('y') && has_vowel(&w.as_bytes()[..w.len() - 1]) {
+        w.pop();
+        w.push('i');
+    }
+    // 5a: a final e that is no part of a short stem (`cache`, but `state`)
+    if w.ends_with('e') {
+        let s = &w.as_bytes()[..w.len() - 1];
+        let m = measure(s);
+        if m > 1 || (m == 1 && !cvc(s)) {
+            w.pop();
+        }
+    }
+    // 5b: `controll` → `control`
+    if w.ends_with("ll") && measure(w.as_bytes()) > 1 {
         w.pop();
     }
 }
@@ -401,10 +471,10 @@ mod tests {
             terms("HTTPServerConfig"),
             ["http", "server", "config", "httpserverconfig"]
         );
-        assert_eq!(terms("parseJSON2"), ["parse", "json2", "parsejson2"]);
+        assert_eq!(terms("parseJSON2"), ["pars", "json2", "parsejson2"]);
         assert_eq!(
             terms("getHTTPResponse"),
-            ["get", "http", "response", "gethttpresponse"]
+            ["get", "http", "respons", "gethttpresponse"]
         );
         assert_eq!(
             terms("XMLHttpRequest"),
@@ -439,12 +509,12 @@ mod tests {
     #[test]
     fn stopwords_go_code_words_stay() {
         assert_eq!(
-            terms("How does the cache of the new file get set?"),
-            ["cache", "new", "file", "get", "set"]
+            terms("How does the buffer of the new file get set?"),
+            ["buffer", "new", "file", "get", "set"]
         );
         assert_eq!(terms("what is an error"), ["error"]);
         // function-word parts drop, the whole name keeps them
-        assert_eq!(terms("is_empty"), ["empty", "isempty"]);
+        assert_eq!(terms("is_empty"), ["empti", "isempty"]);
         assert!(STOP.is_sorted());
         assert!(STOP
             .iter()
@@ -452,27 +522,117 @@ mod tests {
     }
 
     #[test]
+    fn measure_follows_porters_table() {
+        for (word, m) in [
+            ("tr", 0),
+            ("ee", 0),
+            ("tree", 0),
+            ("y", 0),
+            ("by", 0),
+            ("trouble", 1),
+            ("oats", 1),
+            ("trees", 1),
+            ("ivy", 1),
+            ("troubles", 2),
+            ("private", 2),
+            ("oaten", 2),
+            ("orrery", 2),
+            // y is a consonant after a vowel and at the start, a vowel after a consonant
+            ("toy", 1),
+            ("syzygy", 2),
+        ] {
+            assert_eq!(measure(word.as_bytes()), m, "{word}");
+        }
+    }
+
+    #[test]
+    fn porters_own_examples() {
+        // the paper's examples for the steps kept here, as they come out of all of them
+        for (word, stem) in [
+            // 1a
+            ("caresses", "caress"),
+            ("ponies", "poni"),
+            ("ties", "ti"),
+            ("caress", "caress"),
+            ("cats", "cat"),
+            // 1b
+            ("feed", "feed"),
+            ("plastered", "plaster"),
+            ("bled", "bled"),
+            ("motoring", "motor"),
+            ("sing", "sing"),
+            ("sized", "size"),
+            ("hopping", "hop"),
+            ("tanned", "tan"),
+            ("falling", "fall"),
+            ("hissing", "hiss"),
+            ("fizzed", "fizz"),
+            ("failing", "fail"),
+            ("filing", "file"),
+            // 1b restores an e that 5a takes off again
+            ("agreed", "agre"),
+            ("conflated", "conflat"),
+            ("troubled", "troubl"),
+            // 1c
+            ("happy", "happi"),
+            ("sky", "sky"),
+            // 5a, 5b
+            ("probate", "probat"),
+            ("rate", "rate"),
+            ("cease", "ceas"),
+            ("controll", "control"),
+            ("roll", "roll"),
+        ] {
+            assert_eq!(terms(word), [stem], "{word}");
+        }
+    }
+
+    #[test]
     fn stemming() {
         for (word, stem) in [
+            // plurals, -ed and -ing
             ("connections", "connection"),
-            ("policies", "policy"),
-            ("queries", "query"),
             ("running", "run"),
             ("stopped", "stop"),
             ("tagged", "tag"),
             ("occurred", "occur"),
+            // -ies and y meet at i
+            ("policies", "polici"),
+            ("policy", "polici"),
+            ("queries", "queri"),
+            // the final e goes, except off a short stem
+            ("remove", "remov"),
+            ("removed", "remov"),
+            ("close", "close"),
+            ("closed", "close"),
+            ("cache", "cach"),
+            ("cached", "cach"),
+            ("parsed", "pars"),
+            ("matches", "match"),
+            ("response", "respons"),
+            ("state", "state"),
+            ("stated", "state"),
+            // no vowel before the suffix, no suffix
+            ("string", "string"),
+            ("thing", "thing"),
+            ("need", "need"),
+            // endings that are no plural
             ("class", "class"),
             ("classes", "class"),
             ("status", "status"),
+            ("statuses", "status"),
             ("analysis", "analysis"),
             ("passed", "pass"),
             ("passes", "pass"),
-            ("uses", "use"),
-            ("ties", "tie"),
-            // too short to lose a suffix
-            ("bus", "bus"),
-            ("thing", "thing"),
-            ("need", "need"),
+            // whole words that end like a suffix
+            ("embed", "emb"),
+            ("embedded", "emb"),
+            ("exceed", "exce"),
+            ("exceeded", "exce"),
+            ("preceded", "preced"),
+            // words of two letters are left alone, plurals of them are not
+            ("rs", "rs"),
+            ("ids", "id"),
         ] {
             assert_eq!(terms(word), [stem], "{word}");
         }
@@ -481,18 +641,66 @@ mod tests {
     #[test]
     fn forms_of_a_word_land_together() {
         for forms in [
-            &["string", "strings"][..],
+            &["remove", "removes", "removed", "removing"][..],
+            &["close", "closes", "closed", "closing"],
+            &["cache", "caches", "cached", "caching"],
+            &["parse", "parses", "parsed", "parsing"],
+            &["match", "matches", "matched", "matching"],
+            &["string", "strings"],
+            &["run", "runs", "running"],
+            &["stop", "stops", "stopped", "stopping"],
+            &["embed", "embeds", "embedded", "embedding", "embeddings"],
+            &["state", "states", "stated", "stating"],
             &["set", "sets", "setting", "settings"],
             &["add", "adds", "added", "adding"],
             &["call", "calls", "called", "calling"],
             &["diff", "diffs", "diffed", "diffing"],
             &["map", "maps", "mapped", "mapping"],
+            &["create", "creates", "created", "creating"],
+            &["file", "files", "filed", "filing"],
+            &["use", "uses", "used", "using"],
+            &["size", "sizes", "sized", "sizing"],
+            &["handle", "handles", "handled", "handling"],
+            &["cancel", "cancels", "canceled", "cancelled", "cancelling"],
+            // w, x and y end no cvc stem that wants its e back
+            &["snow", "snows", "snowed", "snowing"],
+            &["box", "boxes", "boxed", "boxing"],
+            &["fix", "fixes", "fixed", "fixing"],
+            &["play", "plays", "played", "playing"],
+            &["policy", "policies"],
+            &["query", "queries", "queried", "querying"],
+            &["apply", "applies", "applied", "applying"],
+            &["status", "statuses"],
+            &["focus", "focuses", "focused", "focusing"],
+            &["exceed", "exceeds", "exceeded", "exceeding"],
+            &["precede", "precedes", "preceded", "preceding"],
         ] {
             let stems: Vec<_> = forms.iter().map(|w| terms(w)).collect();
             assert!(
                 stems.windows(2).all(|p| p[0] == p[1]),
                 "{forms:?} -> {stems:?}"
             );
+        }
+    }
+
+    #[test]
+    fn short_stems_keep_their_e() {
+        // a short consonant-vowel-consonant stem keeps its e, so none of these
+        // collapses into the word without it
+        for (word, bare) in [
+            ("state", "stat"),
+            ("stated", "stat"),
+            ("mode", "mod"),
+            ("case", "cas"),
+            ("file", "fil"),
+            ("name", "nam"),
+            ("type", "typ"),
+            ("size", "siz"),
+            ("rate", "rat"),
+            ("hope", "hop"),
+            ("hopped", "hoped"),
+        ] {
+            assert_ne!(terms(word), terms(bare), "{word} / {bare}");
         }
     }
 
@@ -516,7 +724,7 @@ mod tests {
     #[test]
     fn stemming_and_stopwords_are_ascii_only() {
         assert_eq!(terms("données"), ["données"]);
-        assert_eq!(terms("donnees"), ["donnee"]);
+        assert_eq!(terms("donnees"), ["donne"]);
         assert_eq!(terms("añadidos"), ["añadidos"]);
         assert_eq!(terms("Straßen größeren"), ["straßen", "größeren"]);
     }
