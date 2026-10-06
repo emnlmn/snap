@@ -63,7 +63,7 @@ pub struct Chunk {
     /// 1-based last line, inclusive
     pub end: usize,
     /// the declared name, best effort (`pub fn new(` → "new"); in prose the
-    /// section heading
+    /// section heading; a piece of a big impl or class, its first method
     pub symbol: Option<String>,
     /// lines start..=end verbatim, joined by '\n', no trailing newline
     pub text: String,
@@ -188,8 +188,8 @@ impl<'a> Lines<'a> {
 /// Split one file into chunks that cover every non-blank line exactly once,
 /// in order, each within MAX_LINES and MAX_CHARS. Code is cut along
 /// declarations, prose along sections: a chunk holds whole units, or one
-/// piece of a unit too big for any chunk, and a unit's pieces all carry its
-/// symbol.
+/// piece of a unit too big for any chunk. A piece of code is named for the
+/// first item it declares, else for its unit; a piece of prose for its section.
 pub fn split(path: &str, text: &str) -> Vec<Chunk> {
     let t = Lines::new(text);
     let prose = prose_ext(path);
@@ -199,7 +199,7 @@ pub fn split(path: &str, text: &str) -> Vec<Chunk> {
     };
     let symbol = |(s, e): Span| match prose {
         Some(_) => heads[s..=e].iter().flatten().next().map(|h| h.to_string()),
-        None => t.lines[s..=e].iter().find_map(|l| declared(l)),
+        None => first_declared(&t.lines[s..=e], false),
     };
     let chunk = |(s, e): Span, symbol: Option<String>| Chunk {
         path: path.to_string(),
@@ -223,8 +223,16 @@ pub fn split(path: &str, text: &str) -> Vec<Chunk> {
         if us == ue || t.fits(us, ue) {
             cur = Some((us, ue));
         } else {
+            // in code a piece names its first item (a method of a big impl),
+            // and without one keeps the unit's name: a body's locals are no item
             let sym = symbol((us, ue));
-            out.extend(pieces(&t, &unit).into_iter().map(|p| chunk(p, sym.clone())));
+            for p in pieces(&t, &unit) {
+                let item = match prose {
+                    Some(_) => None,
+                    None => first_declared(&t.lines[p.0..=p.1], true),
+                };
+                out.push(chunk(p, item.or_else(|| sym.clone())));
+            }
         }
     }
     out.extend(cur.map(|c| chunk(c, symbol(c))));
@@ -316,8 +324,9 @@ fn closes(line: &str) -> bool {
 /// keyword-led declarations of their cousins. Modifiers come first
 /// (`pub(crate) async`, `export default`); the capture groups are, in order,
 /// `impl X for Type`, `impl Type`, a Go method, `fn name`-style keywords,
-/// `macro_rules! name` and `const`/`static`/`let`/`var name:`/`=`.
-fn declared(line: &str) -> Option<String> {
+/// `macro_rules! name` and `const`/`static`/`let`/`var name:`/`=`. Only the
+/// last is no item: inside a body it is a local.
+fn declared(line: &str) -> Option<(&str, bool)> {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| {
         Regex::new(
@@ -338,11 +347,21 @@ fn declared(line: &str) -> Option<String> {
         .unwrap()
     });
     let caps = re.captures(line)?;
-    caps.iter()
+    let (i, m) = caps
+        .iter()
+        .enumerate()
         .skip(1)
-        .flatten()
-        .next()
-        .map(|m| m.as_str().to_owned())
+        .find_map(|(i, m)| Some((i, m?)))?;
+    Some((m.as_str(), i + 1 < caps.len()))
+}
+
+/// The first name `lines` declare, or with `items` the first item: a `const`
+/// or `let` doesn't count.
+fn first_declared(lines: &[&str], items: bool) -> Option<String> {
+    let mut found = lines.iter().filter_map(|l| declared(l));
+    found
+        .find(|&(_, item)| item || !items)
+        .map(|(name, _)| name.to_owned())
 }
 
 /// Extension of a prose document: split by section, not by declaration.
@@ -830,7 +849,7 @@ Options
             ("def self.build(opts)", "build"),
         ];
         for (line, want) in named {
-            assert_eq!(declared(line).as_deref(), Some(want), "{line}");
+            assert_eq!(declared(line).map(|d| d.0), Some(want), "{line}");
         }
         let unnamed = [
             "export default function () {",
@@ -845,6 +864,34 @@ Options
         ];
         for line in unnamed {
             assert_eq!(declared(line), None, "{line}");
+        }
+    }
+
+    #[test]
+    fn items_are_not_bindings() {
+        let bindings = [
+            "pub const MAX: usize = 3;",
+            "static mut COUNTER: u32 = 0;",
+            "    let total = 0;",
+            "var y = 1",
+            "const limit = 10;",
+        ];
+        for line in bindings {
+            assert_eq!(declared(line).map(|d| d.1), Some(false), "{line}");
+        }
+        let items = [
+            "pub fn new() {",
+            "pub const fn zero() -> u32 {",
+            "impl Pool {",
+            "impl<T> Tr for Pool<T> {",
+            "macro_rules! hashmap {",
+            "func (s *Store) Get() {",
+            "class Backoff:",
+            "type Id = u32;",
+            "mod tests {",
+        ];
+        for line in items {
+            assert_eq!(declared(line).map(|d| d.1), Some(true), "{line}");
         }
     }
 
@@ -928,6 +975,49 @@ Options
             spans(&check("m.rs", &text)),
             [(1, 60, Some("m")), (61, 104, Some("m"))]
         );
+    }
+
+    #[test]
+    fn pieces_of_an_impl_take_their_methods_names() {
+        // six 24-line methods: the impl is cut between them, two to a piece, and a
+        // piece is named for the first item in it (the first holds the `impl` line)
+        let method = |name: &str| {
+            let body = "        step(self);\n".repeat(22);
+            format!("    pub fn {name}(&self) {{\n{body}    }}\n")
+        };
+        let methods = ["new", "open", "plan", "wave", "evict", "drop"].map(method);
+        let c = check("kv.rs", &format!("impl Kv {{\n{}}}\n", methods.join("\n")));
+        let want = [(1, 50, "Kv"), (52, 100, "plan"), (102, 151, "evict")];
+        assert_eq!(spans(&c), want.map(|(s, e, n)| (s, e, Some(n))));
+        // the same in Python
+        let method = |name: &str| {
+            format!(
+                "    def {name}(self):\n{}",
+                "        self.step()\n".repeat(22)
+            )
+        };
+        let methods = ["load", "save", "plan", "wave"].map(method);
+        let c = check(
+            "client.py",
+            &format!("class Client:\n{}", methods.join("\n")),
+        );
+        assert_eq!(spans(&c), [(1, 48, Some("Client")), (50, 96, Some("plan"))]);
+    }
+
+    #[test]
+    fn pieces_of_a_function_keep_its_name_despite_locals() {
+        // `let`, `const` and `static` inside a body are locals, not items: later pieces
+        // full of them are still named for the function
+        let body: String = (1..=200)
+            .map(|i| match i % 3 {
+                0 => format!("    const C{i}: u32 = {i};\n"),
+                1 => format!("    let x{i} = {i};\n"),
+                _ => format!("    static S{i}: u32 = {i};\n"),
+            })
+            .collect();
+        let c = check("big.rs", &format!("fn big() {{\n{body}}}\n"));
+        let pieces = [(1, 60), (61, 120), (121, 180), (181, 202)];
+        assert_eq!(spans(&c), pieces.map(|(s, e)| (s, e, Some("big"))));
     }
 
     #[test]
@@ -1073,9 +1163,10 @@ Options
     #[test]
     fn prose_big_sections_keep_their_heading() {
         // 30 two-line paragraphs: the section is cut between paragraphs, every piece
-        // names it, and the next section still opens a chunk of its own
+        // names it (a line that reads like `fn name` is text here), and the next
+        // section still opens a chunk of its own
         let paras: String = (0..30)
-            .map(|i| format!("para {i} one\npara {i} two\n\n"))
+            .map(|i| format!("fn para_{i}() one\npara {i} two\n\n"))
             .collect();
         let text = format!("## Big\n\n{paras}## Next\n\n1\n2\n3\n4\n");
         let c = check("a.md", &text);
