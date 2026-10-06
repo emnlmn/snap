@@ -81,23 +81,40 @@ different store. It never feeds the model foreign memory.
 ## Cost model
 
 The KV memory per token is `2 × n_layer × n_kv_head × head_dim × bytes`.
-For snap1-2b (MiniCPM5-2B: 42 layers, 2 KV heads, head dim 128):
+For snap1-2b (MiniCPM5-2B: 42 layers, 2 KV heads, head dim 128) that is
+43,008 bytes in f16. llama.cpp's snapshots match it: with a random-weight
+model of the same KV geometry, a snapshot measures 43,020 bytes per token
+(the extra 12 are cell metadata) plus 1,032 bytes per blob.
 
-| KV type | per token | 460-token snapshot (400-token chunk + head) |
-|---|---:|---:|
-| f16 | 43.0 KB | 19.8 MB |
-| q8_0 | 22.8 KB | 10.5 MB |
+| KV type | per token | 460-token snapshot (400-token chunk + head) | 64 candidates |
+|---|---:|---:|---:|
+| f16 | 43.0 KB | 19.8 MB | 1.27 GB |
+| q8_0 | 22.9 KB | 10.5 MB | 0.67 GB |
+| q4_0 | 12.1 KB | 5.6 MB | 0.36 GB |
 
-A query that reranks 64 candidates:
+A query that reranks 64 candidates decodes 64 × ~60 ≈ 3.8k tail tokens
+instead of 64 × ~460 ≈ 29k from scratch, 7.7× fewer.
 
-| | from scratch | from snapshots |
-|---|---:|---:|
-| tokens decoded | 64 × ~460 ≈ 29k | 64 × ~60 ≈ 3.8k |
-| read from disk | 0 | 1.3 GB (f16) / 0.7 GB (q8_0) |
+What the same model measured on CPU (4 vCPU, a shared virtual disk), 16
+sequences of 460 tokens:
 
-An NVMe disk reads 3–7 GB/s, and the prefetcher overlaps the reads of one
-wave with the decode of the previous one. The compute drops about 7–8×,
-and the disk time hides under it.
+- **Restore + tail against a full decode: 4.4–5.1× faster.** The tails
+  attend over the whole 400-token prefix, and the toy model's tiny weights
+  make attention half of its per-token cost. On a 2B model, where
+  attention over 460 tokens is a small share of the work, the estimate is
+  about 7×.
+- **The copies are real work.** `seq_load` of a 460-token f16 snapshot
+  takes 6.4 ms (3 GB/s), 0.4 s for 64 candidates on the decode thread;
+  `seq_save` takes 10.8 ms, 41–46% of it spent allocating the buffer.
+  q8_0 halves both, but on CPU it decodes 1.56× slower than f16.
+- **The disk hides behind the decode** when the prefetch reads a full
+  wave ahead: only the first wave's read shows, about 6% of the query.
+  The store read a cold pack at 1.1–1.5 GB/s (the raw disk does
+  1.5–2 GB/s). The overlap holds as long as decoding a wave's tails takes
+  longer than reading its snapshots: at 1.2 GB/s, up to about 3.5k tail
+  tokens per second in f16 (CPU, small GPUs). A fast GPU needs a faster
+  disk (3 GB/s for about 9k tokens/s, 7 GB/s for about 21k), or smaller
+  snapshots.
 
 Disk use scales with the code that queries touch. A repository of 500k
 code tokens is about 1,250 chunks, roughly 25 GB in f16 and 13 GB in
@@ -119,9 +136,12 @@ earn its place on `eval/grep.jsonl` before it ships.
    tokens). A grep-specific format could move the fixed text into the
    prefix and leave only the query and the answer slot, about 25 tokens,
    with snap1 fine-tuned on that format through `training/`.
-3. **Smaller snapshots.** A q8_0 or q4_0 KV cache halves or quarters the
-   disk. Query-agnostic KV eviction (KVzip, NeurIPS 2025: 3–4× smaller with
-   negligible loss on code comprehension) cuts further.
+3. **Smaller snapshots, fewer copies.** A q8_0 or q4_0 KV cache halves or
+   quarters the disk (q4_0 measures 28% of f16). Query-agnostic KV eviction
+   (KVzip, NeurIPS 2025: 3–4× smaller with negligible loss on code
+   comprehension) cuts further. Reused buffers take `seq_save` from 10.8
+   to 6.4 ms, and memory-mapping the pack would let llama.cpp copy
+   snapshots straight from the page cache.
 4. **Early exit.** Pointwise relevance saturates in intermediate layers:
    about 95% of the final quality at under 60% of the depth
    (miniReranker, 2026; E2Rank narrows candidates layer by layer). A
