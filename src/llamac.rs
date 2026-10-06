@@ -316,6 +316,31 @@ impl Backend for Llama {
         unsafe { sys::llama_memory_seq_cp(self.memory(), src, dst, 0, len as i32) };
     }
 
+    /// llama.cpp's own state blob: every cell the seq holds (shared ones
+    /// included) with its position, plus recurrent state.
+    fn seq_save(&mut self, seq: i32) -> Result<Vec<u8>> {
+        let size = unsafe { sys::llama_state_seq_get_size(self.ctx, seq) };
+        let mut blob = vec![0u8; size];
+        let n = unsafe { sys::llama_state_seq_get_data(self.ctx, blob.as_mut_ptr(), size, seq) };
+        if n == 0 {
+            bail!("llama.cpp could not snapshot seq {seq}");
+        }
+        blob.truncate(n);
+        Ok(blob)
+    }
+
+    /// Restores into free cells, wherever they are, at the saved positions.
+    /// llama.cpp reports every failure — foreign layout, no free cells — as
+    /// 0, so this never answers NoSlot.
+    fn seq_load(&mut self, seq: i32, blob: &[u8]) -> Result<(), DecodeError> {
+        if unsafe { sys::llama_state_seq_set_data(self.ctx, blob.as_ptr(), blob.len(), seq) } == 0 {
+            // a hybrid memory can fail after its attention half is restored
+            self.seq_rm(seq);
+            return Err(DecodeError::Failed("llama.cpp refused the snapshot".into()));
+        }
+        Ok(())
+    }
+
     fn clear(&mut self) {
         unsafe { sys::llama_memory_clear(self.memory(), true) };
     }

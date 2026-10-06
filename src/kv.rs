@@ -12,6 +12,9 @@
 //! Sequences are only ever copied whole and removed whole, never trimmed.
 //! That single rule is what lets recurrent/hybrid memories — no partial
 //! rewind, range-less `seq_cp` — run the same path as plain attention KV.
+//! Snapshots keep it: a decoded seq is saved whole (`snapshot`) and restored
+//! whole onto an empty seq (`run_restored`), so a prefix computed once costs
+//! only its tail later, on recurrent memories too.
 //!
 //! Seqs and KV cells are shared by cache entries and a wave's work seqs.
 //! Waves are sized to what fits, unprotected entries are evicted LRU on
@@ -71,6 +74,13 @@ pub trait Backend: Send {
     fn seq_rm(&mut self, seq: i32);
     /// Make the empty `dst` a copy of `src`, which holds exactly `len` tokens.
     fn seq_cp(&mut self, src: i32, dst: i32, len: usize);
+    /// Snapshot a whole sequence: its cells, positions and any recurrent
+    /// state, in the runtime's own serialization.
+    fn seq_save(&mut self, seq: i32) -> Result<Vec<u8>>;
+    /// Restore a `seq_save` snapshot onto the empty `seq`, whole. Err leaves
+    /// `seq` empty: the blob is foreign (another KV layout; the runtime does
+    /// not notice other weights under the same layout) or no cells are free.
+    fn seq_load(&mut self, seq: i32, blob: &[u8]) -> Result<(), DecodeError>;
     fn clear(&mut self);
 }
 
@@ -82,12 +92,23 @@ pub struct Job<'a> {
     pub keep: usize,
 }
 
+/// A job that starts from a stored snapshot: `blob` restores `toks[..at]`
+/// whole, then only `toks[at..]` (non-empty) is decoded.
+#[allow(dead_code)] // wired by grep.rs
+#[derive(Clone, Copy)]
+pub struct Restore<'a> {
+    pub toks: &'a [i32],
+    pub at: usize,
+    pub blob: &'a [u8],
+}
+
 #[derive(Default, Debug)]
 pub struct Stats {
     /// tokens actually decoded (KV cells written)
     pub decoded: usize,
     pub waves: usize,
-    /// jobs that forked off a span cached by an earlier request
+    /// jobs that forked off a span cached by an earlier request, or were
+    /// restored from a snapshot
     pub hits: usize,
     /// jobs whose keep span had to be decoded
     pub misses: usize,
@@ -214,6 +235,13 @@ impl Kv {
         true
     }
 
+    /// Remove the strays of an aborted wave.
+    fn wipe(&mut self, b: &mut dyn Backend) {
+        for s in self.scratch.drain(..) {
+            b.seq_rm(s);
+        }
+    }
+
     /// Decode every job; `out(job, row)` receives each job's logits row.
     pub fn run(
         &mut self,
@@ -222,9 +250,33 @@ impl Kv {
         shared: bool,
         out: &mut dyn FnMut(usize, &[f32]),
     ) -> Result<Stats> {
-        for s in self.scratch.drain(..) {
-            b.seq_rm(s);
-        }
+        self.run_saving(b, jobs, shared, out, None)
+    }
+
+    /// Decode every job like `run`; right after its wave decodes, before
+    /// cleanup, hand `save(job, snapshot)` a snapshot of each job's whole
+    /// seq. On Err, the jobs already handed over keep valid snapshots.
+    #[allow(dead_code)] // wired by grep.rs
+    pub fn snapshot(
+        &mut self,
+        b: &mut dyn Backend,
+        jobs: &[Job],
+        shared: bool,
+        save: &mut dyn FnMut(usize, Vec<u8>),
+    ) -> Result<Stats> {
+        self.run_saving(b, jobs, shared, &mut |_, _| {}, Some(save))
+    }
+
+    /// The body of `run` and `snapshot`: `save` is None for the former.
+    fn run_saving(
+        &mut self,
+        b: &mut dyn Backend,
+        jobs: &[Job],
+        shared: bool,
+        out: &mut dyn FnMut(usize, &[f32]),
+        mut save: Option<&mut dyn FnMut(usize, Vec<u8>)>,
+    ) -> Result<Stats> {
+        self.wipe(b);
         let (n_seq, n_ctx) = (b.n_seq(), b.n_ctx());
         if let Some(j) = jobs
             .iter()
@@ -237,7 +289,9 @@ impl Kv {
         let mut pending: Vec<usize> = (0..jobs.len()).collect();
         let mut limit = usize::MAX;
         while !pending.is_empty() {
-            match self.wave(b, jobs, &pending, shared, first, limit, out, &mut st)? {
+            match self.wave(
+                b, jobs, &pending, shared, first, limit, out, &mut save, &mut st,
+            )? {
                 Some(done) => {
                     pending.retain(|j| !done.contains(j));
                     limit = usize::MAX;
@@ -273,6 +327,7 @@ impl Kv {
         first: u64,
         limit: usize,
         out: &mut dyn FnMut(usize, &[f32]),
+        save: &mut Option<&mut dyn FnMut(usize, Vec<u8>)>,
         st: &mut Stats,
     ) -> Result<Option<Vec<usize>>> {
         let (n_seq, n_ctx) = (b.n_seq(), b.n_ctx());
@@ -406,11 +461,24 @@ impl Kv {
             }
         });
         st.decode_ms += t.elapsed().as_secs_f64() * 1000.0;
-        let failed: &[i32] = if res.is_ok() { &[] } else { &span_seqs };
+        // snapshots come off the decoded work seqs, before they are wiped
+        let saved: Result<()> = match save {
+            Some(save) if res.is_ok() => wave.iter().zip(&seq_of).try_for_each(|(&x, &s)| {
+                save(pending[x], b.seq_save(s)?);
+                Ok(())
+            }),
+            _ => Ok(()),
+        };
+        let failed: &[i32] = if res.is_ok() && saved.is_ok() {
+            &[]
+        } else {
+            &span_seqs
+        };
         for &s in seq_of.iter().chain(failed) {
             b.seq_rm(s);
         }
         self.scratch.clear();
+        saved?;
         match res {
             Ok(()) => {}
             Err(DecodeError::NoSlot) => {
@@ -453,6 +521,119 @@ impl Kv {
             st.misses += (shared && jobs[pending[x]].keep > blen) as usize;
         }
         Ok(Some(wave.iter().map(|&x| pending[x]).collect()))
+    }
+
+    /// Restore each job's snapshot onto a free seq, decode only its tail and
+    /// hand `out(job, row)` its logits row. Returns the stats and the jobs
+    /// whose snapshot was refused (`seq_load` Failed): the caller decodes
+    /// those from scratch. Restored cells are private, so a job costs one
+    /// seq and `toks.len()` cells; no cache entry is made. Waves follow input
+    /// order, and one retried for lack of cells hands its rows out again.
+    #[allow(dead_code)] // wired by grep.rs
+    pub fn run_restored(
+        &mut self,
+        b: &mut dyn Backend,
+        jobs: &[Restore],
+        out: &mut dyn FnMut(usize, &[f32]),
+    ) -> Result<(Stats, Vec<usize>)> {
+        let (n_seq, n_ctx) = (b.n_seq(), b.n_ctx());
+        if let Some(j) = jobs.iter().find(|j| j.at == 0 || j.at >= j.toks.len()) {
+            bail!(
+                "snapshot at {} of {} tokens: it and the tail to decode must both be non-empty",
+                j.at,
+                j.toks.len()
+            );
+        }
+        if let Some(j) = jobs.iter().find(|j| j.toks.len() > n_ctx) {
+            bail!("prompt is {} tokens, ctx is {n_ctx}", j.toks.len());
+        }
+        self.wipe(b);
+        let mut st = Stats::default();
+        let mut refused = Vec::new();
+        let mut pending: Vec<usize> = (0..jobs.len()).collect();
+        let mut limit = usize::MAX;
+        while !pending.is_empty() {
+            // the largest prefix of what is pending that fits next to the cache
+            let free = self.free_seqs(n_seq);
+            let room = n_ctx.saturating_sub(self.cells() + KV_SLACK);
+            let n = pending
+                .iter()
+                .take(limit.min(free.len()))
+                .scan(room, |left, &j| {
+                    *left = left.checked_sub(jobs[j].toks.len())?;
+                    Some(())
+                })
+                .count();
+            if n == 0 {
+                if !self.evict(b, |_| true) {
+                    bail!(
+                        "prompt of {} tokens does not fit ctx {n_ctx}",
+                        jobs[pending[0]].toks.len()
+                    );
+                }
+                continue;
+            }
+            let wave: Vec<usize> = pending.drain(..n).collect();
+            let seqs = &free[..n];
+            self.scratch = seqs.to_vec();
+            let from = refused.len();
+            let mut loaded: Vec<(usize, i32)> = Vec::new();
+            let mut res = Ok(());
+            for (&j, &s) in wave.iter().zip(seqs) {
+                match b.seq_load(s, jobs[j].blob) {
+                    Ok(()) => loaded.push((j, s)),
+                    Err(DecodeError::Failed(_)) => refused.push(j),
+                    Err(e) => {
+                        res = Err(e);
+                        break;
+                    }
+                }
+            }
+            if res.is_ok() && !loaded.is_empty() {
+                let groups: Vec<Dec> = loaded
+                    .iter()
+                    .map(|&(j, s)| Dec {
+                        seqs: vec![s],
+                        toks: &jobs[j].toks[jobs[j].at..],
+                        pos0: jobs[j].at,
+                        logits: true,
+                    })
+                    .collect();
+                let t = Instant::now();
+                res = b.decode(&groups, &mut |g, row| out(loaded[g].0, row));
+                st.decode_ms += t.elapsed().as_secs_f64() * 1000.0;
+            }
+            for &s in seqs {
+                b.seq_rm(s);
+            }
+            self.scratch.clear();
+            match res {
+                Ok(()) => {}
+                Err(DecodeError::NoSlot) => {
+                    // free more cells, else retry smaller; the jobs refused
+                    // so far stay refused
+                    if !self.evict(b, |_| true) && n == 1 {
+                        bail!(
+                            "prompt of {} tokens does not fit ctx {n_ctx}",
+                            jobs[wave[0]].toks.len()
+                        );
+                    }
+                    limit = (n / 2).max(1);
+                    let redo = wave.into_iter().filter(|j| !refused[from..].contains(j));
+                    pending = redo.chain(pending).collect();
+                    continue;
+                }
+                Err(e) => return Err(e.into()),
+            }
+            st.decoded += loaded
+                .iter()
+                .map(|&(j, _)| jobs[j].toks.len() - jobs[j].at)
+                .sum::<usize>();
+            st.waves += 1;
+            st.hits += loaded.len();
+            limit = usize::MAX;
+        }
+        Ok((st, refused))
     }
 
     #[cfg(test)]
@@ -605,6 +786,13 @@ pub(crate) mod sim {
         pub no_slots: usize,
         /// make this decode call (1-based) fail with NoSlot
         pub fail_call: Option<usize>,
+        /// `seq_load` / `seq_save` calls so far
+        pub loads: usize,
+        pub saves: usize,
+        /// make this `seq_load` (1-based) fail with Failed
+        pub fail_load: Option<usize>,
+        /// make this `seq_save` (1-based) fail
+        pub fail_save: Option<usize>,
     }
 
     impl Sim {
@@ -619,6 +807,10 @@ pub(crate) mod sim {
                 calls: 0,
                 no_slots: 0,
                 fail_call: None,
+                loads: 0,
+                saves: 0,
+                fail_load: None,
+                fail_save: None,
             }
         }
 
@@ -644,8 +836,9 @@ pub(crate) mod sim {
             held.len()
         }
 
-        /// Write tokens straight onto a seq, bypassing the engine — to fake
-        /// the residue of an aborted wave.
+        /// Write tokens straight onto a seq as fresh private cells, bypassing
+        /// the engine — to fake the residue of an aborted wave, and what a
+        /// restore writes.
         pub fn scribble(&mut self, seq: i32, toks: &[i32]) {
             for &t in toks {
                 self.next += 1;
@@ -669,6 +862,25 @@ pub(crate) mod sim {
                 (h.wrapping_mul(0x2545_f491_4f6c_dd1d) >> 40) as f32 / (1u64 << 21) as f32 - 4.0
             })
             .collect()
+    }
+
+    /// What `Sim::seq_save` writes for a token history: magic, count, tokens.
+    pub fn blob(hist: &[i32]) -> Vec<u8> {
+        let mut b = b"SIMS".to_vec();
+        b.extend((hist.len() as u32).to_le_bytes());
+        b.extend(hist.iter().flat_map(|t| t.to_le_bytes()));
+        b
+    }
+
+    fn unblob(b: &[u8]) -> Option<Vec<i32>> {
+        let b = b.strip_prefix(b"SIMS")?;
+        let n = u32::from_le_bytes(b.get(..4)?.try_into().ok()?) as usize;
+        let toks = &b[4..];
+        (toks.len() % 4 == 0 && toks.len() / 4 == n).then(|| {
+            toks.chunks_exact(4)
+                .map(|t| i32::from_le_bytes(t.try_into().unwrap()))
+                .collect()
+        })
     }
 
     impl Backend for Sim {
@@ -794,6 +1006,33 @@ pub(crate) mod sim {
             }
         }
 
+        fn seq_save(&mut self, seq: i32) -> Result<Vec<u8>> {
+            self.saves += 1;
+            anyhow::ensure!(self.fail_save != Some(self.saves), "injected save failure");
+            Ok(blob(&self.history(seq)))
+        }
+
+        /// Fresh private cells, like llama.cpp's restore: nothing is shared
+        /// with the seq the snapshot came from.
+        fn seq_load(&mut self, seq: i32, blob: &[u8]) -> Result<(), DecodeError> {
+            assert!(
+                self.seqs[seq as usize].is_empty(),
+                "load onto non-empty seq {seq}"
+            );
+            self.loads += 1;
+            if self.fail_load == Some(self.loads) {
+                return Err(DecodeError::Failed("injected load failure".into()));
+            }
+            let hist =
+                unblob(blob).ok_or_else(|| DecodeError::Failed("foreign snapshot".into()))?;
+            if self.used() + hist.len() > self.n_ctx {
+                self.no_slots += 1;
+                return Err(DecodeError::NoSlot);
+            }
+            self.scribble(seq, &hist);
+            Ok(())
+        }
+
         fn clear(&mut self) {
             self.seqs.iter_mut().for_each(Vec::clear);
             self.refs.clear();
@@ -803,7 +1042,7 @@ pub(crate) mod sim {
 
 #[cfg(test)]
 mod tests {
-    use super::sim::{row, Sim};
+    use super::sim::{blob, row, Sim};
     use super::*;
 
     /// xorshift: deterministic randomness without a dependency
@@ -834,6 +1073,11 @@ mod tests {
                 (t, keep)
             })
             .collect()
+    }
+
+    /// `prompts` without keep spans.
+    fn plain(rng: &mut Rng, n: usize) -> Vec<(Vec<i32>, usize)> {
+        prompts(rng, n).into_iter().map(|(t, _)| (t, 0)).collect()
     }
 
     fn run(kv: &mut Kv, sim: &mut Sim, ps: &[(Vec<i32>, usize)], shared: bool) -> Stats {
@@ -873,6 +1117,83 @@ mod tests {
         let mut sim = Sim::new(n_ctx, n_seq, n_batch);
         let kv = Kv::new(&mut sim, HEAD.to_vec()).unwrap();
         (kv, sim)
+    }
+
+    /// Snapshot `ps`: one blob per job, each exactly its whole prompt.
+    fn snapshot(
+        kv: &mut Kv,
+        sim: &mut Sim,
+        ps: &[(Vec<i32>, usize)],
+        shared: bool,
+    ) -> Vec<Vec<u8>> {
+        let jobs: Vec<Job> = ps.iter().map(|(t, k)| Job { toks: t, keep: *k }).collect();
+        let mut got: Vec<Option<Vec<u8>>> = vec![None; ps.len()];
+        kv.snapshot(sim, &jobs, shared, &mut |j, b| {
+            assert!(got[j].replace(b).is_none(), "job {j} saved twice");
+        })
+        .unwrap();
+        check(kv, sim);
+        got.into_iter()
+            .zip(ps)
+            .enumerate()
+            .map(|(i, (b, (t, _)))| {
+                let b = b.unwrap_or_else(|| panic!("job {i} was not saved"));
+                assert_eq!(b, blob(t), "job {i} saved something else than its prompt");
+                b
+            })
+            .collect()
+    }
+
+    /// A restore job: the whole prompt, how much of it the blob covers, the blob.
+    struct Case {
+        toks: Vec<i32>,
+        at: usize,
+        blob: Vec<u8>,
+    }
+
+    /// Each prompt of `ps` with a few random tokens past its blob.
+    fn with_tails(rng: &mut Rng, ps: &[(Vec<i32>, usize)], blobs: Vec<Vec<u8>>) -> Vec<Case> {
+        ps.iter()
+            .zip(blobs)
+            .map(|((t, _), blob)| {
+                let mut toks = t.clone();
+                toks.extend((0..1 + rng.below(4)).map(|_| rng.below(256) as i32));
+                Case {
+                    toks,
+                    at: t.len(),
+                    blob,
+                }
+            })
+            .collect()
+    }
+
+    fn restores(cases: &[Case]) -> Vec<Restore<'_>> {
+        cases
+            .iter()
+            .map(|c| Restore {
+                toks: &c.toks,
+                at: c.at,
+                blob: &c.blob,
+            })
+            .collect()
+    }
+
+    /// Restore `cases`: every answered job carries the row of its whole
+    /// prompt, a refused one none, and no seq is left dirty. Returns the
+    /// stats and the refused jobs, sorted.
+    fn restored(kv: &mut Kv, sim: &mut Sim, cases: &[Case]) -> (Stats, Vec<usize>) {
+        let jobs = restores(cases);
+        let mut got: Vec<Option<Vec<f32>>> = vec![None; cases.len()];
+        let (st, mut refused) = kv
+            .run_restored(sim, &jobs, &mut |j, r| got[j] = Some(r.to_vec()))
+            .unwrap();
+        refused.sort_unstable();
+        for (i, c) in cases.iter().enumerate() {
+            let want = (!refused.contains(&i)).then(|| row(&c.toks));
+            assert_eq!(got[i], want, "job {i} got the wrong row");
+        }
+        check(kv, sim);
+        (st, refused)
     }
 
     #[test]
@@ -1006,5 +1327,331 @@ mod tests {
         let mut rng = Rng(3);
         let ps = prompts(&mut rng, 10);
         run(&mut kv, &mut sim, &ps, true);
+    }
+
+    #[test]
+    fn snapshots_restore_to_from_scratch_rows() {
+        for (n_ctx, n_seq, n_batch) in [
+            (4096, 65, 64),
+            (4096, 17, 7),
+            (400, 6, 16),
+            (160, 3, 5),
+            (200, 17, 16),
+        ] {
+            let (mut kv, mut sim) = setup(n_ctx, n_seq, n_batch);
+            let mut rng = Rng(0xc0de ^ n_ctx as u64);
+            for round in 0..60 {
+                let n = 1 + rng.below(40);
+                // odd rounds leave keep spans behind, so restores then share
+                // the context with live cache entries
+                let ps: Vec<(Vec<i32>, usize)> = prompts(&mut rng, n)
+                    .into_iter()
+                    .map(|(t, k)| (t, if round % 2 == 1 { k } else { 0 }))
+                    .collect();
+                let blobs = snapshot(&mut kv, &mut sim, &ps, round % 5 != 0);
+                let cases = with_tails(&mut rng, &ps, blobs);
+                let (st, refused) = restored(&mut kv, &mut sim, &cases);
+                assert!(refused.is_empty());
+                assert_eq!(st.hits, n);
+                // only the tails are decoded
+                let tails: usize = cases.iter().map(|c| c.toks.len() - c.at).sum();
+                assert_eq!(st.decoded, tails);
+            }
+            // restores are sized from exact cell counts too
+            assert_eq!(sim.no_slots, 0, "ctx {n_ctx}: planner overfilled a wave");
+        }
+    }
+
+    #[test]
+    fn restores_leave_the_cache_alone() {
+        let (mut kv, mut sim) = setup(4096, 65, 64);
+        let state: Vec<i32> = HEAD.iter().copied().chain(vec![7; 100]).collect();
+        let asks: Vec<(Vec<i32>, usize)> = (0..8)
+            .map(|q| {
+                (
+                    state.iter().copied().chain([q, q, q]).collect(),
+                    state.len(),
+                )
+            })
+            .collect();
+        let cold = run(&mut kv, &mut sim, &asks, true);
+        let entries = kv.entries();
+        assert!(entries.iter().any(|(_, t)| *t == state));
+
+        // prompts off the head alone, off the cached state and the state
+        // itself: snapshotting them makes no entry, restoring them touches none
+        let mut rng = Rng(21);
+        let mut ps = plain(&mut rng, 6);
+        ps.extend((0..4).map(|q| (state.iter().copied().chain([9, q]).collect(), 0)));
+        ps.push((state.clone(), 0));
+        let blobs = snapshot(&mut kv, &mut sim, &ps, true);
+        assert_eq!(kv.entries(), entries);
+        let cases = with_tails(&mut rng, &ps, blobs);
+        let (st, refused) = restored(&mut kv, &mut sim, &cases);
+        assert!(refused.is_empty());
+        assert_eq!(st.hits, ps.len());
+        assert_eq!(kv.entries(), entries);
+
+        // the cache serves the next request as it did before
+        let warm = run(&mut kv, &mut sim, &asks, true);
+        assert_eq!((warm.misses, warm.hits), (0, 8));
+        assert_eq!(cold.decoded - warm.decoded, 100);
+    }
+
+    #[test]
+    fn refused_snapshots_are_reported_to_decode_from_scratch() {
+        let (mut kv, mut sim) = setup(4096, 65, 64);
+        let mut rng = Rng(5);
+        let ps = plain(&mut rng, 10);
+        let mut blobs = snapshot(&mut kv, &mut sim, &ps, true);
+        blobs[1] = b"not a snapshot".to_vec();
+        blobs[4].pop();
+        blobs[7].clear();
+        let cases = with_tails(&mut rng, &ps, blobs);
+        let (st, refused) = restored(&mut kv, &mut sim, &cases);
+        assert_eq!(refused, [1, 4, 7]);
+        assert_eq!((st.hits, sim.loads), (7, 10));
+        let redo: Vec<(Vec<i32>, usize)> = refused
+            .iter()
+            .map(|&i| (cases[i].toks.clone(), 0))
+            .collect();
+        run(&mut kv, &mut sim, &redo, true);
+    }
+
+    #[test]
+    fn an_injected_load_failure_refuses_exactly_that_job() {
+        // 3 usable seqs: three waves, the failure lands in the middle one
+        let (mut kv, mut sim) = setup(4096, 4, 64);
+        let mut rng = Rng(9);
+        let ps = plain(&mut rng, 8);
+        let blobs = snapshot(&mut kv, &mut sim, &ps, true);
+        let cases = with_tails(&mut rng, &ps, blobs);
+        sim.fail_load = Some(sim.loads + 5);
+        let (st, refused) = restored(&mut kv, &mut sim, &cases);
+        assert_eq!((refused, st.hits, st.waves), (vec![4], 7, 3));
+    }
+
+    #[test]
+    fn running_out_of_cells_while_loading_is_retried() {
+        let (mut kv, mut sim) = setup(400, 8, 64);
+        // a cached state of 60 cells, plus 120 the planner does not know of
+        let state: Vec<i32> = HEAD.iter().copied().chain(vec![7; 60]).collect();
+        let asks: Vec<(Vec<i32>, usize)> = (0..2)
+            .map(|q| (state.iter().copied().chain([q]).collect(), state.len()))
+            .collect();
+        run(&mut kv, &mut sim, &asks, true);
+        let held = kv.entries().iter().find(|e| e.1 == state).unwrap().0;
+        let ps: Vec<(Vec<i32>, usize)> = (0..5)
+            .map(|i| (HEAD.iter().copied().chain(vec![20 + i; 50]).collect(), 0))
+            .collect();
+        let blobs = snapshot(&mut kv, &mut sim, &ps, true);
+        let cases = with_tails(&mut Rng(17), &ps, blobs);
+        sim.scribble(held, &[0; 120]);
+        // five jobs of ~58 cells fit the planner's count; the fourth load
+        // does not fit the context, so the wave is undone, the state evicted,
+        // two jobs go through and then the other three in one wave
+        let (st, refused) = restored(&mut kv, &mut sim, &cases);
+        assert!(refused.is_empty());
+        assert_eq!((st.hits, st.waves, sim.no_slots), (5, 2, 1));
+        assert!(kv.entries().iter().all(|e| e.1 != state));
+    }
+
+    #[test]
+    fn no_slot_mid_restore_is_retried() {
+        // n_batch 8 spreads the tails of a wave over several decode calls
+        let (mut kv, mut sim) = setup(4096, 65, 8);
+        let mut rng = Rng(13);
+        let ps = plain(&mut rng, 12);
+        let mut blobs = snapshot(&mut kv, &mut sim, &ps, true);
+        blobs[3].clear();
+        let cases = with_tails(&mut rng, &ps, blobs);
+        sim.fail_call = Some(sim.calls + 2);
+        let (st, refused) = restored(&mut kv, &mut sim, &cases);
+        // the wave that lost its second call is redone in halves; the job it
+        // had refused stays refused, once
+        assert_eq!((refused, st.hits, st.waves), (vec![3], 11, 2));
+    }
+
+    #[test]
+    fn no_slot_mid_snapshot_is_retried() {
+        let (mut kv, mut sim) = setup(4096, 65, 8);
+        let mut rng = Rng(11);
+        let ps = plain(&mut rng, 20);
+        sim.fail_call = Some(sim.calls + 3);
+        // a failed wave saves nothing: every job still gets exactly one blob
+        snapshot(&mut kv, &mut sim, &ps, true);
+    }
+
+    #[test]
+    fn an_aborted_restore_wave_is_wiped_by_the_next_run() {
+        let (mut kv, mut sim) = setup(4096, 8, 64);
+        let mut rng = Rng(23);
+        let ps = plain(&mut rng, 3);
+        let blobs = snapshot(&mut kv, &mut sim, &ps, true);
+        let cases = with_tails(&mut rng, &ps, blobs);
+        let jobs = restores(&cases);
+        // the first row aborts the wave: restored seqs are left behind
+        let aborted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            kv.run_restored(&mut sim, &jobs, &mut |_, _| panic!("aborted mid-wave"))
+        }));
+        assert!(aborted.is_err());
+        assert!(sim.used() > HEAD.len());
+        restored(&mut kv, &mut sim, &cases);
+    }
+
+    #[test]
+    fn duplicate_and_nested_prompts_snapshot_whole() {
+        for shared in [true, false] {
+            let (mut kv, mut sim) = setup(4096, 65, 64);
+            let a: Vec<i32> = HEAD.iter().copied().chain([1, 2, 3]).collect();
+            let ab: Vec<i32> = a.iter().copied().chain([2, 2]).collect();
+            let c: Vec<i32> = HEAD.iter().copied().chain([3, 1]).collect();
+            // a twice, ab (which extends a, and keeps it) twice, an unrelated c
+            let ps = vec![
+                (a.clone(), 0),
+                (ab.clone(), a.len()),
+                (a.clone(), 0),
+                (c, 0),
+                (ab, 0),
+            ];
+            let blobs = snapshot(&mut kv, &mut sim, &ps, shared);
+            // one blob serves several jobs, each with its own tail
+            let cases: Vec<Case> = [(0, vec![5]), (0, vec![6, 6]), (1, vec![7]), (2, vec![8])]
+                .into_iter()
+                .chain([(3, vec![9, 9, 9]), (4, vec![1])])
+                .map(|(i, tail)| Case {
+                    toks: ps[i].0.iter().copied().chain(tail).collect(),
+                    at: ps[i].0.len(),
+                    blob: blobs[i].clone(),
+                })
+                .collect();
+            let (_, refused) = restored(&mut kv, &mut sim, &cases);
+            assert!(refused.is_empty());
+        }
+    }
+
+    #[test]
+    fn a_failed_save_leaves_memory_clean() {
+        let (mut kv, mut sim) = setup(4096, 65, 64);
+        let state: Vec<i32> = HEAD.iter().copied().chain(vec![7; 40]).collect();
+        let ps: Vec<(Vec<i32>, usize)> = (0..6)
+            .map(|q| (state.iter().copied().chain([q, 1]).collect(), state.len()))
+            .collect();
+        let jobs: Vec<Job> = ps.iter().map(|(t, k)| Job { toks: t, keep: *k }).collect();
+        let mut saved = 0;
+        sim.fail_save = Some(sim.saves + 3);
+        let res = kv.snapshot(&mut sim, &jobs, true, &mut |_, _| saved += 1);
+        assert!(res.is_err());
+        assert_eq!(saved, 2);
+        // the wave's seqs are wiped and the state it had decoded is no entry
+        check(&kv, &sim);
+        assert!(kv.entries().iter().all(|e| e.0 == 0));
+        run(&mut kv, &mut sim, &ps, true);
+    }
+
+    #[test]
+    fn restore_misuse_is_an_error_before_memory_is_touched() {
+        let (mut kv, mut sim) = setup(64, 4, 16);
+        let toks: Vec<i32> = HEAD.iter().copied().chain([1, 2, 3]).collect();
+        let long = vec![1; 65];
+        let b = blob(&toks[..6]);
+        let good = Restore {
+            toks: &toks,
+            at: 6,
+            blob: &b,
+        };
+        let before = (kv.entries(), sim.used());
+        // nothing to restore, nothing to decode, past the end, past the context
+        for bad in [
+            Restore { at: 0, ..good },
+            Restore {
+                at: toks.len(),
+                ..good
+            },
+            Restore { at: 9, ..good },
+            Restore {
+                toks: &long,
+                at: 10,
+                ..good
+            },
+        ] {
+            let res = kv.run_restored(&mut sim, &[good, bad], &mut |_, _| {});
+            assert!(res.is_err());
+        }
+        assert_eq!(
+            (kv.entries(), sim.used(), sim.loads),
+            (before.0, before.1, 0)
+        );
+    }
+
+    #[test]
+    fn restores_evict_the_cache_for_room_or_give_up() {
+        let (mut kv, mut sim) = setup(300, 17, 32);
+        // two cached states of 60 cells each, the least recently used first
+        let states: Vec<Vec<i32>> = (0..2)
+            .map(|s| HEAD.iter().copied().chain(vec![10 + s; 60]).collect())
+            .collect();
+        for s in &states {
+            let ask = (s.iter().copied().chain([1]).collect(), s.len());
+            run(&mut kv, &mut sim, &[ask], true);
+        }
+        assert_eq!(kv.entries().len(), 3);
+
+        // 150 cells do not fit next to head and both states (143 are left)
+        let toks: Vec<i32> = vec![5; 150];
+        let cases = [Case {
+            at: 145,
+            blob: blob(&toks[..145]),
+            toks,
+        }];
+        let (_, refused) = restored(&mut kv, &mut sim, &cases);
+        assert!(refused.is_empty());
+        let left = kv.entries();
+        assert!(left.iter().any(|e| e.1 == states[1]) && left.iter().all(|e| e.1 != states[0]));
+
+        // 270 cells do not fit even next to the head alone
+        let toks: Vec<i32> = vec![5; 270];
+        let b = blob(&toks[..265]);
+        let jobs = [Restore {
+            toks: &toks,
+            at: 265,
+            blob: &b,
+        }];
+        assert!(kv.run_restored(&mut sim, &jobs, &mut |_, _| {}).is_err());
+        assert_eq!(kv.entries(), [(0, HEAD.to_vec())]);
+        check(&kv, &sim);
+        assert_eq!(sim.loads, 1);
+    }
+
+    #[test]
+    fn sim_restores_are_private_and_atomic() {
+        let mut sim = Sim::new(8, 4, 16);
+        sim.scribble(1, &[4, 5, 6]);
+        let b = sim.seq_save(1).unwrap();
+        assert_eq!(b, blob(&[4, 5, 6]));
+        // the restored cells outlive the seq the snapshot came from
+        sim.seq_load(2, &b).unwrap();
+        sim.seq_rm(1);
+        assert_eq!((sim.history(2), sim.used()), (vec![4, 5, 6], 3));
+        sim.seq_load(1, &b).unwrap();
+        // 6 cells held, 3 more do not fit and write nothing, 2 fill the context
+        let res = sim.seq_load(3, &blob(&[1; 3]));
+        assert!(matches!(res, Err(DecodeError::NoSlot)));
+        assert_eq!((sim.history(3), sim.used(), sim.no_slots), (vec![], 6, 1));
+        sim.seq_load(3, &blob(&[1; 2])).unwrap();
+        // a foreign blob is refused whatever the room
+        for bad in [&b[1..], &b[..b.len() - 1], &b[..0]] {
+            let res = sim.seq_load(0, bad);
+            assert!(matches!(res, Err(DecodeError::Failed(_))));
+        }
+        assert_eq!((sim.history(0), sim.used(), sim.no_slots), (vec![], 8, 1));
+    }
+
+    #[test]
+    #[should_panic(expected = "non-empty seq")]
+    fn loading_onto_a_used_seq_is_a_planner_bug() {
+        let mut sim = Sim::new(64, 4, 16);
+        sim.scribble(1, &[1, 2]);
+        let _ = sim.seq_load(1, &blob(&[3]));
     }
 }
