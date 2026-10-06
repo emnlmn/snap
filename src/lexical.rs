@@ -12,7 +12,6 @@
 //! alone. BM25F's weights and length normalization depend on the document
 //! alone, so `build` folds them into one factor per field and `search` is a
 //! walk over the postings of the query terms.
-#![allow(dead_code)] // wired by grep.rs
 
 use std::collections::HashMap;
 
@@ -44,6 +43,7 @@ const STOP: &[&str] = &[
 /// `connectionPool`). Han, kana and Hangul runs become overlapping
 /// character bigrams, a lone character standing for itself. Stemming and
 /// stopwords apply to ASCII words only.
+#[cfg(test)]
 pub fn terms(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     scan(text, &mut |t| out.push(t.to_owned()));

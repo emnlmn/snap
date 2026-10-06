@@ -5,6 +5,7 @@ mod corpus;
 mod decisions;
 mod engine;
 mod evaluate;
+mod grep;
 mod instances;
 mod kv;
 mod kvstore;
@@ -17,7 +18,7 @@ mod server;
 mod version;
 
 use std::io::{IsTerminal, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -61,15 +62,20 @@ struct ModelArgs {
 }
 
 impl ModelArgs {
-    /// resolve --model (pulling on first use), load the engine,
-    /// fit --calibration when given.
-    fn engine(&self) -> Result<engine::Engine> {
-        let mut eng =
-            engine::Engine::load(&models::resolve(&self.model)?, self.ctx, 1024, self.threads)?;
+    /// resolve --model (pulling on first use), load the engine with its KV
+    /// cache as `kv`, fit --calibration when given. The GGUF's path comes
+    /// along: its size and mtime bind the snapshots of `snap grep`.
+    fn load(&self, kv: llamac::KvType) -> Result<(engine::Engine, PathBuf)> {
+        let path = models::resolve(&self.model)?;
+        let mut eng = engine::Engine::load_kv(&path, self.ctx, 1024, self.threads, kv)?;
         if let Some(c) = &self.calibration {
             eng.load_calibration(c)?;
         }
-        Ok(eng)
+        Ok((eng, path))
+    }
+
+    fn engine(&self) -> Result<engine::Engine> {
+        Ok(self.load(llamac::KvType::F16)?.0)
     }
 
     /// untouched top-level flags — the -p guard's check
@@ -79,6 +85,30 @@ impl ModelArgs {
             && self.threads == 0
             && !self.debug
             && self.calibration.is_none()
+    }
+}
+
+/// ripgrep's walk, for the commands that read a tree
+#[derive(clap::Args)]
+struct WalkArgs {
+    /// only paths matching this glob, or with a leading `!` never those (repeatable)
+    #[arg(short = 'g', long = "glob")]
+    glob: Vec<String>,
+    /// search hidden files and directories
+    #[arg(long)]
+    hidden: bool,
+    /// don't respect .gitignore, .ignore and .rgignore
+    #[arg(long)]
+    no_ignore: bool,
+}
+
+impl WalkArgs {
+    fn opts(&self) -> corpus::WalkOpts {
+        corpus::WalkOpts {
+            hidden: self.hidden,
+            no_ignore: self.no_ignore,
+            globs: self.glob.clone(),
+        }
     }
 }
 
@@ -92,6 +122,74 @@ enum Cmd {
         host: String,
         #[arg(long, default_value_t = DEFAULT_PORT)]
         port: u16,
+    },
+    /// find the code that answers a question: lexical recall, then the model reads each candidate once
+    Grep {
+        #[command(flatten)]
+        m: ModelArgs,
+        #[command(flatten)]
+        w: WalkArgs,
+        /// what to look for, in plain words
+        #[arg(required_unless_present = "eval", conflicts_with = "eval")]
+        query: Option<String>,
+        /// directory (or single file) to search
+        #[arg(default_value = ".", conflicts_with = "eval")]
+        path: PathBuf,
+        /// hits printed
+        #[arg(short = 'n', long, default_value_t = 10)]
+        top: usize,
+        /// recall depth the model reranks (0 = every chunk)
+        #[arg(long, default_value_t = 64)]
+        candidates: usize,
+        /// least probability a hit may have
+        #[arg(long, default_value_t = 0.5)]
+        threshold: f64,
+        /// only chunks matching this regex (smart case, like rg -S)
+        #[arg(short = 'e', long = "regexp")]
+        regexp: Option<String>,
+        /// one JSON document: hits, their source and run stats
+        #[arg(long, conflicts_with_all = ["files_with_matches", "eval"])]
+        json: bool,
+        /// print only the paths of the hits
+        #[arg(short = 'l', long = "files-with-matches", conflicts_with = "eval")]
+        files_with_matches: bool,
+        /// source lines per hit, in --json too (0 = locations only)
+        #[arg(long, default_value_t = 20)]
+        lines: usize,
+        /// keep no snapshots: every candidate is decoded from scratch
+        #[arg(long)]
+        no_store: bool,
+        /// print the lexical ranking and stop: no model is loaded
+        #[arg(long)]
+        recall_only: bool,
+        /// KV cache type; snapshots are bound to it (f16|q8_0)
+        #[arg(long, value_parser = parse_kv, default_value = "f16")]
+        kv: llamac::KvType,
+        /// score a cases JSONL (eval/grep.jsonl) over this tree instead of answering a query
+        #[arg(long)]
+        eval: Option<String>,
+        /// write the full eval report JSON (create-only)
+        #[arg(long)]
+        output: Option<String>,
+    },
+    /// snapshot every chunk of a tree ahead of time, so `snap grep` over it starts warm
+    Index {
+        #[command(flatten)]
+        m: ModelArgs,
+        #[command(flatten)]
+        w: WalkArgs,
+        /// directory (or single file) to index
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// KV cache type; snapshots are bound to it (f16|q8_0)
+        #[arg(long, value_parser = parse_kv, default_value = "f16")]
+        kv: llamac::KvType,
+        /// report what the store holds of the tree instead of indexing it
+        #[arg(long)]
+        stats: bool,
+        /// drop the snapshots no chunk of the tree uses any more
+        #[arg(long)]
+        gc: bool,
     },
     /// run a JSONL benchmark and report accuracy/latency
     Evaluate {
@@ -239,6 +337,10 @@ fn parse_layout(s: &str) -> std::result::Result<crate::schema::Layout, String> {
 
 fn parse_state_format(s: &str) -> std::result::Result<engine::StateFormat, String> {
     engine::StateFormat::parse(s).map_err(|e| e.to_string())
+}
+
+fn parse_kv(s: &str) -> std::result::Result<llamac::KvType, String> {
+    llamac::KvType::parse(s).map_err(|e| e.to_string())
 }
 
 /// `snap serve` body — model load + warmup + blocking axum loop.
@@ -583,6 +685,76 @@ fn main() -> Result<()> {
                 eprintln!("report written: {o}");
             }
         }
+        Cmd::Grep {
+            m,
+            w,
+            query,
+            path,
+            top,
+            candidates,
+            threshold,
+            regexp,
+            json,
+            files_with_matches,
+            lines,
+            no_store,
+            recall_only,
+            kv,
+            eval,
+            output,
+        } => {
+            init_logs(m.debug);
+            let opts = grep::Opts {
+                tree: grep::Tree {
+                    root: path.clone(),
+                    walk: w.opts(),
+                    kv: *kv,
+                },
+                regexp: regexp.clone(),
+                top: *top,
+                candidates: *candidates,
+                threshold: *threshold,
+                store: !*no_store,
+                recall_only: *recall_only,
+            };
+            let load = || m.load(*kv);
+            match (eval, query) {
+                (Some(file), _) => grep::eval(file, output.as_deref(), &opts, load)?,
+                (None, Some(query)) => {
+                    // clap waives requires = "eval" while the QUERY, which conflicts with it, is given
+                    anyhow::ensure!(output.is_none(), "--output is the report of --eval");
+                    let out = match (json, files_with_matches) {
+                        (true, _) => grep::Out::Json,
+                        (_, true) => grep::Out::Files,
+                        _ => grep::Out::Human,
+                    };
+                    let search = grep::Search {
+                        query: query.clone(),
+                        out,
+                        lines: *lines,
+                        opts,
+                    };
+                    grep::run(&search, load)?;
+                }
+                (None, None) => anyhow::bail!("grep needs a QUERY (or --eval FILE)"),
+            }
+        }
+        Cmd::Index {
+            m,
+            w,
+            path,
+            kv,
+            stats,
+            gc,
+        } => {
+            init_logs(m.debug);
+            let tree = grep::Tree {
+                root: path.clone(),
+                walk: w.opts(),
+                kv: *kv,
+            };
+            grep::index(&tree, *stats, *gc, || m.load(*kv))?;
+        }
         Cmd::Serve { m, host, port } => {
             init_logs(m.debug);
             if let Some(i) = instances::on_port(*port) {
@@ -604,4 +776,90 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> std::result::Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("snap").chain(args.iter().copied()))
+    }
+
+    #[test]
+    fn the_cli_definition_is_sound() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn grep_takes_a_query_or_an_eval_file_never_both() {
+        assert!(parse(&["grep", "where is it"]).is_ok());
+        assert!(parse(&["grep", "--eval", "cases.jsonl"]).is_ok());
+        assert!(parse(&["grep", "--eval", "cases.jsonl", "--output", "r.json"]).is_ok());
+        assert!(parse(&["grep"]).is_err());
+        assert!(parse(&["grep", "--eval", "cases.jsonl", "where"]).is_err());
+        // what only a query's output has: no meaning next to --eval
+        assert!(parse(&["grep", "--eval", "cases.jsonl", "--json"]).is_err());
+        assert!(parse(&["grep", "--eval", "cases.jsonl", "-l"]).is_err());
+        assert!(parse(&["grep", "q", "--json", "-l"]).is_err());
+    }
+
+    #[test]
+    fn grep_flags_land_in_their_fields() {
+        let line = "grep q src -n 3 --candidates 0 --threshold 0.7 -e fn -g *.rs -g !x/** \
+                    --hidden --no-ignore -l --lines 5 --no-store --recall-only --kv q8_0 \
+                    --model m.gguf";
+        let cli = parse(&line.split_whitespace().collect::<Vec<_>>()).unwrap();
+        let Some(Cmd::Grep {
+            m,
+            w,
+            query,
+            path,
+            top,
+            candidates,
+            threshold,
+            regexp,
+            files_with_matches,
+            lines,
+            no_store,
+            recall_only,
+            kv,
+            ..
+        }) = cli.cmd
+        else {
+            panic!("not a grep");
+        };
+        assert_eq!((query.as_deref(), path), (Some("q"), PathBuf::from("src")));
+        assert_eq!((top, candidates, threshold, lines), (3, 0, 0.7, 5));
+        assert_eq!(regexp.as_deref(), Some("fn"));
+        assert!(files_with_matches && no_store && recall_only);
+        assert_eq!(kv, llamac::KvType::Q8_0);
+        assert_eq!(m.model, "m.gguf");
+        let walk = w.opts();
+        assert!(walk.hidden && walk.no_ignore);
+        assert_eq!(walk.globs, ["*.rs", "!x/**"]);
+    }
+
+    #[test]
+    fn grep_and_index_default_to_f16_and_ten_hits_of_sixty_four_candidates() {
+        let Some(Cmd::Grep {
+            top,
+            candidates,
+            threshold,
+            lines,
+            kv,
+            path,
+            ..
+        }) = parse(&["grep", "q"]).unwrap().cmd
+        else {
+            panic!("not a grep");
+        };
+        assert_eq!((top, candidates, threshold, lines), (10, 64, 0.5, 20));
+        assert_eq!((kv, path), (llamac::KvType::F16, PathBuf::from(".")));
+        let Some(Cmd::Index { kv, stats, gc, .. }) = parse(&["index"]).unwrap().cmd else {
+            panic!("not an index");
+        };
+        assert_eq!((kv, stats, gc), (llamac::KvType::F16, false, false));
+        assert!(parse(&["index", "--kv", "f32"]).is_err());
+    }
 }

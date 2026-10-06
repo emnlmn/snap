@@ -5,7 +5,6 @@
 //! downstream ranks, snapshots and cites, so its bounds must be stable: the
 //! same file text always splits the same way, and an unchanged chunk keeps
 //! its KV snapshot.
-#![allow(dead_code)] // wired by grep.rs
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -392,7 +391,7 @@ fn first_declared(lines: &[&str]) -> Option<String> {
 }
 
 /// Extension of a prose document: split by section, not by declaration.
-fn prose_ext(path: &str) -> Option<String> {
+pub fn prose_ext(path: &str) -> Option<String> {
     let ext = Path::new(path).extension()?.to_str()?.to_ascii_lowercase();
     ["md", "markdown", "mdx", "rst", "adoc", "txt", "org"]
         .contains(&ext.as_str())

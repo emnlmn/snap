@@ -94,7 +94,6 @@ pub struct Job<'a> {
 
 /// A job that starts from a stored snapshot: `blob` restores `toks[..at]`
 /// whole, then only `toks[at..]` (non-empty) is decoded.
-#[allow(dead_code)] // wired by grep.rs
 #[derive(Clone, Copy)]
 pub struct Restore<'a> {
     pub toks: &'a [i32],
@@ -256,7 +255,6 @@ impl Kv {
     /// Decode every job like `run`; right after its wave decodes, before
     /// cleanup, hand `save(job, snapshot)` a snapshot of each job's whole
     /// seq. On Err, the jobs already handed over keep valid snapshots.
-    #[allow(dead_code)] // wired by grep.rs
     pub fn snapshot(
         &mut self,
         b: &mut dyn Backend,
@@ -529,7 +527,6 @@ impl Kv {
     /// those from scratch. Restored cells are private, so a job costs one
     /// seq and `toks.len()` cells; no cache entry is made. Waves follow input
     /// order, and one retried for lack of cells hands its rows out again.
-    #[allow(dead_code)] // wired by grep.rs
     pub fn run_restored(
         &mut self,
         b: &mut dyn Backend,

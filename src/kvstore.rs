@@ -12,7 +12,6 @@
 //! blob is durable, records are checksummed, and a compaction that dies
 //! between its two renames is finished by the next open instead of leaving
 //! an old index pointing into a new pack.
-#![allow(dead_code)] // wired by grep.rs
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions, TryLockError};
