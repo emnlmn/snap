@@ -1,11 +1,14 @@
 mod api;
 mod bench;
 mod calibrate;
+mod corpus;
 mod decisions;
 mod engine;
 mod evaluate;
 mod instances;
 mod kv;
+mod kvstore;
+mod lexical;
 mod llamac;
 mod models;
 mod prompts;
