@@ -47,11 +47,13 @@ rerank out of the query, as the next sections explain.
    causal, so the memory the model builds while reading the first part does
    not depend on the query. snap saves that memory once per chunk with
    `llama_state_seq_get_data` and stores it on disk. At query time it
-   restores the memory and decodes only the tail. The logits are exactly
-   those of decoding the whole prompt, with no approximation. Snapshots are
-   saved and restored whole, so `kv.rs`'s one rule (sequences are copied and
-   removed whole) still holds, and hybrid or recurrent memories take the
-   same path.
+   restores the memory and decodes only the tail. Nothing is approximated:
+   the logits are those of decoding the whole prompt, up to the rounding
+   noise any change of batch composition brings (at most about 4e-3 on
+   logits of scale 2, measured under llama.cpp with tiny random-weight
+   llama, gemma2, mamba and hybrid models). Snapshots are saved and restored
+   whole, so `kv.rs`'s one rule (sequences are copied and removed whole)
+   still holds, and hybrid or recurrent memories take the same path.
 5. **Cascade.** Candidates are scored in waves of up to 64 (one decode per
    wave), in recall order. The search stops early once enough hits are in
    and a wave adds none.
@@ -60,9 +62,10 @@ Prior work on the same idea: PreTTR (SIGIR 2020) precomputed
 document-side term representations for BERT rerankers. HyperRAG (2025)
 reuses document-side KV caches of decoder rerankers for a 2–3× throughput
 gain. miniReranker (2026) combines cache reuse with early exit. Because
-snap's prompt puts the document first and the query last, reuse is exact
-here. Chunk-concatenation schemes such as CacheBlend need approximate
-fixes; this one does not.
+snap's prompt puts the document first and the query last, the reused
+memory is the one a full decode would build. Chunk-concatenation schemes
+such as CacheBlend reuse memory computed without its neighbors and need
+approximate fixes; this one does not.
 
 ### What a snapshot is bound to
 
