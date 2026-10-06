@@ -55,6 +55,11 @@ make serve        # build + run the HTTP server (MODEL=minicpm5-2b default)
   `tar` flags).
 - **Reports are create-only** — eval/bench/calibrate outputs refuse to
   overwrite existing files. Keep it that way.
+- **`GREP_FORMAT` (engine.rs) bumps on any change to how a chunk renders
+  into the STATE block.** `snap grep` snapshots bind to it, to
+  `PROMPT_VERSION`, the snap version, the GGUF (size and mtime) and the KV
+  type; a mismatch opens another store, never foreign memory. The probe
+  wording sits after the snapshot and needs no bump.
 - **Training export is decode.** `snap export-prompts` renders through
   `engine::compile`, the step `decide` itself uses, and maps cases via
   `evaluate::build_req` — never assemble a prompt beside it; `training/` trains
@@ -74,6 +79,8 @@ make serve        # build + run the HTTP server (MODEL=minicpm5-2b default)
   every logits row against from-scratch decoding of its prompt: a change
   there is done when those tests pass in debug (the cell-estimate
   `debug_assert` only runs there) and answers on a real model don't move.
+  Snapshots (`Kv::snapshot`, `Kv::run_restored`) save and restore whole
+  seqs: the same rule.
 
 ## Git
 
@@ -90,6 +97,12 @@ make serve        # build + run the HTTP server (MODEL=minicpm5-2b default)
 - `snap serve` registers a pidfile (`$SNAP_RUN_DIR` > `$XDG_RUNTIME_DIR/snap`
   > `~/.snap/run`) — `snap ps`/`snap stop` read it. Kill paths live in
   `instances.rs`; never signal pid 0 (unix: whole process group).
+- `snap grep` keeps KV snapshots under `$SNAP_GREP_DIR` >
+  `$XDG_CACHE_HOME/snap/grep` > `~/.cache/snap/grep`, one dir per tree and
+  binding: a cache, never tracked.
+- `eval/grep.jsonl` anchors are `{path, contains}` substrings unique in
+  their file, not line numbers: editing a line one points at means keeping
+  it unique or updating the case.
 - `.serena/` and `.impeccable/` are local tooling dirs (gitignored).
 - `training/` is the fine-tuning pipeline (Python; commands run from
   `training/`, documented in [TRAINING.md](TRAINING.md)). Only code is
