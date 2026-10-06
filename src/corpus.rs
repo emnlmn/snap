@@ -63,7 +63,8 @@ pub struct Chunk {
     /// 1-based last line, inclusive
     pub end: usize,
     /// the declared name, best effort (`pub fn new(` → "new"); in prose the
-    /// section heading; a piece of a big impl or class, its first method
+    /// section heading; a piece of a big impl or class, the method it holds
+    /// or continues
     pub symbol: Option<String>,
     /// lines start..=end verbatim, joined by '\n', no trailing newline
     pub text: String,
@@ -188,8 +189,8 @@ impl<'a> Lines<'a> {
 /// Split one file into chunks that cover every non-blank line exactly once,
 /// in order, each within MAX_LINES and MAX_CHARS. Code is cut along
 /// declarations, prose along sections: a chunk holds whole units, or one
-/// piece of a unit too big for any chunk. A piece of code is named for the
-/// first item it declares, else for its unit; a piece of prose for its section.
+/// piece of a unit too big for any chunk. A piece of code is named for what it
+/// holds or continues (see `piece_names`), a piece of prose for its section.
 pub fn split(path: &str, text: &str) -> Vec<Chunk> {
     let t = Lines::new(text);
     let prose = prose_ext(path);
@@ -199,7 +200,7 @@ pub fn split(path: &str, text: &str) -> Vec<Chunk> {
     };
     let symbol = |(s, e): Span| match prose {
         Some(_) => heads[s..=e].iter().flatten().next().map(|h| h.to_string()),
-        None => first_declared(&t.lines[s..=e], false),
+        None => first_declared(&t.lines[s..=e]),
     };
     let chunk = |(s, e): Span, symbol: Option<String>| Chunk {
         path: path.to_string(),
@@ -223,16 +224,13 @@ pub fn split(path: &str, text: &str) -> Vec<Chunk> {
         if us == ue || t.fits(us, ue) {
             cur = Some((us, ue));
         } else {
-            // in code a piece names its first item (a method of a big impl),
-            // and without one keeps the unit's name: a body's locals are no item
             let sym = symbol((us, ue));
-            for p in pieces(&t, &unit) {
-                let item = match prose {
-                    Some(_) => None,
-                    None => first_declared(&t.lines[p.0..=p.1], true),
-                };
-                out.push(chunk(p, item.or_else(|| sym.clone())));
-            }
+            let ps = pieces(&t, &unit);
+            let names = match prose {
+                Some(_) => vec![sym; ps.len()],
+                None => piece_names(&t.lines, &ps, sym),
+            };
+            out.extend(ps.into_iter().zip(names).map(|(p, name)| chunk(p, name)));
         }
     }
     out.extend(cur.map(|c| chunk(c, symbol(c))));
@@ -300,6 +298,38 @@ fn pieces(t: &Lines, unit: &[Span]) -> Vec<Span> {
     out
 }
 
+/// What the pieces of an oversized unit of code are called: the first item a
+/// piece declares (a method of a big impl), else the item it continues, the
+/// nearest earlier one indented less than the piece's first line (the method
+/// whose body it is in), else the unit's own name. A `const` or `let` inside a
+/// body is no item.
+fn piece_names<'a>(
+    lines: &[&'a str],
+    pieces: &[Span],
+    unit: Option<String>,
+) -> Vec<Option<String>> {
+    // items declared so far, outermost first: (indent, name)
+    let mut open: Vec<(usize, &'a str)> = Vec::new();
+    let mut names = Vec::with_capacity(pieces.len());
+    for &(s, e) in pieces {
+        let first = indent(lines[s]);
+        let continued = open.iter().rev().find(|&&(i, _)| i < first);
+        let continued = continued.map(|&(_, name)| name);
+        let mut declares = None;
+        for line in lines[s..=e].iter().copied() {
+            if let Some((name, true)) = declared(line) {
+                let at = indent(line);
+                open.retain(|&(i, _)| i < at);
+                open.push((at, name));
+                declares.get_or_insert(name);
+            }
+        }
+        let name = declares.or(continued).map(str::to_owned);
+        names.push(name.or_else(|| unit.clone()));
+    }
+    names
+}
+
 fn is_blank(line: &str) -> bool {
     line.trim().is_empty()
 }
@@ -355,13 +385,10 @@ fn declared(line: &str) -> Option<(&str, bool)> {
     Some((m.as_str(), i + 1 < caps.len()))
 }
 
-/// The first name `lines` declare, or with `items` the first item: a `const`
-/// or `let` doesn't count.
-fn first_declared(lines: &[&str], items: bool) -> Option<String> {
-    let mut found = lines.iter().filter_map(|l| declared(l));
-    found
-        .find(|&(_, item)| item || !items)
-        .map(|(name, _)| name.to_owned())
+/// The first name `lines` declare.
+fn first_declared(lines: &[&str]) -> Option<String> {
+    let found = lines.iter().find_map(|l| declared(l));
+    found.map(|(name, _)| name.to_owned())
 }
 
 /// Extension of a prose document: split by section, not by declaration.
@@ -1018,6 +1045,48 @@ Options
         let c = check("big.rs", &format!("fn big() {{\n{body}}}\n"));
         let pieces = [(1, 60), (61, 120), (121, 180), (181, 202)];
         assert_eq!(spans(&c), pieces.map(|(s, e)| (s, e, Some("big"))));
+    }
+
+    #[test]
+    fn a_piece_inside_a_long_method_takes_the_methods_name() {
+        // `wave` runs over three pieces: the first declares it, the other two only
+        // continue its body and say `wave`, not `Kv`; `tail` opens a piece of its own
+        let steps = |n: usize| "        step(self);\n".repeat(n);
+        let text = format!(
+            "impl Kv {{\n    pub fn short(&self) {{\n{}    }}\n\n    pub fn wave(&self) {{\n{}    }}\n\n    pub fn tail(&self) {{\n{}    }}\n}}\n",
+            steps(1),
+            steps(130),
+            steps(50)
+        );
+        let c = check("kv.rs", &text);
+        let want = [
+            (1, 4, "Kv"),
+            (6, 65, "wave"),
+            (66, 125, "wave"),
+            (126, 137, "wave"),
+            (139, 191, "tail"),
+        ];
+        assert_eq!(spans(&c), want.map(|(s, e, n)| (s, e, Some(n))));
+    }
+
+    #[test]
+    fn a_nested_item_names_only_the_pieces_inside_it() {
+        // a helper declared in the second piece of a big function names that piece and
+        // the one still in its body; back in the function's own body, pieces say `big`
+        let text = format!(
+            "fn big() {{\n{}    fn helper() {{\n{}    }}\n{}}}\n",
+            "    step();\n".repeat(70),
+            "        inner();\n".repeat(60),
+            "    step();\n".repeat(70)
+        );
+        let c = check("big.rs", &text);
+        let want = [
+            (1, 60, "big"),
+            (61, 120, "helper"),
+            (121, 180, "helper"),
+            (181, 204, "big"),
+        ];
+        assert_eq!(spans(&c), want.map(|(s, e, n)| (s, e, Some(n))));
     }
 
     #[test]
