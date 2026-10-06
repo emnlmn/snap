@@ -2011,8 +2011,13 @@ mod tests {
     // --- one search
 
     /// What `load` hands a search: a fresh engine (a new process) and a GGUF.
+    /// The GGUF is written once: its mtime is part of the binding, and a
+    /// rewrite a second later would open a different store.
     fn model(t: &Tmp) -> impl FnOnce() -> Result<Loaded> {
-        let gguf = t.write("m.gguf", "weights");
+        let gguf = t.at("m.gguf");
+        if !gguf.exists() {
+            t.write("m.gguf", "weights");
+        }
         move || Ok((engine(5), gguf))
     }
 
