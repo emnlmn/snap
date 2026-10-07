@@ -472,24 +472,46 @@ cases, how many, and how to read the report: [CALIBRATION.md](CALIBRATION.md).
 
 `snap grep "<question>" [path]` finds the code that answers a question
 about a tree, the way ripgrep finds text. ripgrep's own walker lists the
-files (`.gitignore`, `-g` globs; dotfiles included). BM25 over identifiers,
-declared names and paths picks the candidates without a model. Then the
-model reads each candidate once and answers one yes/no letter, and the
-probability of "yes" is the hit's score. Like the rest of snap, it
+files (`.gitignore`, `-g` globs; dotfiles included). Two stages find the
+candidates, and both always run. BM25 over identifiers, declared names and
+paths picks 64 without a model. The model also descends the tree: it
+reads a short preview of each folder, then of the files in the folders it
+opened, then of ever smaller groups of chunks, and answers a yes/no letter
+on each preview, one batched call per level. The `--beam` best branches of
+each level are opened (default 3) and the others are dropped. A preview is
+the code flattened to plain words, extracted and never generated: comments
+without their markers, string contents and identifiers split into lowercase
+words, with keywords and punctuation dropped, because the meaning of a file
+lives in its comments and not in a list of its symbols. The model then
+reads the union, BM25's 64 plus at most 24 chunks the descent reached that
+BM25 did not pick, one by one, and the probability of "yes" is the hit's
+score; this last read sees the real code. Like the rest of snap, it
 generates no text: the output is locations, probabilities and the source
-itself.
+itself. `snap grep` uses snap's default model (`snap1-2b`), which is trained
+on this probe format; `--model` picks another.
 
 ```bash
 snap grep "where is the KV cache rebuilt after a failed decode" src/
 snap grep -l "what stops a kill from signalling the process group" .
 snap grep --json -n 5 "how is a long choice list expanded" .
+snap grep --recall-only "kv_cache rebuild" src/  # BM25 alone, no model
+snap grep --beam 5 "what does the engine run against itself after loading" src/
 snap grep --cache src/ # what the cache holds of this tree
 snap grep --gc src/    # drop what no chunk uses any more
 ```
 
+Neither stage covers the other. BM25 cannot reach code that shares no word
+with the question, and the descent can prefer a manifest or a script to the
+document that answers. The descent does not wait for BM25 to be unsure:
+the model is overconfident (on the 16 paraphrases of `eval/grep.jsonl`,
+0.6.0 declared a confident hit in 62% and was right at rank 1 in 25%), so
+a confidence trigger would skip it where it is needed. A branch the descent
+drops never comes back; `--beam` trades model calls for that risk.
+
 The expensive part of each read does not depend on the question. That is
 the model's memory of `[prompt head + chunk]`, and it is saved to disk the
-first time a chunk is a candidate. A later query restores it and decodes
+first time a chunk is a candidate. The previews of the descent do not depend on
+the question either, so their memory is kept the same way. A later query restores it and decodes
 only its own question, a few dozen tokens per candidate instead of a few
 hundred. The cache fills only as searches read candidates; nothing indexes
 a whole tree ahead of time, which for a large one would take hundreds of GB.
@@ -508,8 +530,14 @@ written by other engines (another snap version, model, prompt format or KV
 type). In both the one positional is the path, not a query.
 
 The design, the measured costs and the eval
-(`snap grep --eval eval/grep.jsonl`) are in [GREP.md](GREP.md). The
-lexical stage is measured; the model's ranking on a real model is not yet.
+(`snap grep --eval eval/grep.jsonl`) are in [GREP.md](GREP.md). On the 40
+cases of that file, over snap's own tree, with `snap1-2b`, the hybrid with
+scrubbed previews puts the answer first in 0.60 of the cases (0.57 for BM25
+and the rerank of 0.6.0) and in the first five in 0.77 (0.71); on the 16
+paraphrases, which share no word with the code, hit@1 goes from 0.25 to 0.31
+and recall@5 from 0.50 to 0.69. Forty cases on one tree is a small sample:
+one case is 2.5 points. The numbers of 0.6.0 are kept in GREP.md as
+history.
 
 ## Quickstart
 
@@ -575,7 +603,7 @@ snap evaluate eval/cases.jsonl              # accuracy + brier/ece + consistency
 snap calibrate eval/cases.jsonl -o cal.json # fit temperatures into a calibration file
 snap export-prompts eval/cases.jsonl > p.jsonl  # the prompts evaluate decodes, for training
 snap bench --requests 20                    # latency and throughput
-snap grep "how are prompts tokenized" src/  # code search: recall, then the model reranks
+snap grep "how are prompts tokenized" src/  # code search: BM25 and a model descent, reranked together
 snap grep --cache src/                      # what the grep cache holds of a tree
 ```
 

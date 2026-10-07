@@ -1,8 +1,10 @@
 //! The command line of `snap grep`: its flags as clap `Args` and the dispatch
-//! from flags to the pipeline: a search, `--eval`, or the cache upkeep
-//! (`--cache`, `--gc`), where the one positional is the PATH. The model flags are
-//! snap's own (`ModelArgs`, flattened in): this is the one place grep reaches
-//! back into `main.rs`, for them and for the log setup.
+//! from flags to the pipeline (walk, BM25 recall and tree descent, both always,
+//! the rerank of their union, snapshots): a search, `--eval`, or the cache
+//! upkeep (`--cache`, `--gc`), where the one positional is the PATH. The model
+//! flags are snap's own (`ModelArgs`, flattened in, with grep's default model):
+//! this is the one place grep reaches back into `main.rs`, for them and for
+//! the log setup.
 
 use std::path::PathBuf;
 
@@ -34,7 +36,7 @@ fn parse_kv(s: &str) -> std::result::Result<llamac::KvType, String> {
 
 /// What only a search (or an eval) has a meaning for: it never goes with the
 /// cache upkeep.
-const SEARCH_ONLY: [&str; 12] = [
+const SEARCH_ONLY: [&str; 13] = [
     "eval",
     "output",
     "json",
@@ -46,6 +48,7 @@ const SEARCH_ONLY: [&str; 12] = [
     "regexp",
     "no_store",
     "recall_only",
+    "beam",
     "color",
 ];
 
@@ -64,7 +67,7 @@ pub struct GrepArgs {
     /// hits printed
     #[arg(short = 'n', long, default_value_t = 10)]
     top: usize,
-    /// recall depth the model reranks (0 = every chunk)
+    /// BM25 depth the model reranks, plus the descent's picks (0 = every chunk)
     #[arg(long, default_value_t = 64)]
     candidates: usize,
     /// probability of a sure hit; under 3 of them, the best others down to 20% fill in
@@ -91,6 +94,9 @@ pub struct GrepArgs {
     /// print the lexical ranking and stop: no model is loaded
     #[arg(long)]
     recall_only: bool,
+    /// branches the descent opens per level, folders and files each
+    #[arg(long, default_value_t = 3)]
+    beam: usize,
     /// KV cache type, which snapshots are bound to: q8_0 keeps them near 10 MB
     /// a chunk, f16 is full precision at twice that
     #[arg(long, value_parser = parse_kv, default_value = "q8_0")]
@@ -126,6 +132,7 @@ impl GrepArgs {
             color,
             no_store,
             recall_only,
+            beam,
             kv,
             cache: report,
             gc,
@@ -159,6 +166,7 @@ impl GrepArgs {
             threshold: *threshold,
             store: !*no_store,
             recall_only: *recall_only,
+            beam: *beam,
         };
         let load = || m.load(*kv);
         match (eval_file, query) {
@@ -248,6 +256,7 @@ mod tests {
                 &["-e", "fn"],
                 &["--no-store"],
                 &["--recall-only"],
+                &["--beam", "2"],
                 &["--color", "never"],
             ] {
                 let mut line = vec!["grep", mode];
@@ -273,7 +282,7 @@ mod tests {
     #[test]
     fn grep_flags_land_in_their_fields() {
         let line = "grep q src -n 3 --candidates 0 --threshold 0.7 -e fn -g *.rs -g !x/** \
-                    -l --lines 5 --no-store --recall-only --kv f16 \
+                    -l --lines 5 --no-store --recall-only --beam 5 --kv f16 \
                     --model m.gguf";
         let GrepArgs {
             m,
@@ -288,6 +297,7 @@ mod tests {
             lines,
             no_store,
             recall_only,
+            beam,
             kv,
             ..
         } = grep(&line.split_whitespace().collect::<Vec<_>>()).unwrap();
@@ -295,6 +305,7 @@ mod tests {
         assert_eq!((top, candidates, threshold, lines), (3, 0, 0.7, Some(5)));
         assert_eq!(regexp.as_deref(), Some("fn"));
         assert!(files_with_matches && no_store && recall_only);
+        assert_eq!(beam, 5);
         assert_eq!(kv, llamac::KvType::F16);
         assert_eq!(m.model, "m.gguf");
         assert_eq!(w.opts().globs, ["*.rs", "!x/**"]);
@@ -309,9 +320,12 @@ mod tests {
             lines,
             kv,
             path,
+            beam,
+            m,
             ..
         } = grep(&["grep", "q"]).unwrap();
         assert_eq!((top, candidates, threshold, lines), (10, 64, 0.5, None));
+        assert_eq!((beam, m.model.as_str()), (3, crate::models::DEFAULT_MODEL));
         assert_eq!((kv, path), (llamac::KvType::Q8_0, None));
         assert!(grep(&["grep", "q", "--kv", "f32"]).is_err());
     }

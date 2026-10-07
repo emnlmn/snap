@@ -1,7 +1,10 @@
-//! `snap grep`: find the code that answers a question, in two stages. Recall
-//! ranks every chunk of the tree lexically — no model, milliseconds — and the
-//! model then reads the best candidates once each, answering one yes/no
-//! letter whose probability is the score. The expensive half of that read
+//! `snap grep`: find the code that answers a question. Recall has two sources
+//! that always both run: BM25 ranks every chunk of the tree lexically — no
+//! model, milliseconds — and the model descends the tree, judging folders,
+//! then files, then groups of a big file's chunks with one yes/no letter
+//! (`tree.rs`), which reaches what shares no word with the question. The model
+//! then reads the union of their candidates once each, answering the same
+//! letter, whose probability is the score. The expensive half of that read
 //! does not depend on the query, so it is kept: the first time a chunk is a
 //! candidate its `[head + chunk]` memory is snapshotted into a store on disk,
 //! and every later query restores it and decodes only its own question.
@@ -14,9 +17,9 @@
 //! as searches read candidates: a whole tree would be hundreds of GB.
 //!
 //! This module is the pipeline and its reports (`--eval`, `--cache`, `--gc`); the
-//! walk is in `corpus.rs`, recall in `lexical.rs`, the store in `kvstore.rs`,
-//! the prompt and the scoring in `model.rs`, the printing in `view.rs` and the
-//! flags in `cli.rs`.
+//! walk is in `corpus.rs`, lexical recall in `lexical.rs`, the descent in
+//! `tree.rs`, the store in `kvstore.rs`, the prompt and the scoring in
+//! `model.rs`, the printing in `view.rs` and the flags in `cli.rs`.
 //!
 //! What `snap grep` takes from the rest of snap, and nothing else:
 //! `engine::{Engine, Reader}` (the model, with its `kv`, `llm`, `letter_ids`,
@@ -35,6 +38,7 @@ mod corpus;
 mod kvstore;
 mod lexical;
 mod model;
+mod tree;
 mod view;
 
 use std::collections::{BTreeMap, HashSet};
@@ -60,6 +64,9 @@ use view::{files, human, json_doc, thousands, Hit, Look, Shown, DIM, JSON_LINES,
 
 /// Reciprocal rank fusion's damping: how fast a rank's vote falls off.
 const RRF_K: f64 = 60.0;
+/// Chunks the descent adds to BM25's list at most, interleaved with it: the
+/// cascade stops after a wave, and its picks must not sit behind 64 lexical ones.
+const TREE_CHUNKS: usize = 24;
 /// The ks of the recall@k an eval reports.
 const KS: [usize; 4] = [1, 5, 10, 64];
 
@@ -78,12 +85,14 @@ pub struct Opts {
     pub regexp: Option<String>,
     /// hits printed
     pub top: usize,
-    /// recall depth reranked; 0 = every chunk
+    /// BM25 depth reranked, the descent's picks coming on top; 0 = every chunk
     pub candidates: usize,
     /// least P(yes) of a hit
     pub threshold: f64,
     pub store: bool,
     pub recall_only: bool,
+    /// branches opened per level and kind by the descent
+    pub beam: usize,
 }
 
 impl Opts {
@@ -116,7 +125,7 @@ pub struct Search {
     pub opts: Opts,
 }
 
-/// The model, loaded on demand (recall needs none), and the GGUF it came
+/// The model, loaded on demand (lexical recall needs none), and the GGUF it came
 /// from: its size and mtime bind the store.
 pub type Loaded = (Engine, PathBuf);
 
@@ -246,6 +255,50 @@ impl Haystack {
         }
         order
     }
+
+    /// The candidates the model reads: BM25's `lexical` list united with the
+    /// chunks the model's descent reaches, and how many previews it read on
+    /// the way. The previews go through the same probe as chunks.
+    fn reach(
+        &self,
+        eng: &mut Engine,
+        store: &mut Option<Store>,
+        query: &str,
+        o: &Opts,
+        lexical: Vec<usize>,
+    ) -> Result<(Vec<usize>, usize)> {
+        // with every chunk a BM25 candidate the descent has nothing to add
+        if o.candidates == 0 {
+            return Ok((lexical, 0));
+        }
+        let mut previews = 0;
+        let tree = tree::descend(&self.chunks, &self.files, o.beam, |ps| {
+            previews += ps.len();
+            let all: Vec<usize> = (0..ps.len()).collect();
+            rerank(eng, store, ps, &all, query, None).map(|(p, _)| p)
+        })?;
+        Ok((union(lexical, &tree), previews))
+    }
+}
+
+/// BM25's candidates with up to `TREE_CHUNKS` of the descent's that it did not
+/// pick, in the descent's order: BM25's best first, then one of each in turn
+/// while both last, then what is left of either.
+fn union(lexical: Vec<usize>, tree: &[usize]) -> Vec<usize> {
+    let held: HashSet<usize> = lexical.iter().copied().collect();
+    let mut seen = HashSet::new();
+    let extra: Vec<usize> = tree
+        .iter()
+        .copied()
+        .filter(|i| !held.contains(i) && seen.insert(*i))
+        .take(TREE_CHUNKS)
+        .collect();
+    let mut out = Vec::with_capacity(lexical.len() + extra.len());
+    for j in 0..lexical.len().max(extra.len()) {
+        out.extend(lexical.get(j));
+        out.extend(extra.get(j));
+    }
+    out
 }
 
 // --- the store --------------------------------------------------------------
@@ -586,11 +639,14 @@ fn shown(order: &[usize], ps: &[f64], top: usize, threshold: f64) -> (Vec<(usize
 #[derive(Default)]
 struct Stats {
     chunks: usize,
-    /// the recall list handed to the model
+    /// the candidates handed to the model: BM25's and the descent's
     candidates: usize,
     cost: Cost,
     store_bytes: Option<u64>,
     recall_ms: f64,
+    /// previews the model read in the descent, and its time
+    tree_previews: usize,
+    tree_ms: f64,
     rerank_ms: f64,
     total_ms: f64,
     hits: usize,
@@ -613,6 +669,8 @@ impl Stats {
             "tokens": c.tokens,
             "store_bytes": self.store_bytes,
             "recall_ms": self.recall_ms,
+            "tree_previews": self.tree_previews,
+            "tree_ms": self.tree_ms,
             "rerank_ms": self.rerank_ms,
             "total_ms": self.total_ms,
             "hits": self.hits,
@@ -642,6 +700,11 @@ impl Stats {
                 read += &format!(", {} from cache", c.restored);
             }
             p.push(read);
+            p.push(format!(
+                "tree {} previews, {:.1} s",
+                self.tree_previews,
+                self.tree_ms / 1000.0
+            ));
             p.extend(
                 self.store_bytes
                     .map(|b| format!("cache {}", crate::fmt_bytes(b))),
@@ -667,21 +730,24 @@ fn search(s: &Search, base: &Path, load: impl FnOnce() -> Result<Loaded>) -> Res
     let (o, t0) = (&s.opts, Instant::now());
     o.check()?;
     let hay = Haystack::new(load_chunks(&o.tree, o.regexp.as_deref(), &[])?);
-    let order = hay.recall(&s.query, o.candidates);
+    let lexical = hay.recall(&s.query, o.candidates);
     let mut st = Stats {
         chunks: hay.chunks.len(),
-        candidates: order.len(),
+        candidates: lexical.len(),
         recall_ms: ms(t0),
         ..Stats::default()
     };
     let (mut closest, mut confident) = (None, 0);
     let hits = if o.recall_only {
-        order.iter().take(o.top).map(|&i| (i, None)).collect()
-    } else if order.is_empty() {
+        lexical.iter().take(o.top).map(|&i| (i, None)).collect()
+    } else if hay.chunks.is_empty() {
         Vec::new()
     } else {
         let (mut eng, gguf) = load()?;
         let mut store = try_store(base, o, &gguf, &eng.model_id);
+        let t = Instant::now();
+        let (order, previews) = hay.reach(&mut eng, &mut store, &s.query, o, lexical)?;
+        (st.candidates, st.tree_previews, st.tree_ms) = (order.len(), previews, ms(t));
         let t = Instant::now();
         let stop = Cascade {
             top: o.top,
@@ -1044,7 +1110,8 @@ struct Row {
     id: String,
     kind: String,
     query: String,
-    /// anchor recall@k of the recall order, for the ks in `KS`
+    /// anchor recall@k of the recall order (BM25 united with the descent's
+    /// picks when the model is loaded), for the ks in `KS`
     recall: [f64; 4],
     /// the recall list, and how many of it the model scored: all of it, the
     /// eval having no cascade (None when only recall ran)
@@ -1267,7 +1334,10 @@ fn run_eval(
             );
         }
         let t = Instant::now();
-        let order = hay.recall(&c.query, o.candidates);
+        let mut order = hay.recall(&c.query, o.candidates);
+        if let Some(e) = eng.as_mut() {
+            order = hay.reach(e, &mut store, &c.query, o, order)?.0;
+        }
         let recall_ms = ms(t);
         let t = Instant::now();
         // no cascade: hit@k and MRR are measured over every candidate, whatever
@@ -1374,6 +1444,7 @@ fn run_eval(
         "kv": o.tree.kv.as_str(),
         "chunks": hay.chunks.len(),
         "candidates": o.candidates,
+        "beam": o.beam,
         "threshold": o.threshold,
         "overall": overall,
         "by_kind": by_kind,
@@ -1470,6 +1541,7 @@ mod tests {
             threshold: 0.0,
             store: true,
             recall_only: false,
+            beam: 3,
         }
     }
 
@@ -1655,13 +1727,15 @@ mod tests {
             },
             store_bytes: Some(1_300_000_000),
             recall_ms: 12.0,
+            tree_previews: 9,
+            tree_ms: 1200.0,
             rerank_ms: 830.0,
             total_ms: 845.0,
             hits: 7,
         };
         assert_eq!(
             st.summary(false),
-            "7 results · 845 ms · 412 chunks · 64 read by the model, 60 from cache · cache 1.3 GB"
+            "7 results · 845 ms · 412 chunks · 64 read by the model, 60 from cache · tree 9 previews, 1.2 s · cache 1.3 GB"
         );
         assert_eq!(
             st.summary(true),
@@ -1677,6 +1751,10 @@ mod tests {
             (Some(64), Some(4), Some(60))
         );
         assert_eq!(j["store_bytes"], 1_300_000_000u64);
+        assert_eq!(
+            (j["tree_previews"].as_u64(), j["tree_ms"].as_f64()),
+            (Some(9), Some(1200.0))
+        );
     }
 
     // --- store location and binding
@@ -2177,13 +2255,14 @@ mod tests {
     }
 
     #[test]
-    fn a_search_reranks_the_recall_and_the_second_one_starts_warm() {
+    fn a_search_reranks_the_candidates_and_the_second_one_starts_warm() {
         let t = Tmp::new("search");
         let root = project(&t, "tree");
         let s = query("connection pool checkout", opts(&root));
         let base = t.at("cache");
         let cold = search(&s, &base, model(&t)).unwrap();
-        assert!(cold.stats.cost.scored > 0 && cold.stats.cost.restored == 0);
+        // a preview that is its chunk's own text was snapshotted by the descent
+        assert!(cold.stats.cost.scored > 0 && cold.stats.tree_previews > 0);
         assert!(cold.hits.len() <= 3 && !cold.hits.is_empty());
         // best probability first, every one a number
         let ps: Vec<f64> = cold.hits.iter().map(|h| h.1.unwrap()).collect();
@@ -2223,10 +2302,47 @@ mod tests {
             ("src/pool.rs", None)
         );
         assert!(found.hits.len() <= 3 && found.stats.cost.scored == 0);
-        // no word in common with anything: no candidates, no model
-        let none = search(&query("zebra", opts(&root)), &t.at("cache"), no_model).unwrap();
+        // an empty corpus has nothing to rank
+        let nothing = Opts {
+            regexp: Some("zebra".into()),
+            ..opts(&root)
+        };
+        let none = search(&query("connection pool", nothing), &t.at("cache"), no_model).unwrap();
         assert!(none.hits.is_empty());
         assert!(!t.at("cache").exists());
+    }
+
+    #[test]
+    fn a_query_without_a_shared_word_still_reaches_the_model_through_the_descent() {
+        let t = Tmp::new("paraphrase");
+        let root = project(&t, "tree");
+        let s = query("zebra", opts(&root));
+        assert!(Haystack::new(load_chunks(&s.opts.tree, None, &[]).unwrap())
+            .recall("zebra", 64)
+            .is_empty());
+        let found = search(&s, &t.at("cache"), model(&t)).unwrap();
+        assert!(found.stats.tree_previews > 0 && found.stats.candidates > 0);
+        assert!(found.stats.cost.scored > 0);
+    }
+
+    #[test]
+    fn the_union_interleaves_bm25_with_the_descents_new_picks() {
+        let lexical = vec![5, 6, 7];
+        // 6 is held by BM25 and 9 repeats: neither adds a candidate
+        let got = union(lexical.clone(), &[6, 9, 1, 9, 2]);
+        assert_eq!(got, [5, 9, 6, 1, 7, 2]);
+        // the descent cut at TREE_CHUNKS, BM25's rest following when it outlasts it
+        let tree: Vec<usize> = (100..100 + TREE_CHUNKS + 5).collect();
+        let long: Vec<usize> = (0..64).collect();
+        let got = union(long, &tree);
+        assert_eq!(
+            (got.len(), got[..4].to_vec()),
+            (64 + TREE_CHUNKS, vec![0, 100, 1, 101])
+        );
+        assert_eq!(got.last(), Some(&63));
+        // either side may be empty
+        assert_eq!(union(lexical, &[]), [5, 6, 7]);
+        assert_eq!(union(vec![], &[3, 4]), [3, 4]);
     }
 
     #[test]

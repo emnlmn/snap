@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased
+
+- grep: a model-judged tree descent now runs beside the BM25 recall of
+  0.6.0, on every query. Folders, files and groups of chunks become
+  previews (at most 1,200 characters), the model answers the same yes/no
+  probe on each, one batched call per level, and per level the `--beam`
+  best are opened (default 3). A file is split into 4 contiguous groups,
+  recursively, until groups of at most 4 chunks; unopened branches are
+  dropped. The model reranks the union: BM25's 64 candidates plus at most
+  24 chunks the descent reached that BM25 did not pick, interleaved so the
+  first wave holds both. Why: BM25 cannot reach a paraphrase that shares no
+  word with the code (recall@64 0.62 on the 16 paraphrases of
+  eval/grep.jsonl)
+- grep: the descent reads scrubbed previews, not symbol lists. `scrub` in
+  `grep/tree.rs` flattens code to plain text without generating any: comment
+  text without markers, string contents and identifiers split into
+  lowercase words; keywords, punctuation and attributes are dropped. A file
+  preview leads with its module docs, then one line per chunk (symbol words
+  and the chunk's first comment line); a folder lists each child file with
+  the first line of its docs. Why: with symbol lists the model scored file
+  previews nearly flat and the beam pruned the right file. The final rerank
+  still reads the real chunk
+- grep: no cascade. Running the descent only when no BM25 candidate is
+  confident was rejected: on those 16 paraphrases 0.6.0 declared a
+  confident hit in 62% and was right at rank 1 in 25%
+- grep: previews do not depend on the question, so their snapshots are
+  cached like the chunks'
+- grep: `--beam N` added. `--recall-only` stays (BM25 only, no model); there
+  is no `--tree`, the descent is always on. The default model is unchanged
+  (snap1-2b): qwen3.8-4b reranks worse, as snap1-2b is trained on snap's
+  format
+- grep: measured on the 40 cases of eval/grep.jsonl with snap1-2b, 0.6.0
+  against the hybrid: overall hit@1 0.57 to 0.60, recall@5 0.71 to 0.77,
+  @10 0.76 to 0.81, MRR 0.66 to 0.71; paraphrases (16) hit@1 0.25 to 0.31,
+  @5 0.50 to 0.69, MRR 0.35 to 0.47; lexical unchanged; concept recall@5
+  0.73 to 0.67. On 7 hard cases hit@1 went from 2/7 to 3/7. 40 cases on one
+  tree: one case is 2.5 points. A hybrid query took a median of 21.6 s
+  (p90 28.6 s) on an M1 Max with a partly warm store
+- docs: GREP.md describes both stages, the scrubbed previews and the
+  union; the 0.6.0 numbers stay there as history
+
 ## 0.6.0 - 2026-10-07
 
 - grep: `snap grep "<question>" [path]` finds the code that answers a

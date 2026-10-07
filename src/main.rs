@@ -96,7 +96,7 @@ enum Cmd {
         #[arg(long, default_value_t = DEFAULT_PORT)]
         port: u16,
     },
-    /// find the code that answers a question: lexical recall, then the model reads each candidate once
+    /// find the code that answers a question: BM25 recall and a model-judged tree descent, then the model reads each candidate once
     Grep(grep::cli::GrepArgs),
     /// run a JSONL benchmark and report accuracy/latency
     Evaluate {

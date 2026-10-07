@@ -125,7 +125,7 @@ fn bigrams(run: &str, emit: &mut impl FnMut(&str)) {
 /// The parts of an underscore-free segment: split at camelCase humps, with
 /// acronyms whole (`HTTPServer` → HTTP, Server) and digits stuck to the
 /// letters before them (`parseJSON2` → parse, JSON2).
-fn humps(seg: &str) -> impl Iterator<Item = &str> {
+pub(super) fn humps(seg: &str) -> impl Iterator<Item = &str> {
     let mut from = 0;
     std::iter::from_fn(move || {
         if from == seg.len() {
