@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.1 - 2026-10-07
 
 - grep: a model-judged tree descent now runs beside the BM25 recall of
   0.6.0, on every query. Folders, files and groups of chunks become
