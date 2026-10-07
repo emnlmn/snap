@@ -1,23 +1,52 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 - 2026-10-07
 
-- grep: `snap grep`, code search on the letter surface —
-  ripgrep's walker and BM25F over code-aware terms pick the candidates, the
-  model reranks each with one boolean probe, and the query-independent
-  `[head + chunk]` KV is snapshotted to disk so a warm query decodes only
-  its question tail (GREP.md)
-- grep: the KV type defaults to q8_0 (~10 MB a snapshot, f16 stays one
-  `--kv` away); `--cache` reports what the cache holds of a tree and `--gc`
-  drops what no chunk uses plus the stores of other engines, the positional
-  being the path
+- grep: `snap grep "<question>" [path]` finds the code that answers a
+  question about a tree, still without generating text. A lexical stage
+  with no model picks 64 candidates; the model reads each once and answers
+  one yes/no letter, whose probability is the hit's score. On snap's own
+  tree (eval/grep.jsonl, snap1-2b) the model takes hit@1 from 0.31 to 0.53,
+  MRR 0.64, concept queries from 0.15 to 0.70 (GREP.md)
+- grep: the reading costs once per chunk, not once per query — the memory
+  of `[prompt head + chunk]` does not depend on the question, so it is
+  snapshotted to disk and a later query restores it and decodes only its
+  question: 64 candidates in 4.3 s warm against 23.5 s cold on an M1 Max,
+  with the same probabilities
+- grep: recall is ripgrep's walker (ignore files honored, dotfiles read:
+  nothing leaves the machine) and BM25F over code-aware terms —
+  identifiers split at `_` and camelCase, Porter stemming, file and chunk
+  rankings fused; code and docs take turns in the candidate list, since
+  over a whole repository specs and mockups otherwise crowd out the code.
+  2.8 s over two million lines
+- grep: output for people — one line per hit (a tinted bullet, path ·
+  symbol · percent), the source on a rail where the query's words fall,
+  `⋮` for what is left out, progress while reading, a plain footer; under
+  three hits past `--threshold`, the best others down to 20% fill in with a
+  hollow bullet; exit status 1 when nothing is shown, as grep. `--json` and
+  `-l` for tools, `--color`/`NO_COLOR`
+- grep: the cache lives in `$SNAP_GREP_DIR`, else `$XDG_CACHE_HOME/snap/grep`,
+  else `~/.cache/snap/grep`, one directory per tree and engine, bound to
+  the snap version, the GGUF, the prompt format and the KV type — another
+  binding opens another store, never foreign memory. q8_0 KV by default,
+  ~9 MB a chunk (`--kv f16` doubles it); `--cache` reports what it holds of
+  a tree, `--gc` drops what no chunk uses and the stores of other engines
+- grep: known limits — the cache has no size cap yet (a cold query in a new
+  area writes ~0.6 GB); queries match the code's own words, so a question
+  in another language than the code, or a feature's old name after a
+  rename, can miss the code and find only the docs that mention it
 - kv: whole-seq snapshots — `Backend::seq_save`/`seq_load`, `Kv::snapshot`
   and `Kv::run_restored`, checked on the sim against from-scratch rows and
-  on tiny llama, gemma2, mamba and hybrid GGUFs under llama.cpp
+  on tiny llama, gemma2, mamba and hybrid GGUFs under llama.cpp; seqs are
+  still copied and removed whole
 - llamac: `KvType` (`--kv f16|q8_0` on grep), threaded through
-  `Engine::load_kv`; every other command stays on f16
+  `Engine::load_kv`; every other command stays on f16, and `snap evaluate`
+  answers are identical to 0.5.0
 - eval: `eval/grep.jsonl`, 40 cases over snap's own tree (lexical,
-  paraphrase, concept), anchored by code text instead of line numbers
+  paraphrase, concept), anchored by code text instead of line numbers;
+  `snap grep --eval` scores recall and the model's ranking
+- tests: a flaky instances test no longer spawns a child (its fork held
+  another test's file lock); clippy 1.98 clean
 
 ## 0.5.0 - 2026-10-02
 
