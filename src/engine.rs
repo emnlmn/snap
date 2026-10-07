@@ -31,7 +31,7 @@ use serde_json::{json, Map, Value};
 use crate::calibrate::{bucket, Calibration};
 use crate::corpus::MAX_CHARS;
 use crate::decisions;
-use crate::kv::{self, common, Backend, Job, Kv, Restore};
+use crate::kv::{self, common, Backend, Job, Kv, Restore, Room};
 use crate::llamac::{KvType, Llama};
 use crate::prompts::{self, Slot};
 use crate::schema::{DecideRequest, Expand, Layout, Mode, QType, Question, MAX_SLOTS};
@@ -665,9 +665,14 @@ impl Engine {
         Ok((ps, stats))
     }
 
-    /// Parallel sequences the backend runs: the natural wave size (n_seq - 1).
-    pub fn n_seq(&self) -> usize {
-        self.llm.n_seq()
+    /// What one wave of probes can hold: free seqs, and the cells left next
+    /// to the resident head, kv's slack kept back. A probe restored costs a
+    /// seq and its whole prompt in private cells, so probes that `Room::fit`
+    /// are one wave of `grep_snapshot` and one of `grep_score`, as kv counts
+    /// them — and a wave of snapshots is no more than one KV memory's worth
+    /// of bytes.
+    pub fn grep_room(&self) -> Room {
+        self.kv.restore_room(&*self.llm)
     }
 }
 
@@ -930,6 +935,7 @@ mod tests {
 
     use super::*;
     use crate::kv::sim::{blob, row, Sim};
+    use crate::kv::KV_SLACK;
 
     fn engine(n_ctx: usize, n_seq: usize, n_batch: usize) -> Engine {
         let sim = Sim::new(n_ctx, n_seq, n_batch);
@@ -1535,8 +1541,69 @@ mod tests {
     }
 
     #[test]
-    fn the_engine_reports_its_sequence_count() {
-        assert_eq!(engine(1 << 16, 65, 512).n_seq(), 65);
-        assert_eq!(engine(4096, 17, 64).n_seq(), 17);
+    fn a_wave_room_is_the_context_less_the_head_and_the_slack() {
+        for (n_ctx, n_seq) in [(1 << 16, 65), (8192, 65), (4096, 17), (600, 3)] {
+            let eng = engine(n_ctx, n_seq, 64);
+            let room = Room {
+                seqs: n_seq - 1,
+                cells: n_ctx - eng.head.len() - KV_SLACK,
+            };
+            assert_eq!(eng.grep_room(), room, "{n_ctx} cells, {n_seq} seqs");
+        }
+        // snap1-2b-sized probes of 460 tokens: what the default context holds,
+        // then what the 64 seqs hold once the context is no limit
+        let wave = |n_ctx, n_seq| {
+            let eng = engine(n_ctx, n_seq, 512);
+            eng.grep_room().fit(std::iter::repeat(460))
+        };
+        assert_eq!(wave(8192, 65), 17);
+        assert_eq!(wave(32768, 65), 64);
+        // a hybrid memory has 16 seqs to give whatever the context
+        assert_eq!(wave(32768, 17), 16);
+        // a context that holds no probe at all: the decode will say so
+        assert_eq!(wave(500, 65), 0);
+    }
+
+    #[test]
+    fn a_wave_that_fits_the_room_is_one_wave_for_the_kv_and_one_more_probe_is_two() {
+        for (n_ctx, n_seq) in [(2000, 65), (1700, 3), (6000, 5), (1 << 16, 65)] {
+            let mut eng = engine(n_ctx, n_seq, 64);
+            let ps = probes(&eng);
+            let lens = ps.iter().map(|(p, _)| p.toks.len());
+            let n = eng.grep_room().fit(lens);
+            assert!(0 < n, "{n_ctx} cells: no probe fits");
+            let wave: Vec<&Probe> = ps[..n].iter().map(|(p, _)| p).collect();
+            let prefixes: Vec<&[i32]> = wave.iter().map(|p| &p.toks[..p.at]).collect();
+            let mut saved = vec![None; n];
+            let st = eng
+                .grep_snapshot(&prefixes, &mut |i, b| saved[i] = Some(b))
+                .unwrap();
+            assert_eq!(st.waves, 1, "{n_ctx}/{n_seq}: the snapshots");
+            let blobs: Vec<Vec<u8>> = saved.into_iter().map(|b| b.unwrap()).collect();
+            let pairs: Vec<(&Probe, &[u8])> = wave
+                .iter()
+                .copied()
+                .zip(blobs.iter().map(|b| &b[..]))
+                .collect();
+            let (got, st) = eng.grep_score(&pairs).unwrap();
+            assert!(got.iter().all(Option::is_some));
+            assert_eq!(st.waves, 1, "{n_ctx}/{n_seq}: the restores");
+            assert_eq!(
+                eng.grep_score_cold(&wave).unwrap().1.waves,
+                1,
+                "{n_ctx}/{n_seq}: from scratch"
+            );
+            // one probe more is what the room refuses: the kv takes two waves
+            if let Some((extra, _)) = ps.get(n) {
+                let mut more = pairs.clone();
+                let blob_of = blob(&extra.toks[..extra.at]);
+                more.push((extra, &blob_of));
+                assert_eq!(
+                    eng.grep_score(&more).unwrap().1.waves,
+                    2,
+                    "{n_ctx}/{n_seq}: one more"
+                );
+            }
+        }
     }
 }

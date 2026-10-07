@@ -28,6 +28,7 @@ use serde_json::{json, Value};
 use crate::corpus::{self, Chunk, WalkOpts};
 use crate::engine::{grep_state, Engine, Probe, GREP_FORMAT};
 use crate::evaluate;
+use crate::kv::Room;
 use crate::kvstore::{self, Prefetch, Store};
 use crate::lexical::{rrf, Doc, Index};
 use crate::llamac::KvType;
@@ -309,12 +310,13 @@ fn prefix_key(toks: &[i32]) -> u128 {
 
 // --- rerank -----------------------------------------------------------------
 
-/// What reranking took: candidates scored, how many of those were restored
-/// from a stored snapshot (the rest had their chunk decoded in this run), and
-/// the tokens the model decoded.
+/// What reranking took: candidates scored in how many waves, how many of
+/// those were restored from a stored snapshot (the rest had their chunk
+/// decoded in this run), and the tokens the model decoded.
 #[derive(Default, Clone, Copy)]
 struct Cost {
     scored: usize,
+    waves: usize,
     restored: usize,
     tokens: usize,
 }
@@ -325,35 +327,66 @@ fn done(total_hits: usize, wave_hits: usize, top: usize) -> bool {
     total_hits >= top && wave_hits == 0
 }
 
-/// P(yes) of the candidates `order` names, in waves of one per parallel
-/// sequence, in recall order, until the cascade stops. The result holds one P
-/// per candidate scored: a prefix of `order`.
+/// A search's cascade: it stops once `top` candidates have P >= `threshold`
+/// and a wave added none. An eval has none: it reads every candidate.
+#[derive(Clone, Copy)]
+struct Cascade {
+    top: usize,
+    threshold: f64,
+}
+
+/// The waves of a run: consecutive candidates, in order, as many as one
+/// restore wave takes — a free seq each and cells for each whole prompt,
+/// restored cells being private. That is also what sits in memory as blobs,
+/// so it is what bounds them: about one KV memory's worth of bytes, never the
+/// n_seq - 1 blobs a count alone allows. At ctx 8192 a wave of snap1-2b's
+/// 460-token probes is 17 candidates (0.34 GB in f16) instead of 64 (1.3 GB);
+/// with the prefetch queue a wave ahead, about two waves of snapshots are in
+/// RAM at once. A probe that fits nowhere is still a wave of its own: the
+/// decode refuses it with its own error.
+fn waves(room: Room, lens: &[usize]) -> Vec<Range<usize>> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at < lens.len() {
+        let n = room.fit(lens[at..].iter().copied()).max(1);
+        out.push(at..at + n);
+        at += n;
+    }
+    out
+}
+
+/// P(yes) of the candidates `order` names, a wave at a time in recall order,
+/// until the cascade stops (never, without one). The result holds one P per
+/// candidate scored: a prefix of `order`.
 fn rerank(
     eng: &mut Engine,
     store: &mut Option<Store>,
     chunks: &[Chunk],
     order: &[usize],
     query: &str,
-    top: usize,
-    threshold: f64,
+    stop: Option<Cascade>,
 ) -> Result<(Vec<f64>, Cost)> {
     let probes = order
         .iter()
         .map(|&i| probe_for(eng, &chunks[i], query))
         .collect::<Result<Vec<Probe>>>()?;
     let keys: Vec<u128> = probes.iter().map(|p| prefix_key(&p.toks[..p.at])).collect();
-    let wave = eng.n_seq().saturating_sub(1).max(1);
-    // every candidate's snapshot is asked for once: the reads of a wave
-    // overlap the decode of the one before
-    let mut fetch = store.as_ref().map(|s| s.prefetch(keys.clone(), wave));
+    let lens: Vec<usize> = probes.iter().map(|p| p.toks.len()).collect();
+    let plan = waves(eng.grep_room(), &lens);
+    // every candidate's snapshot is asked for once, as many ahead as the first
+    // wave holds: the reads of a wave overlap the decode of the one before
+    let depth = plan.first().map_or(1, Range::len);
+    let mut fetch = store.as_ref().map(|s| s.prefetch(keys.clone(), depth));
     let mut cost = Cost::default();
     let (mut ps, mut hits) = (Vec::with_capacity(probes.len()), 0);
-    for (probes, keys) in probes.chunks(wave).zip(keys.chunks(wave)) {
+    for w in plan {
+        let (probes, keys) = (&probes[w.clone()], &keys[w]);
         let got = score_wave(eng, store, &mut fetch, probes, keys, &mut cost)?;
-        let added = got.iter().filter(|&&p| p >= threshold).count();
+        cost.waves += 1;
+        let added = stop.map_or(0, |c| got.iter().filter(|&&p| p >= c.threshold).count());
         hits += added;
         ps.extend(got);
-        if done(hits, added, top) {
+        if stop.is_some_and(|c| done(hits, added, c.top)) {
             break;
         }
     }
@@ -507,6 +540,7 @@ impl Stats {
             "chunks": self.chunks,
             "candidates": self.candidates,
             "scored": c.scored,
+            "waves": c.waves,
             "restored": c.restored,
             "decoded": c.scored - c.restored,
             "tokens": c.tokens,
@@ -571,14 +605,17 @@ fn search(s: &Search, base: &Path, load: impl FnOnce() -> Result<Loaded>) -> Res
         let (mut eng, gguf) = load()?;
         let mut store = try_store(base, o, &gguf, &eng.model_id);
         let t = Instant::now();
+        let stop = Cascade {
+            top: o.top,
+            threshold: o.threshold,
+        };
         let (ps, cost) = rerank(
             &mut eng,
             &mut store,
             &hay.chunks,
             &order,
             &s.query,
-            o.top,
-            o.threshold,
+            Some(stop),
         )?;
         st.rerank_ms = ms(t);
         st.cost = cost;
@@ -732,47 +769,64 @@ fn probe_of(eng: &Engine, c: &Chunk) -> Result<Probe> {
     probe_for(eng, c, "")
 }
 
-/// The key and prefix length of every chunk's snapshot: what the store is
-/// asked for, whichever query comes.
-fn chunk_keys(eng: &Engine, chunks: &[Chunk]) -> Result<Vec<(u128, usize)>> {
+/// What the store is asked for a chunk, whichever query comes: the key of its
+/// snapshot, the tokens that snapshot holds, and the length of a whole probe
+/// (what a restore of it costs in cells).
+#[derive(Clone, Copy)]
+struct Prefix {
+    key: u128,
+    at: usize,
+    len: usize,
+}
+
+fn chunk_prefixes(eng: &Engine, chunks: &[Chunk]) -> Result<Vec<Prefix>> {
     chunks
         .iter()
         .map(|c| {
             let p = probe_of(eng, c)?;
-            Ok((prefix_key(&p.toks[..p.at]), p.at))
+            Ok(Prefix {
+                key: prefix_key(&p.toks[..p.at]),
+                at: p.at,
+                len: p.toks.len(),
+            })
         })
         .collect()
 }
 
-/// Snapshot every chunk the store lacks, a wave at a time; returns how many
-/// were added and the tokens decoded. `progress(done, total, tokens)` runs
-/// after each wave.
+/// Snapshot every chunk the store lacks, a wave at a time — the waves of a
+/// search, so the blobs held at once are bounded the same way; returns how
+/// many were added and the tokens decoded. `progress(done, total, tokens)`
+/// runs after each wave.
 fn build(
     eng: &mut Engine,
     store: &mut Store,
     chunks: &[Chunk],
-    keys: &[(u128, usize)],
+    prefixes: &[Prefix],
     progress: &mut dyn FnMut(usize, usize, usize),
 ) -> Result<(usize, usize)> {
     let mut seen = HashSet::new();
     let todo: Vec<usize> = (0..chunks.len())
-        .filter(|&i| store.tokens(keys[i].0) != Some(keys[i].1) && seen.insert(keys[i].0))
+        .filter(|&i| {
+            let p = prefixes[i];
+            store.tokens(p.key) != Some(p.at) && seen.insert(p.key)
+        })
         .collect();
-    let wave = eng.n_seq().saturating_sub(1).max(1);
+    let lens: Vec<usize> = todo.iter().map(|&i| prefixes[i].len).collect();
     let (mut done, mut tokens, mut synced) = (0, 0, Instant::now());
-    for ids in todo.chunks(wave) {
+    for w in waves(eng.grep_room(), &lens) {
+        let ids = &todo[w];
         let probes = ids
             .iter()
             .map(|&i| probe_of(eng, &chunks[i]))
             .collect::<Result<Vec<Probe>>>()?;
-        let prefixes: Vec<&[i32]> = probes.iter().map(|p| &p.toks[..p.at]).collect();
+        let heads: Vec<&[i32]> = probes.iter().map(|p| &p.toks[..p.at]).collect();
         let mut blobs = vec![None; ids.len()];
         tokens += eng
-            .grep_snapshot(&prefixes, &mut |j, b| blobs[j] = Some(b))?
+            .grep_snapshot(&heads, &mut |j, b| blobs[j] = Some(b))?
             .decoded;
         for (&i, blob) in ids.iter().zip(blobs) {
             let blob = blob.context("a chunk was decoded but not saved")?;
-            store.put(keys[i].0, keys[i].1, &blob)?;
+            store.put(prefixes[i].key, prefixes[i].at, &blob)?;
         }
         if synced.elapsed().as_secs_f64() >= SYNC_EVERY {
             store.sync()?;
@@ -820,8 +874,8 @@ fn index_in(
         return Ok(());
     }
     let mut store = Store::open(&dir, &binding)?;
-    let keys = chunk_keys(&eng, &chunks)?;
-    let live: HashSet<u128> = keys.iter().map(|k| k.0).collect();
+    let prefixes = chunk_prefixes(&eng, &chunks)?;
+    let live: HashSet<u128> = prefixes.iter().map(|p| p.key).collect();
     if gc {
         let (bytes, n) = (store.bytes(), store.len());
         store.compact(&live)?;
@@ -831,7 +885,7 @@ fn index_in(
     }
     if stats {
         let covered = (0..chunks.len())
-            .filter(|&i| store.tokens(keys[i].0) == Some(keys[i].1))
+            .filter(|&i| store.tokens(prefixes[i].key) == Some(prefixes[i].at))
             .count();
         let used = live.iter().filter(|&&k| store.tokens(k).is_some()).count();
         let pct = 100.0 * covered as f64 / chunks.len().max(1) as f64;
@@ -865,7 +919,7 @@ fn index_in(
             eprintln!("{line}");
         }
     };
-    let (added, tokens) = build(&mut eng, &mut store, &chunks, &keys, &mut progress)?;
+    let (added, tokens) = build(&mut eng, &mut store, &chunks, &prefixes, &mut progress)?;
     if tty && added > 0 {
         eprintln!();
     }
@@ -1006,6 +1060,10 @@ struct Row {
     query: String,
     /// anchor recall@k of the recall order, for the ks in `KS`
     recall: [f64; 4],
+    /// the recall list, and how many of it the model scored: all of it, the
+    /// eval having no cascade (None when only recall ran)
+    candidates: usize,
+    scored: Option<usize>,
     /// rank of the first chunk satisfying an anchor in the recall order
     first: Option<usize>,
     reranked: Option<Reranked>,
@@ -1226,19 +1284,12 @@ fn run_eval(
         let order = hay.recall(&c.query, o.candidates);
         let recall_ms = ms(t);
         let t = Instant::now();
+        // no cascade: hit@k and MRR are measured over every candidate, whatever
+        // the size of the waves they are read in
         let scored = match eng.as_mut() {
-            Some(e) if !order.is_empty() => Some(
-                rerank(
-                    e,
-                    &mut store,
-                    &hay.chunks,
-                    &order,
-                    &c.query,
-                    o.top,
-                    o.threshold,
-                )?
-                .0,
-            ),
+            Some(e) if !order.is_empty() => {
+                Some(rerank(e, &mut store, &hay.chunks, &order, &c.query, None)?.0)
+            }
             Some(_) => Some(Vec::new()),
             None => None,
         };
@@ -1254,6 +1305,8 @@ fn run_eval(
             kind: c.kind.clone(),
             query: c.query.clone(),
             recall: std::array::from_fn(|k| anchor_recall(&hay.chunks, &order, &c.expect, KS[k])),
+            candidates: order.len(),
+            scored: scored.as_ref().map(Vec::len),
             first: order
                 .iter()
                 .position(|&i| satisfies(&c.expect, &hay.chunks[i]))
@@ -1301,6 +1354,8 @@ fn run_eval(
                 "kind": r.kind,
                 "query": r.query,
                 "recall": at_ks(&r.recall),
+                "candidates": r.candidates,
+                "scored": r.scored,
                 "first_satisfying_rank": r.first,
                 "rerank": r.reranked.as_ref().map(|m| json!({
                     "hit_at_1": m.hit1,
@@ -1333,7 +1388,6 @@ fn run_eval(
         "kv": o.tree.kv.as_str(),
         "chunks": hay.chunks.len(),
         "candidates": o.candidates,
-        "top": o.top,
         "threshold": o.threshold,
         "overall": overall,
         "by_kind": by_kind,
@@ -1387,9 +1441,15 @@ mod tests {
         }
     }
 
-    /// An engine on the sim with `n_seq` seqs: waves of `n_seq - 1`.
+    /// An engine on the sim with `n_seq` seqs and a context no wave of these
+    /// tests fills: waves of `n_seq - 1`.
     fn engine(n_seq: usize) -> Engine {
-        Engine::new(Box::new(Sim::new(1 << 16, n_seq, 256)), "snap-sim".into()).unwrap()
+        engine_ctx(1 << 16, n_seq)
+    }
+
+    /// The same on a context of `n_ctx` cells, where waves are cell-bound.
+    fn engine_ctx(n_ctx: usize, n_seq: usize) -> Engine {
+        Engine::new(Box::new(Sim::new(n_ctx, n_seq, 256)), "snap-sim".into()).unwrap()
     }
 
     /// `n` distinct chunks over files of three, the last file prose.
@@ -1612,6 +1672,7 @@ mod tests {
             candidates: 64,
             cost: Cost {
                 scored: 64,
+                waves: 4,
                 restored: 60,
                 tokens: 5123,
             },
@@ -1859,9 +1920,7 @@ mod tests {
 
     /// P(yes) of every chunk, from scratch, in `order`.
     fn cold(eng: &mut Engine, chunks: &[Chunk], order: &[usize], q: &str) -> Vec<f64> {
-        rerank(eng, &mut None, chunks, order, q, usize::MAX, 0.5)
-            .unwrap()
-            .0
+        rerank(eng, &mut None, chunks, order, q, None).unwrap().0
     }
 
     #[test]
@@ -1871,15 +1930,13 @@ mod tests {
         let order: Vec<usize> = (0..10).rev().collect();
         let mut eng = engine(4);
         let mut store = Some(Store::open(&t.0, "b").unwrap());
-        let (first, c1) =
-            rerank(&mut eng, &mut store, &chunks, &order, Q, usize::MAX, 0.5).unwrap();
+        let (first, c1) = rerank(&mut eng, &mut store, &chunks, &order, Q, None).unwrap();
         assert_eq!((c1.scored, c1.restored), (10, 0));
         assert_eq!(store.as_ref().unwrap().len(), 10);
         // scores are what decoding from scratch gives, on the sim exactly
         assert_eq!(first, cold(&mut eng, &chunks, &order, Q));
 
-        let (again, c2) =
-            rerank(&mut eng, &mut store, &chunks, &order, Q, usize::MAX, 0.5).unwrap();
+        let (again, c2) = rerank(&mut eng, &mut store, &chunks, &order, Q, None).unwrap();
         assert_eq!(again, first);
         assert_eq!((c2.scored, c2.restored), (10, 10));
         // what decodes is the question tail of every probe, and nothing else
@@ -1901,8 +1958,7 @@ mod tests {
             &chunks,
             &backwards,
             "something else",
-            usize::MAX,
-            0.5,
+            None,
         )
         .unwrap();
         assert_eq!(c3.restored, 10);
@@ -1911,8 +1967,7 @@ mod tests {
         drop(store);
         let mut store = Some(Store::open(&t.0, "b").unwrap());
         let mut fresh = engine(4);
-        let (disk, c4) =
-            rerank(&mut fresh, &mut store, &chunks, &order, Q, usize::MAX, 0.5).unwrap();
+        let (disk, c4) = rerank(&mut fresh, &mut store, &chunks, &order, Q, None).unwrap();
         assert_eq!((disk, c4.restored), (first, 10));
     }
 
@@ -1921,7 +1976,7 @@ mod tests {
         let chunks = synthetic(7);
         let order: Vec<usize> = (0..7).collect();
         let mut eng = engine(4);
-        let (ps, c) = rerank(&mut eng, &mut None, &chunks, &order, Q, usize::MAX, 0.5).unwrap();
+        let (ps, c) = rerank(&mut eng, &mut None, &chunks, &order, Q, None).unwrap();
         assert_eq!((ps.len(), c.scored, c.restored), (7, 7, 0));
         assert!(c.tokens > 0);
     }
@@ -1940,20 +1995,22 @@ mod tests {
             all.iter().filter(|&&p| p == top_p).count() == 1,
             "a tie would add hits"
         );
-        let go = |eng: &mut Engine, top: usize, threshold: f64| {
-            rerank(eng, &mut None, &chunks, &best, Q, top, threshold)
-                .unwrap()
-                .0
-                .len()
+        let go = |eng: &mut Engine, stop: Option<Cascade>| {
+            let ps = rerank(eng, &mut None, &chunks, &best, Q, stop).unwrap().0;
+            ps.len()
         };
+        let cascade = |top, threshold| Some(Cascade { top, threshold });
         // one hit wanted: wave one finds it, wave two adds none, stop
-        assert_eq!(go(&mut eng, 1, top_p), 6);
+        assert_eq!(go(&mut eng, cascade(1, top_p)), 6);
         // more hits wanted than exist: every wave is scored
-        assert_eq!(go(&mut eng, 2, top_p), 12);
+        assert_eq!(go(&mut eng, cascade(2, top_p)), 12);
         // every candidate is a hit: waves keep adding
-        assert_eq!(go(&mut eng, 1, 0.0), 12);
+        assert_eq!(go(&mut eng, cascade(1, 0.0)), 12);
         // no hit at all: nothing has "enough"
-        assert_eq!(go(&mut eng, 1, 1.1), 12);
+        assert_eq!(go(&mut eng, cascade(1, 1.1)), 12);
+        // and with no cascade every wave is scored, hits or none, where the
+        // first of these stopped at six
+        assert_eq!(go(&mut eng, None), 12);
     }
 
     #[test]
@@ -1980,7 +2037,7 @@ mod tests {
             .put(key(3), probes[3].at, &blob(&probes[3].toks[..probes[3].at]))
             .unwrap();
         let mut store = Some(store);
-        let (got, c) = rerank(&mut eng, &mut store, &chunks, &order, Q, usize::MAX, 0.5).unwrap();
+        let (got, c) = rerank(&mut eng, &mut store, &chunks, &order, Q, None).unwrap();
         assert_eq!(got, want);
         // only the whole one was restored from the store
         assert_eq!(c.restored, 1);
@@ -2001,11 +2058,138 @@ mod tests {
         let order: Vec<usize> = (0..6).collect();
         let mut eng = engine(3); // waves of two: the copy comes two waves after its twin
         let mut store = Some(Store::open(&t.0, "b").unwrap());
-        let (ps, c) = rerank(&mut eng, &mut store, &chunks, &order, Q, usize::MAX, 0.5).unwrap();
+        let (ps, c) = rerank(&mut eng, &mut store, &chunks, &order, Q, None).unwrap();
         assert_eq!(ps[0], ps[5]);
         assert_eq!(store.as_ref().unwrap().len(), 5);
         // the twin's snapshot, stored after the reads were asked for, serves the copy
         assert_eq!(c.restored, 1);
+    }
+
+    #[test]
+    fn waves_are_greedy_runs_of_what_the_room_holds() {
+        let room = Room {
+            seqs: 4,
+            cells: 1000,
+        };
+        // cells bind: two 460-token probes fit 1000 cells, a third does not
+        assert_eq!(waves(room, &[460; 5]), [0..2, 2..4, 4..5]);
+        // seqs bind: four to a wave, however small
+        assert_eq!(waves(room, &[10; 9]), [0..4, 4..8, 8..9]);
+        // the sum decides, in order: a long probe closes the wave before it
+        assert_eq!(waves(room, &[300, 300, 300, 600, 100]), [0..3, 3..5]);
+        // a probe that fits nowhere is a wave of its own, for the decode to refuse
+        assert_eq!(waves(room, &[300, 1500, 300]), [0..1, 1..2, 2..3]);
+        // a room with nothing in it still moves, a probe at a time
+        let none = Room { seqs: 0, cells: 0 };
+        assert_eq!(waves(none, &[5, 5]), [0..1, 1..2]);
+        assert!(waves(room, &[]).is_empty());
+    }
+
+    #[test]
+    fn waves_tile_the_candidates_within_the_room_and_close_only_when_full() {
+        // xorshift: probes of every length, rooms of every shape
+        let mut x = 0x2545_f491_4f6c_dd1du64;
+        let mut next = |n: u64| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (x % n) as usize
+        };
+        for _ in 0..200 {
+            let room = Room {
+                seqs: 1 + next(20),
+                cells: 300 + next(3000),
+            };
+            let lens: Vec<usize> = (0..next(60)).map(|_| 20 + next(900)).collect();
+            let plan = waves(room, &lens);
+            // consecutive, every candidate once
+            let mut at = 0;
+            for w in &plan {
+                assert!(!w.is_empty() && w.start == at, "{room:?} {w:?}");
+                at = w.end;
+            }
+            assert_eq!(at, lens.len());
+            for w in &plan {
+                let cells: usize = lens[w.clone()].iter().sum();
+                // within the room, unless one probe alone is more than it holds
+                let fits = w.len() <= room.seqs && cells <= room.cells;
+                assert!(w.len() == 1 || fits, "{room:?} {w:?}");
+                // greedy: a wave closes because the next probe would not fit
+                if let Some(&more) = lens.get(w.end) {
+                    assert!(
+                        w.len() == room.seqs || cells + more > room.cells,
+                        "{room:?} {w:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_cramped_context_forms_smaller_waves_and_the_scores_do_not_change() {
+        let t = Tmp::new("cramped");
+        let chunks = synthetic(10);
+        let order: Vec<usize> = (0..10).collect();
+        // roomy: the ten are one wave, and these are the scores to match
+        let mut roomy = engine_ctx(1 << 16, 65);
+        let (want, c) = rerank(&mut roomy, &mut None, &chunks, &order, Q, None).unwrap();
+        assert_eq!(c.waves, 1);
+        // 2000 cells hold about three probes of ~470 tokens, whatever the 64 seqs
+        let mut tight = engine_ctx(2000, 65);
+        let lens: Vec<usize> = order
+            .iter()
+            .map(|&i| probe_for(&tight, &chunks[i], Q).unwrap().toks.len())
+            .collect();
+        let room = tight.grep_room();
+        let plan = waves(room, &lens);
+        assert!(plan.len() >= 3, "{plan:?}");
+        for w in &plan {
+            assert!(lens[w.clone()].iter().sum::<usize>() <= room.cells);
+        }
+        let (ps, c) = rerank(&mut tight, &mut None, &chunks, &order, Q, None).unwrap();
+        assert_eq!((ps, c.waves), (want.clone(), plan.len()));
+        // with a store: the same waves cold, and warm from the snapshots
+        let mut store = Some(Store::open(&t.0, "b").unwrap());
+        let (cold, c) = rerank(&mut tight, &mut store, &chunks, &order, Q, None).unwrap();
+        assert_eq!((cold, c.waves, c.restored), (want.clone(), plan.len(), 0));
+        let (warm, c) = rerank(&mut tight, &mut store, &chunks, &order, Q, None).unwrap();
+        assert_eq!((warm, c.waves, c.restored), (want, plan.len(), 10));
+    }
+
+    #[test]
+    fn waves_of_different_sizes_are_read_ahead_by_the_first_one_and_answer_alike() {
+        let t = Tmp::new("mixed");
+        // four long chunks, then short ones: the first wave is the smallest
+        let chunks: Vec<Chunk> = (0..16)
+            .map(|i| {
+                let body = match i {
+                    0..=3 => "    let v = 1;\n".repeat(60),
+                    _ => "    v\n".into(),
+                };
+                let text = format!("fn sym{i}() {{\n{body}}}");
+                chunk(&format!("src/g{i}.rs"), 1, Some(&format!("sym{i}")), &text)
+            })
+            .collect();
+        let order: Vec<usize> = (0..16).collect();
+        let (want, _) = rerank(&mut engine(65), &mut None, &chunks, &order, Q, None).unwrap();
+        let mut eng = engine_ctx(4000, 65);
+        let lens: Vec<usize> = order
+            .iter()
+            .map(|&i| probe_for(&eng, &chunks[i], Q).unwrap().toks.len())
+            .collect();
+        let plan = waves(eng.grep_room(), &lens);
+        let sizes: Vec<usize> = plan.iter().map(Range::len).collect();
+        assert!(sizes.iter().any(|&n| n > sizes[0]), "{sizes:?}");
+        // the first wave is also how far the reads run ahead: later waves are
+        // bigger than the queue, and the answers are the same
+        let mut store = Some(Store::open(&t.0, "b").unwrap());
+        for pass in 0..2 {
+            let (ps, c) = rerank(&mut eng, &mut store, &chunks, &order, Q, None).unwrap();
+            assert_eq!(
+                (ps, c.waves, c.restored),
+                (want.clone(), plan.len(), pass * 16)
+            );
+        }
     }
 
     // --- one search
@@ -2014,11 +2198,16 @@ mod tests {
     /// The GGUF is written once: its mtime is part of the binding, and a
     /// rewrite a second later would open a different store.
     fn model(t: &Tmp) -> impl FnOnce() -> Result<Loaded> {
+        model_seqs(t, 5)
+    }
+
+    /// `model` on an engine of `n_seq` seqs: waves of `n_seq - 1`.
+    fn model_seqs(t: &Tmp, n_seq: usize) -> impl FnOnce() -> Result<Loaded> {
         let gguf = t.at("m.gguf");
         if !gguf.exists() {
             t.write("m.gguf", "weights");
         }
-        move || Ok((engine(5), gguf))
+        move || Ok((engine(n_seq), gguf))
     }
 
     fn query(q: &str, o: Opts) -> Search {
@@ -2153,12 +2342,12 @@ mod tests {
         let t = Tmp::new("build");
         let chunks = synthetic(7);
         let mut eng = engine(4);
-        let keys = chunk_keys(&eng, &chunks).unwrap();
-        assert_eq!(keys.len(), 7);
+        let prefixes = chunk_prefixes(&eng, &chunks).unwrap();
+        assert_eq!(prefixes.len(), 7);
         let mut store = Store::open(&t.0, "b").unwrap();
         let mut seen = Vec::new();
         let mut note = |d, n, tk| seen.push((d, n, tk));
-        let (added, tokens) = build(&mut eng, &mut store, &chunks, &keys, &mut note).unwrap();
+        let (added, tokens) = build(&mut eng, &mut store, &chunks, &prefixes, &mut note).unwrap();
         assert_eq!((added, store.len()), (7, 7));
         assert!(tokens > 0);
         // waves of three: the last one short, the total fixed
@@ -2167,12 +2356,40 @@ mod tests {
         assert!(seen.windows(2).all(|w| w[0].2 <= w[1].2));
         let idle = &mut |_, _, _| panic!("nothing to do");
         assert_eq!(
-            build(&mut eng, &mut store, &chunks, &keys, idle).unwrap(),
+            build(&mut eng, &mut store, &chunks, &prefixes, idle).unwrap(),
             (0, 0)
         );
         // every snapshot is the whole prefix the probe expects
-        for (c, &(k, at)) in chunks.iter().zip(&keys) {
-            assert_eq!(store.tokens(k), Some(at), "{}", c.path);
+        for (c, p) in chunks.iter().zip(&prefixes) {
+            assert_eq!(store.tokens(p.key), Some(p.at), "{}", c.path);
+        }
+    }
+
+    #[test]
+    fn index_batches_are_the_waves_of_the_room_too() {
+        let t = Tmp::new("batches");
+        let chunks = synthetic(8);
+        // 65 seqs, so a count alone would take all eight in one batch; 2000
+        // cells hold about three probes of ~470 tokens
+        let mut eng = engine_ctx(2000, 65);
+        let prefixes = chunk_prefixes(&eng, &chunks).unwrap();
+        let lens: Vec<usize> = prefixes.iter().map(|p| p.len).collect();
+        let room = eng.grep_room();
+        let plan = waves(room, &lens);
+        assert!(plan.len() > 1, "the context should cramp the batches");
+        let mut store = Store::open(&t.0, "b").unwrap();
+        let mut seen = Vec::new();
+        let mut note = |d, n, tk| seen.push((d, n, tk));
+        let (added, _) = build(&mut eng, &mut store, &chunks, &prefixes, &mut note).unwrap();
+        assert_eq!((added, store.len()), (8, 8));
+        // one progress report a batch, each batch a wave of the plan
+        let done: Vec<usize> = seen.iter().map(|s| s.0).collect();
+        let ends: Vec<usize> = plan.iter().map(|w| w.end).collect();
+        assert_eq!(done, ends);
+        // and no batch holds more than the room: blobs in memory are bounded
+        for w in &plan {
+            let cells: usize = lens[w.clone()].iter().sum();
+            assert!(w.len() == 1 || cells <= room.cells, "{w:?}: {cells} cells");
         }
     }
 
@@ -2271,6 +2488,8 @@ mod tests {
             kind: kind.into(),
             query: "q".into(),
             recall,
+            candidates: 0,
+            scored: None,
             first: None,
             reranked,
             top: Vec::new(),
@@ -2404,6 +2623,56 @@ mod tests {
         assert!(first["top"].as_array().unwrap().len() <= 10);
         assert!(first["top"][0]["p"].as_f64().is_some());
         assert!(t.at("cache").exists());
+        // every candidate of every case was scored
+        for c in rep["cases"].as_array().unwrap() {
+            assert_eq!(c["scored"], c["candidates"], "{}", c["id"]);
+        }
+    }
+
+    /// `n` files that all answer "pool connection": every chunk is a candidate.
+    /// The cases file stays outside the tree, so a search sees just the `n`.
+    fn crowd(t: &Tmp, n: usize) -> (PathBuf, PathBuf) {
+        for i in 0..n {
+            let text = format!(
+                "pub fn pool_{i}() -> Conn {{\n    // a connection from the pool, number {i}\n}}\n"
+            );
+            t.write(&format!("crowd/src/m{i}.rs"), &text);
+        }
+        let case = r#"{"id": "c1", "query": "pool connection", "kind": "lexical", "expect": [{"path": "src/m0.rs", "contains": "fn pool_0("}]}"#;
+        (t.at("crowd"), t.write("crowd-cases.jsonl", case))
+    }
+
+    #[test]
+    fn an_eval_scores_every_candidate_where_a_search_would_have_stopped() {
+        let t = Tmp::new("every");
+        let (root, file) = crowd(&t, 12);
+        let base = t.at("cache");
+        // waves of two over twelve candidates, one hit wanted, no store
+        let opts_at = |threshold| Opts {
+            top: 1,
+            threshold,
+            store: false,
+            ..opts(&root)
+        };
+        let stops = |threshold| {
+            let s = query("pool connection", opts_at(threshold));
+            let found = search(&s, &base, model_seqs(&t, 3)).unwrap();
+            assert_eq!(found.stats.candidates, 12);
+            found.stats.cost.scored < 12
+        };
+        // a threshold at which the cascade of a search cuts the run short
+        let cut = (1..20).map(|k| f64::from(k) / 20.0).find(|&th| stops(th));
+        let threshold = cut.expect("some threshold has the cascade stop early");
+        // the eval, on the same options, reads all twelve: its hit@k and MRR
+        // are over every candidate, whatever the wave size
+        let o = opts_at(threshold);
+        let rep = run_eval(file.to_str().unwrap(), None, &base, &o, model_seqs(&t, 3)).unwrap();
+        let case = &rep["cases"][0];
+        assert_eq!(
+            (case["candidates"].as_u64(), case["scored"].as_u64()),
+            (Some(12), Some(12))
+        );
+        assert_eq!(case["top"].as_array().unwrap().len(), 10);
     }
 
     #[test]

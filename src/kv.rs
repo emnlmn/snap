@@ -144,7 +144,28 @@ struct Plan<'j> {
 }
 
 /// Cell slack under n_ctx when sizing waves.
-const KV_SLACK: usize = 32;
+pub(crate) const KV_SLACK: usize = 32;
+
+/// What one restore wave has to work with: free seqs, and the cells left
+/// next to what the cache holds, the slack kept back. Restored cells are
+/// private, so a job takes one seq and its whole prompt in cells.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Room {
+    pub seqs: usize,
+    pub cells: usize,
+}
+
+impl Room {
+    /// How many of the jobs fit, `lens` their prompt lengths in order.
+    pub fn fit(self, lens: impl Iterator<Item = usize>) -> usize {
+        lens.take(self.seqs)
+            .scan(self.cells, |left, len| {
+                *left = left.checked_sub(len)?;
+                Some(())
+            })
+            .count()
+    }
+}
 
 pub struct Kv {
     entries: Vec<Entry>,
@@ -220,6 +241,15 @@ impl Kv {
         (1..n_seq as i32)
             .filter(|s| self.entries.iter().all(|e| e.seq != *s))
             .collect()
+    }
+
+    /// The room a restore wave has now: `run_restored` takes its waves by
+    /// it, and so can a caller sizing batches ahead of one.
+    pub fn restore_room(&self, b: &dyn Backend) -> Room {
+        Room {
+            seqs: self.free_seqs(b.n_seq()).len(),
+            cells: b.n_ctx().saturating_sub(self.cells() + KV_SLACK),
+        }
     }
 
     /// Drop the least recently used unpinned entry `allow` accepts.
@@ -552,15 +582,8 @@ impl Kv {
         while !pending.is_empty() {
             // the largest prefix of what is pending that fits next to the cache
             let free = self.free_seqs(n_seq);
-            let room = n_ctx.saturating_sub(self.cells() + KV_SLACK);
-            let n = pending
-                .iter()
-                .take(limit.min(free.len()))
-                .scan(room, |left, &j| {
-                    *left = left.checked_sub(jobs[j].toks.len())?;
-                    Some(())
-                })
-                .count();
+            let room = self.restore_room(&*b);
+            let n = room.fit(pending.iter().take(limit).map(|&j| jobs[j].toks.len()));
             if n == 0 {
                 if !self.evict(b, |_| true) {
                     bail!(
@@ -1618,6 +1641,69 @@ mod tests {
         assert_eq!(kv.entries(), [(0, HEAD.to_vec())]);
         check(&kv, &sim);
         assert_eq!(sim.loads, 1);
+    }
+
+    #[test]
+    fn a_restore_room_is_the_free_seqs_and_the_cells_the_cache_leaves() {
+        let (mut kv, mut sim) = setup(400, 6, 16);
+        // seq 0 holds the head: five seqs and the rest of the context are free,
+        // the planner's slack kept back
+        let room = kv.restore_room(&sim);
+        assert_eq!(
+            room,
+            Room {
+                seqs: 5,
+                cells: 400 - HEAD.len() - KV_SLACK
+            }
+        );
+        // cells and seqs each bound it: three of 100, five of 10, none of 400
+        assert_eq!(room.fit([100; 10].into_iter()), 3);
+        assert_eq!(room.fit([10; 10].into_iter()), 5);
+        assert_eq!(room.fit([400, 1].into_iter()), 0);
+        assert_eq!(room.fit(std::iter::empty()), 0);
+        // an order that does not fit stops at the first job that does not
+        assert_eq!(room.fit([200, 200, 1].into_iter()), 1);
+        // a cached span takes a seq and the cells it adds to the head off the room
+        let state: Vec<i32> = HEAD.iter().copied().chain(vec![7; 60]).collect();
+        let ask = (state.iter().copied().chain([1]).collect(), state.len());
+        run(&mut kv, &mut sim, &[ask], true);
+        assert!(kv.entries().iter().any(|e| e.1 == state));
+        let after = kv.restore_room(&sim);
+        assert_eq!((after.seqs, after.cells), (room.seqs - 1, room.cells - 60));
+    }
+
+    #[test]
+    fn restore_waves_are_the_ones_the_room_predicts() {
+        for (n_ctx, n_seq) in [(400, 6), (400, 3), (4096, 65), (900, 17)] {
+            let (mut kv, mut sim) = setup(n_ctx, n_seq, 16);
+            // jobs of 100 cells and more, an odd one among them
+            let ps: Vec<(Vec<i32>, usize)> = (0..9)
+                .map(|i| {
+                    let n = if i == 4 { 160 } else { 90 + i };
+                    (
+                        HEAD.iter().copied().chain(vec![1 + i as i32; n]).collect(),
+                        0,
+                    )
+                })
+                .collect();
+            let blobs = snapshot(&mut kv, &mut sim, &ps, true);
+            let cases = with_tails(&mut Rng(3), &ps, blobs);
+            let room = kv.restore_room(&sim);
+            // what a caller sizing batches ahead sees: greedy waves by the room
+            let mut lens: Vec<usize> = cases.iter().map(|c| c.toks.len()).collect();
+            let mut want = 0;
+            while !lens.is_empty() {
+                let n = room.fit(lens.iter().copied());
+                assert!(n > 0, "ctx {n_ctx}: a job no room holds");
+                lens.drain(..n);
+                want += 1;
+            }
+            let (st, refused) = restored(&mut kv, &mut sim, &cases);
+            assert!(refused.is_empty());
+            // and what the restore does with the same jobs: those very waves
+            assert_eq!(st.waves, want, "ctx {n_ctx}, {n_seq} seqs");
+            assert_eq!(sim.no_slots, 0);
+        }
     }
 
     #[test]
