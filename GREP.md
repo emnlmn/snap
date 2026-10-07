@@ -54,9 +54,15 @@ rerank out of the query, as the next sections explain.
    llama, gemma2, mamba and hybrid models). Snapshots are saved and restored
    whole, so `kv.rs`'s one rule (sequences are copied and removed whole)
    still holds, and hybrid or recurrent memories take the same path.
-5. **Cascade.** Candidates are scored in waves of up to 64 (one decode per
-   wave), in recall order. The search stops early once enough hits are in
-   and a wave adds none.
+5. **Waves and cascade.** Candidates are scored in recall order, in waves
+   of as many as one restore can hold: a restored snapshot takes a sequence
+   and private cells for its whole prompt, so a wave is up to 64
+   candidates whose prompts fit the context together (17 snap1-2b probes
+   at the default `--ctx 8192`, 64 at `--ctx 32768`). At most about two
+   waves of snapshots sit in memory, the one being scored and the one read
+   ahead: 0.7 GB in f16 at the default context. The search stops early once
+   enough hits are in and a wave adds none; `--eval` always scores every
+   candidate.
 
 Prior work on the same idea: PreTTR (SIGIR 2020) precomputed
 document-side term representations for BERT rerankers. HyperRAG (2025)
@@ -107,7 +113,7 @@ sequences of 460 tokens:
   takes 6.4 ms (3 GB/s), 0.4 s for 64 candidates on the decode thread;
   `seq_save` takes 10.8 ms, 41–46% of it spent allocating the buffer.
   q8_0 halves both, but on CPU it decodes 1.56× slower than f16.
-- **The disk hides behind the decode** when the prefetch reads a full
+- **The disk hides behind the decode** when the prefetch reads a whole
   wave ahead: only the first wave's read shows, about 6% of the query.
   The store read a cold pack at 1.1–1.5 GB/s (the raw disk does
   1.5–2 GB/s). The overlap holds as long as decoding a wave's tails takes
@@ -153,8 +159,25 @@ earn its place on `eval/grep.jsonl` before it ships.
 
 ## Measuring
 
-`eval/grep.jsonl` holds queries over snap's own tree. Each one names the
-lines that answer it as `{path, contains}` anchors, which stay valid as
-line numbers move. `snap grep --eval eval/grep.jsonl --recall-only`
-measures the first stage without a model. The full run reports hit@1,
-recall@k, MRR and the latency of each stage.
+`eval/grep.jsonl` holds 40 queries over snap's own tree: 14 that share
+words with the code that answers them, 16 paraphrases that share none, and
+10 whose answer spans several places. Each one names the lines that answer
+it as `{path, contains}` anchors, which stay valid as line numbers move.
+`snap grep --eval eval/grep.jsonl --recall-only` measures the first stage
+without a model; the full run adds hit@1, recall@5 and @10 and MRR over
+the model's order, and the latency of each stage.
+
+The first stage today, anchor recall over the candidates:
+
+| kind | @1 | @5 | @10 | @64 |
+|---|---:|---:|---:|---:|
+| lexical (14) | 0.71 | 0.93 | 1.00 | 1.00 |
+| concept (10) | 0.15 | 0.42 | 0.53 | 1.00 |
+| paraphrase (16) | 0.00 | 0.00 | 0.00 | 0.56 |
+| overall (40) | 0.29 | 0.43 | 0.48 | 0.82 |
+
+Recall@64 is the ceiling the model can reach: it reorders the 64
+candidates, so the paraphrases recall misses (44% of them) stay missed.
+That is why a dense channel leads the list above. The model's own ranking
+is not measured yet: it needs a real model, and this branch was built
+where none could be downloaded.
