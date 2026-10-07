@@ -468,6 +468,49 @@ says when calibration did not help. The file binds to the exact model id and
 prompt version and refuses to load on any other build. How to prepare the
 cases, how many, and how to read the report: [CALIBRATION.md](CALIBRATION.md).
 
+## Code search: `snap grep`
+
+`snap grep "<question>" [path]` finds the code that answers a question
+about a tree, the way ripgrep finds text. ripgrep's own walker lists the
+files (`.gitignore`, `-g` globs; dotfiles included). BM25 over identifiers,
+declared names and paths picks the candidates without a model. Then the
+model reads each candidate once and answers one yes/no letter, and the
+probability of "yes" is the hit's score. Like the rest of snap, it
+generates no text: the output is locations, probabilities and the source
+itself.
+
+```bash
+snap grep "where is the KV cache rebuilt after a failed decode" src/
+snap grep -l "what stops a kill from signalling the process group" .
+snap grep --json -n 5 "how is a long choice list expanded" .
+snap grep --cache src/ # what the cache holds of this tree
+snap grep --gc src/    # drop what no chunk uses any more
+```
+
+The expensive part of each read does not depend on the question. That is
+the model's memory of `[prompt head + chunk]`, and it is saved to disk the
+first time a chunk is a candidate. A later query restores it and decodes
+only its own question, a few dozen tokens per candidate instead of a few
+hundred. The cache fills only as searches read candidates; nothing indexes
+a whole tree ahead of time, which for a large one would take hundreds of GB.
+
+Snapshots live in `$SNAP_GREP_DIR`, else `$XDG_CACHE_HOME/snap/grep`, else
+`~/.cache/snap/grep`, one directory per tree and engine. They are a cache
+and safe to delete. The KV cache type of grep is `q8_0`, and a snapshot of a
+400-token chunk weighs about 10 MB; `--kv f16` keeps full precision at twice
+that, in a store of its own. With `--ctx 32768`, one wave restores all 64
+candidates at once.
+
+`snap grep --cache [path]` reports what the cache holds of a tree (snapshots,
+size, chunks covered, stale ones). `snap grep --gc [path]` drops the
+snapshots no chunk of the tree uses any more, and the stores of that tree
+written by other engines (another snap version, model, prompt format or KV
+type). In both the one positional is the path, not a query.
+
+The design, the measured costs and the eval
+(`snap grep --eval eval/grep.jsonl`) are in [GREP.md](GREP.md). The
+lexical stage is measured; the model's ranking on a real model is not yet.
+
 ## Quickstart
 
 Prebuilt binaries are on
@@ -532,6 +575,8 @@ snap evaluate eval/cases.jsonl              # accuracy + brier/ece + consistency
 snap calibrate eval/cases.jsonl -o cal.json # fit temperatures into a calibration file
 snap export-prompts eval/cases.jsonl > p.jsonl  # the prompts evaluate decodes, for training
 snap bench --requests 20                    # latency and throughput
+snap grep "how are prompts tokenized" src/  # code search: recall, then the model reranks
+snap grep --cache src/                      # what the grep cache holds of a tree
 ```
 
 `--model` takes a name from `snap models`, and only from that tested set.

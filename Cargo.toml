@@ -19,6 +19,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net
 hf-hub = { version = "0.4", default-features = false, features = ["ureq"] }
 ureq = { version = "3", features = ["json"] }
 tracing = "0.1"
+# ripgrep's walker: .gitignore/.ignore semantics, hidden files, -g globs (snap grep)
+ignore = "0.4"
+regex = "1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # pid liveness + SIGTERM/SIGKILL for `snap ps` / `snap stop`

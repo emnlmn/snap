@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- grep: `snap grep`, code search on the letter surface —
+  ripgrep's walker and BM25F over code-aware terms pick the candidates, the
+  model reranks each with one boolean probe, and the query-independent
+  `[head + chunk]` KV is snapshotted to disk so a warm query decodes only
+  its question tail (GREP.md)
+- grep: the KV type defaults to q8_0 (~10 MB a snapshot, f16 stays one
+  `--kv` away); `--cache` reports what the cache holds of a tree and `--gc`
+  drops what no chunk uses plus the stores of other engines, the positional
+  being the path
+- kv: whole-seq snapshots — `Backend::seq_save`/`seq_load`, `Kv::snapshot`
+  and `Kv::run_restored`, checked on the sim against from-scratch rows and
+  on tiny llama, gemma2, mamba and hybrid GGUFs under llama.cpp
+- llamac: `KvType` (`--kv f16|q8_0` on grep), threaded through
+  `Engine::load_kv`; every other command stays on f16
+- eval: `eval/grep.jsonl`, 40 cases over snap's own tree (lexical,
+  paraphrase, concept), anchored by code text instead of line numbers
+
 ## 0.5.0 - 2026-10-02
 
 - prompts: noul `{true, false}` criteria render as `Yes:`/`No:` outcome

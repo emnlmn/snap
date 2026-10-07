@@ -15,6 +15,10 @@
 //! snapjudge's finding, faster and more accurate on short states),
 //! `catalog` keeps `[head+QUESTIONS list]` (the same question set, the state
 //! decoded once after it).
+//!
+//! `snap grep` rides the same machinery (`grep/model.rs`): a chunk is the state
+//! of a one-question `state_first` request, compiled by `probe_prompt` like
+//! `decide` would, so its `[head+state]` prefix does not depend on the query.
 
 use std::path::Path;
 use std::time::Instant;
@@ -25,7 +29,7 @@ use serde_json::{json, Map, Value};
 use crate::calibrate::{bucket, Calibration};
 use crate::decisions;
 use crate::kv::{common, Backend, Job, Kv};
-use crate::llamac::Llama;
+use crate::llamac::{KvType, Llama};
 use crate::prompts::{self, Slot};
 use crate::schema::{DecideRequest, Expand, Layout, Mode, QType, Question, MAX_SLOTS};
 
@@ -85,12 +89,12 @@ impl Compiled {
 }
 
 pub struct Engine {
-    llm: Box<dyn Backend>,
-    kv: Kv,
-    letter_ids: Vec<Vec<i32>>,
+    pub(crate) llm: Box<dyn Backend>,
+    pub(crate) kv: Kv,
+    pub(crate) letter_ids: Vec<Vec<i32>>,
     /// The template text around the user message: (before, after).
     frame: (String, String),
-    head: Vec<i32>,
+    pub(crate) head: Vec<i32>,
     pub model_id: String,
     /// Fitted per-type temperatures (`snap calibrate`); None = T 1.0 everywhere.
     pub calibration: Option<Calibration>,
@@ -148,8 +152,19 @@ fn state_text(state: &Value, fmt: Option<StateFormat>) -> String {
 }
 
 impl Engine {
-    /// Load a GGUF on the production llama.cpp backend.
+    /// Load a GGUF on the production llama.cpp backend, KV cache in f16.
     pub fn load(model_path: &Path, n_ctx: i32, n_batch: i32, n_threads: i32) -> Result<Self> {
+        Self::load_kv(model_path, n_ctx, n_batch, n_threads, KvType::F16)
+    }
+
+    /// `load` with the KV cache held as `kv`; stored snapshots bind to it.
+    pub fn load_kv(
+        model_path: &Path,
+        n_ctx: i32,
+        n_batch: i32,
+        n_threads: i32,
+        kv: KvType,
+    ) -> Result<Self> {
         let t0 = Instant::now();
         let stem = model_path
             .file_stem()
@@ -161,13 +176,12 @@ impl Engine {
                 |s| s.to_string_lossy()
             )
         );
-        let eng = Llama::load(&model_path.to_string_lossy(), n_ctx, n_batch, n_threads).and_then(
-            |llama| {
+        let eng = Llama::load(&model_path.to_string_lossy(), n_ctx, n_batch, n_threads, kv)
+            .and_then(|llama| {
                 let name = llama.meta("general.name").unwrap_or(stem);
                 let quant = llama.meta("general.file_type");
                 Engine::new(Box::new(llama), model_id(&name, quant.as_deref()))
-            },
-        );
+            });
         match &eng {
             Ok(_) => eprintln!("ready in {:.1}s", t0.elapsed().as_secs_f32()),
             Err(_) => eprintln!("failed"),
@@ -465,6 +479,65 @@ impl Engine {
                 "total_ms": ms(t0.elapsed().as_secs_f64() * 1000.0),
             },
         }))
+    }
+}
+
+/// A probe's logits row read as `decide` reads a boolean question: the same
+/// letters, the same decode, the boolean bucket's calibration at request
+/// temperature 1.0, down to the rounding of `probabilities.yes`.
+pub(crate) struct Reader<'a> {
+    letters: &'a [Vec<i32>],
+    q: Question,
+    slots: Vec<Slot>,
+    temp: f64,
+}
+
+impl<'a> Reader<'a> {
+    pub(crate) fn new(letters: &'a [Vec<i32>], calibration: Option<&Calibration>) -> Result<Self> {
+        let q: Question = serde_json::from_value(json!({"type": "boolean"}))?;
+        Ok(Reader {
+            letters,
+            slots: prompts::slots_for(&q),
+            q,
+            temp: calibration.map_or(1.0, |c| c.temp(bucket("boolean"))),
+        })
+    }
+
+    pub(crate) fn p_yes(&self, row: &[f32]) -> f64 {
+        let (logits, _) = read_row(row, &self.letters[..self.slots.len()]);
+        let ans = decisions::decode(&self.q, &self.slots, &logits, self.temp);
+        ans["probabilities"]["yes"].as_f64().unwrap_or(0.0)
+    }
+}
+
+impl Engine {
+    /// The prompt of a one-question request, compiled exactly as `decide`
+    /// compiles it (shared mode), and the length of its query-independent
+    /// prefix `[head + STATE block]`: the part worth keeping across requests.
+    pub(crate) fn probe_prompt(&self, req: &DecideRequest) -> Result<(Vec<i32>, usize)> {
+        let (compiled, units) = compile(req, self.state_format)?;
+        let [(name, q, _)] = units.as_slice() else {
+            bail!("a probe is one question, got {}", units.len());
+        };
+        let (slots, msg) = compiled.message(0, name, q);
+        let toks = self.prompt_tokens(&msg)?;
+        let n_ctx = self.llm.n_ctx();
+        if toks.len() > n_ctx {
+            bail!("probe is {} tokens, ctx is {n_ctx}", toks.len());
+        }
+        let it = Item {
+            name: name.clone(),
+            q: q.clone(),
+            slots,
+            toks,
+            keep: 0,
+            calib: 1.0,
+        };
+        let at = self.cache_prefix_len(&it, &msg, compiled.layout);
+        if at == 0 || at >= it.toks.len() {
+            bail!("probe of {} tokens has no cacheable prefix", it.toks.len());
+        }
+        Ok((it.toks, at))
     }
 }
 

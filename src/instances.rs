@@ -390,10 +390,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn stale_file_cleaned() {
-        // a reaped child pid is dead — its pidfile must be dropped by list()
-        let mut c = std::process::Command::new("true").spawn().unwrap();
-        let dead = c.id();
-        c.wait().unwrap();
+        // a dead pid's pidfile must be dropped by list(). Past every pid_max
+        // (linux 2^22, macOS 99999) rather than a reaped child: a spawn here
+        // lends the child, mid-fork, the flock another test's store holds.
+        let dead = (1 << 22) + 1;
         let dir = std::env::temp_dir().join(format!("snap-test-b-{}", std::process::id()));
         fixture(&dir, dead, now());
         assert!(list_in(dir.clone()).is_empty());

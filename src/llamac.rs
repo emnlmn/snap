@@ -20,6 +20,39 @@ pub const MAX_SEQS: i32 = 65;
 /// recurrent-state row (~50 MiB on qwen35), so 65 would be ~3.3 GB.
 pub const HYBRID_SEQS: i32 = 17;
 
+/// Element type of the KV cache. A snapshot is that memory, cell for cell, so
+/// a stored one is only valid for the type it was written under; q8_0 takes
+/// about half the bytes of f16 for a small rounding error in keys and values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KvType {
+    F16,
+    Q8_0,
+}
+
+impl KvType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            KvType::F16 => "f16",
+            KvType::Q8_0 => "q8_0",
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "f16" => Ok(KvType::F16),
+            "q8_0" => Ok(KvType::Q8_0),
+            _ => bail!("expected f16|q8_0, got {s:?}"),
+        }
+    }
+
+    fn ggml(self) -> sys::ggml_type {
+        match self {
+            KvType::F16 => sys::GGML_TYPE_F16,
+            KvType::Q8_0 => sys::GGML_TYPE_Q8_0,
+        }
+    }
+}
+
 extern "C" {
     fn snap_chat_templates_init(
         model: *mut sys::llama_model,
@@ -99,7 +132,7 @@ pub struct Llama {
 unsafe impl Send for Llama {}
 
 impl Llama {
-    pub fn load(path: &str, n_ctx: i32, n_batch: i32, n_threads: i32) -> Result<Llama> {
+    pub fn load(path: &str, n_ctx: i32, n_batch: i32, n_threads: i32, kv: KvType) -> Result<Llama> {
         unsafe { sys::llama_backend_init() };
         let cpath = CString::new(path)?;
         let mut mp = unsafe { sys::llama_model_default_params() };
@@ -148,7 +181,9 @@ impl Llama {
             p.n_outputs_max = nseq as u32; // default would reserve n_batch vocab rows
             p.n_threads = n_threads;
             p.n_threads_batch = n_threads;
-            p.flash_attn_type = sys::LLAMA_FLASH_ATTN_TYPE_ENABLED;
+            p.flash_attn_type = sys::LLAMA_FLASH_ATTN_TYPE_ENABLED; // a quantized V cache needs it
+            p.type_k = kv.ggml();
+            p.type_v = kv.ggml();
             p.swa_full = true; // SWA layers must keep whole prefixes to be forkable
             p.kv_unified = true;
             p.no_perf = true;
@@ -316,7 +351,51 @@ impl Backend for Llama {
         unsafe { sys::llama_memory_seq_cp(self.memory(), src, dst, 0, len as i32) };
     }
 
+    /// llama.cpp's own state blob: every cell the seq holds (shared ones
+    /// included) with its position, plus recurrent state.
+    fn seq_save(&mut self, seq: i32) -> Result<Vec<u8>> {
+        let size = unsafe { sys::llama_state_seq_get_size(self.ctx, seq) };
+        let mut blob = vec![0u8; size];
+        let n = unsafe { sys::llama_state_seq_get_data(self.ctx, blob.as_mut_ptr(), size, seq) };
+        if n == 0 {
+            bail!("llama.cpp could not snapshot seq {seq}");
+        }
+        blob.truncate(n);
+        Ok(blob)
+    }
+
+    /// Restores into free cells, wherever they are, at the saved positions.
+    /// llama.cpp reports every failure — foreign layout, no free cells — as
+    /// 0, so this never answers NoSlot.
+    fn seq_load(&mut self, seq: i32, blob: &[u8]) -> Result<(), DecodeError> {
+        if unsafe { sys::llama_state_seq_set_data(self.ctx, blob.as_ptr(), blob.len(), seq) } == 0 {
+            // a hybrid memory can fail after its attention half is restored
+            self.seq_rm(seq);
+            return Err(DecodeError::Failed("llama.cpp refused the snapshot".into()));
+        }
+        Ok(())
+    }
+
     fn clear(&mut self) {
         unsafe { sys::llama_memory_clear(self.memory(), true) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kv_types_round_trip_through_their_names() {
+        for (name, kv) in [("f16", KvType::F16), ("q8_0", KvType::Q8_0)] {
+            assert_eq!(KvType::parse(name).unwrap(), kv);
+            assert_eq!(kv.as_str(), name);
+        }
+        // the ggml types llama.cpp is handed
+        assert_eq!(KvType::F16.ggml(), sys::GGML_TYPE_F16);
+        assert_eq!(KvType::Q8_0.ggml(), sys::GGML_TYPE_Q8_0);
+        for bad in ["q4_0", "F16", "", "f32"] {
+            assert!(KvType::parse(bad).is_err(), "{bad:?}");
+        }
     }
 }

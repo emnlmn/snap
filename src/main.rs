@@ -4,6 +4,7 @@ mod calibrate;
 mod decisions;
 mod engine;
 mod evaluate;
+mod grep;
 mod instances;
 mod kv;
 mod llamac;
@@ -14,7 +15,7 @@ mod server;
 mod version;
 
 use std::io::{IsTerminal, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -58,15 +59,20 @@ struct ModelArgs {
 }
 
 impl ModelArgs {
-    /// resolve --model (pulling on first use), load the engine,
-    /// fit --calibration when given.
-    fn engine(&self) -> Result<engine::Engine> {
-        let mut eng =
-            engine::Engine::load(&models::resolve(&self.model)?, self.ctx, 1024, self.threads)?;
+    /// resolve --model (pulling on first use), load the engine with its KV
+    /// cache as `kv`, fit --calibration when given. The GGUF's path comes
+    /// along: its size and mtime bind the snapshots of `snap grep`.
+    fn load(&self, kv: llamac::KvType) -> Result<(engine::Engine, PathBuf)> {
+        let path = models::resolve(&self.model)?;
+        let mut eng = engine::Engine::load_kv(&path, self.ctx, 1024, self.threads, kv)?;
         if let Some(c) = &self.calibration {
             eng.load_calibration(c)?;
         }
-        Ok(eng)
+        Ok((eng, path))
+    }
+
+    fn engine(&self) -> Result<engine::Engine> {
+        Ok(self.load(llamac::KvType::F16)?.0)
     }
 
     /// untouched top-level flags — the -p guard's check
@@ -90,6 +96,8 @@ enum Cmd {
         #[arg(long, default_value_t = DEFAULT_PORT)]
         port: u16,
     },
+    /// find the code that answers a question: lexical recall, then the model reads each candidate once
+    Grep(grep::cli::GrepArgs),
     /// run a JSONL benchmark and report accuracy/latency
     Evaluate {
         #[command(flatten)]
@@ -580,6 +588,7 @@ fn main() -> Result<()> {
                 eprintln!("report written: {o}");
             }
         }
+        Cmd::Grep(a) => a.run()?,
         Cmd::Serve { m, host, port } => {
             init_logs(m.debug);
             if let Some(i) = instances::on_port(*port) {
@@ -601,4 +610,14 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_cli_definition_is_sound() {
+        Cli::command().debug_assert();
+    }
 }
