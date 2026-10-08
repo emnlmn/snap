@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.6.2 - 2026-10-08
+
+- models: `winnow-e4b` joins the tested set. It is
+  [EldanRing/Winnow-E4B](https://huggingface.co/EldanRing/Winnow-E4B), a
+  LoRA fine-tune of Gemma 4 E4B IT for typed decisions, served from its
+  Q8_0 GGUF (8.0 GB, Apache 2.0). On the 304 scored cases of
+  eval/cases.jsonl it reaches 95.1% (balanced 74.7%), Brier 0.070 and ECE
+  0.032 at 89.9% mean confidence; snap1-2b, on the same binary, stays at
+  85.2%. Per type: choice 94%, noul 99%, boolean 100%, score 91%, numeric
+  91% (snap1-2b 58%). It keeps 94% of its choices with the options
+  reversed, 90% with the instruction reworded and 90% with unrelated
+  context. About 260 ms/case on an M1 Max, twice snap1-2b's
+- models: on typed-decisions Winnow scores 0.715 accuracy raw (KL 0.575,
+  Brier 0.190). Its card reports 0.723 and ollaya.dev 0.722 on the same
+  2,000 questions, so snap runs it at parity with its own runtime while
+  feeding it snap's prompt, not the one it was trained on. Its training
+  data is private and its card reports this panel, so read the number as
+  possibly in-domain. Its distributions are sharper than the teacher's:
+  the card's temperature (1.257) is there for this, and `snap calibrate`
+  fits the same
+- engine: Gemma 4 gets its `<bos>` back. llama.cpp's chat apply strips a
+  leading BOS when the vocab sets `add_bos_token`, and snap tokenizes with
+  `add_special` off, so Gemma decoded with no BOS at all; `render`
+  restores it. Every other tested model has `add_bos_token` false: their
+  prompts are byte-identical and PROMPT_VERSION stays 6
+- models: Winnow's GGUF sits under `gguf/` in its repo, the first row with
+  a directory in its file name; pull, the cache lookup and `snap models rm`
+  handle it, and the playground model picker shows the file name only
+- the default stays snap1-2b: Winnow is five times the download and needs
+  about 8.5 GiB of memory
+- docs: README and site carry the Winnow rows
+
 ## 0.6.1 - 2026-10-07
 
 - grep: a model-judged tree descent now runs beside the BM25 recall of
