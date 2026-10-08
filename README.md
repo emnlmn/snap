@@ -509,6 +509,11 @@ snap grep --cache src/ # what the cache holds of this tree
 snap grep --gc src/    # drop what no chunk uses any more
 ```
 
+The Homebrew install also puts `sg` on the PATH, a one-line wrapper for
+`snap grep` (`sg "where is the KV cache rebuilt" src/`). Homebrew refuses
+it next to `ast-grep`, which ships its own `sg`. With the tarball, an
+alias does the same: `alias sg='snap grep'`.
+
 Neither stage covers the other. BM25 cannot reach code that shares no word
 with the question, and the descent can prefer a manifest or a script to the
 document that answers. The descent does not wait for BM25 to be unsure:
@@ -558,6 +563,8 @@ macOS on Apple Silicon, with Homebrew:
 ```bash
 brew install emnlmn/snap/snap
 ```
+
+This installs `snap` and `sg`, the short form of `snap grep`.
 
 or with the tarball:
 
