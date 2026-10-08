@@ -41,6 +41,11 @@ pub const MODELS: &[(&str, &str, &str)] = &[
         "logitlab/snap1-2b-GGUF",
         "snap1-2b-bf16.gguf",
     ),
+    (
+        "winnow-e4b",
+        "EldanRing/Winnow-E4B",
+        "gguf/Winnow-E4B-Q8_0.gguf",
+    ),
 ];
 
 pub const DEFAULT_MODEL: &str = "snap1-2b";

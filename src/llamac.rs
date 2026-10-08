@@ -115,12 +115,27 @@ pub fn route_logs_to_tracing() {
     }
 }
 
+/// The BOS text a vocab with `add_bos_token` expects ahead of the prompt.
+unsafe fn bos_piece(vocab: *const sys::llama_vocab) -> String {
+    let bos = sys::llama_vocab_bos(vocab);
+    if !sys::llama_vocab_get_add_bos(vocab) || bos < 0 {
+        return String::new();
+    }
+    let mut buf = [0 as c_char; 64];
+    let n = sys::llama_token_to_piece(vocab, bos, buf.as_mut_ptr(), buf.len() as i32, 0, true);
+    let bytes = std::slice::from_raw_parts(buf.as_ptr() as *const u8, n.max(0) as usize);
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
 /// A loaded model plus its one multi-seq context over a unified KV cache —
 /// unified because shared-prefix fan-out tags one token with many seqs.
 pub struct Llama {
     model: *mut sys::llama_model,
     ctx: *mut sys::llama_context,
     tmpls: *mut c_void,
+    /// BOS text the tokenizer would add (`add_bos_token`), or empty. llama.cpp's
+    /// chat apply strips a leading BOS in that case, and `tokenize` adds none.
+    bos: String,
     n_vocab: usize,
     n_ctx: usize,
     n_seq: usize,
@@ -146,6 +161,7 @@ impl Llama {
             model,
             ctx: std::ptr::null_mut(),
             tmpls: std::ptr::null_mut(),
+            bos: String::new(),
             n_vocab: unsafe { sys::llama_vocab_n_tokens(sys::llama_model_get_vocab(model)) }
                 as usize,
             n_ctx: n_ctx as usize,
@@ -161,6 +177,7 @@ impl Llama {
         if me.tmpls.is_null() {
             bail!("common_chat_templates_init failed (unsupported chat template?)");
         }
+        me.bos = unsafe { bos_piece(sys::llama_model_get_vocab(model)) };
         // 0 = auto: llama.cpp's own default is 4 threads, which starves
         // prefill on CPU-only builds (most release targets).
         let n_threads = if n_threads > 0 {
@@ -262,10 +279,14 @@ impl Backend for Llama {
         }
         let s = unsafe { CStr::from_ptr(p).to_string_lossy().into_owned() };
         unsafe { snap_str_free(p) };
-        Ok(s)
+        Ok(if s.starts_with(&self.bos) {
+            s
+        } else {
+            format!("{}{s}", self.bos)
+        })
     }
 
-    /// The model's own tokenizer; no BOS added (templates carry their own).
+    /// The model's own tokenizer; no BOS added (`render` carries it).
     fn tokenize(&self, text: &str, special: bool) -> Result<Vec<i32>> {
         let vocab = unsafe { sys::llama_model_get_vocab(self.model) };
         let bytes = text.as_bytes();

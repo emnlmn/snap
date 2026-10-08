@@ -1118,7 +1118,7 @@ $("srv").onclick = async (e) => {
     const activeRepo = (j.data || []).find((m) => m.active)?.repo;
     items = rows.map((m) => ({
       label: m.id, code: true,
-      hint: (m.file || "").replace(/\.gguf$/i, ""),
+      hint: (m.file || "").replace(/^.*\//, "").replace(/\.gguf$/i, ""),
       current: m.repo === activeRepo || (m.active ?? m.id === currentName),
       on: () => switchModel(m.id),
     }));
