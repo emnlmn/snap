@@ -1195,13 +1195,14 @@ footer { padding: 56px 0 64px; }
         <div class="tbl-wrap"><table class="t">
           <thead><tr><th>model</th><th>accuracy</th><th>ms/case</th></tr></thead>
           <tbody>
-            <tr><td>qwen3.8-4b <small class="note">Q4_K_M</small></td><td class="m hi"><span class="acc-bar"><i style="--v:86.4"></i></span>86.4%</td><td class="m">~300</td></tr>
+            <tr><td>winnow-e4b <small class="note">Q8_0, Gemma 4 E4B fine-tuned</small></td><td class="m hi"><span class="acc-bar"><i style="--v:95.1"></i></span>95.1%</td><td class="m">~260</td></tr>
+            <tr><td>qwen3.8-4b <small class="note">Q4_K_M</small></td><td class="m"><span class="acc-bar"><i style="--v:86.4"></i></span>86.4%</td><td class="m">~300</td></tr>
             <tr><td>spark-4b <small class="note">Q8_0</small></td><td class="m"><span class="acc-bar"><i style="--v:85.7"></i></span>85.7%</td><td class="m">~245</td></tr>
             <tr><td>snap1-2b <small class="note">Q4_K_M, fine-tuned</small></td><td class="m"><span class="acc-bar"><i style="--v:85.2"></i></span>85.2%</td><td class="m">~130</td></tr>
             <tr><td>minicpm5-2b <small class="note">Q4_K_M</small></td><td class="m"><span class="acc-bar"><i style="--v:69.7"></i></span>69.7%</td><td class="m">~145</td></tr>
           </tbody>
         </table></div>
-        <p class="note">snap1-2b is MiniCPM5-2B fine-tuned for this readout (<a href="https://huggingface.co/logitlab/snap1-2b-GGUF">model card</a>); the two 2B rows were measured with snap 0.5.0, the 4B rows with an earlier version. On typed-decisions, zero-shot, snap1-2b scores 0.655 accuracy against 0.486 for the base model (raw probabilities, ECE 0.041, M1 Max); Jev’s reported figure is 0.727.</p>
+        <p class="note">snap1-2b is MiniCPM5-2B fine-tuned for this readout (<a href="https://huggingface.co/logitlab/snap1-2b-GGUF">model card</a>); the two 2B rows were measured with snap 0.5.0, the 4B rows with an earlier version, winnow-e4b (<a href="https://huggingface.co/EldanRing/Winnow-E4B">model card</a>) with 0.6.2. On typed-decisions, zero-shot, snap1-2b scores 0.655 accuracy against 0.486 for the base model (raw probabilities, ECE 0.041, M1 Max); Jev’s reported figure is 0.727.</p>
         <p class="note">Raw probabilities aren’t calibrated. <code>snap calibrate</code> fits one temperature per question type on your labeled cases, ties it to the model and prompt version, and prints the calibration error (ECE) before and after.</p>
       </div>
     </div>

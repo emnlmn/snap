@@ -314,13 +314,15 @@ expectation, so accuracy is scored on 304.
 
 | model | accuracy | balanced | ms/case |
 |---|---:|---:|---:|
-| qwen3.8-4b Q4_K_M | **86.4%** | 66.7% | ~300 |
+| winnow-e4b Q8_0 | **95.1%** | 74.7% | ~260 |
+| qwen3.8-4b Q4_K_M | 86.4% | 66.7% | ~300 |
 | spark-4b Q8_0 | 85.7% | 57.5% | ~245 |
 | snap1-2b Q4_K_M | 85.2% | **76.0%** | ~130 |
 | minicpm5-2b Q4_K_M | 69.7% | 36.0% | ~145 |
 
-The 95% interval is about ±4 points at 304 cases, so the gaps among the
-top three are noise: snap1-2b, a 2B model, answers like the 4B ones. Balanced accuracy averages recall over answer
+The 95% interval is about ±4 points at 304 cases. winnow-e4b, a Gemma 4
+E4B fine-tuned for typed decisions, leads by almost nine points; the gaps among
+the next three are noise: snap1-2b, a 2B model, answers like the 4B ones. Balanced accuracy averages recall over answer
 positions (A, B, C…), so rare late positions, such as numeric anchors or
 the tail of a long choice list, weigh as much as A and B: that is why it
 sits well below plain accuracy.
@@ -329,12 +331,13 @@ Accuracy per question type:
 
 | model | choice | noul | boolean | score | numeric |
 |---|---:|---:|---:|---:|---:|
+| winnow-e4b | 94% | 99% | 100% | 91% | 91% |
 | qwen3.8-4b | 91% | 91% | 84% | 86% | 58% |
 | spark-4b | 83% | 95% | 95% | 79% | 76% |
 | snap1-2b | 87% | 85% | 100% | 93% | 58% |
 | minicpm5-2b | 70% | 73% | 90% | 67% | 52% |
 
-`numeric` is the weakest type on every model: a value read off anchor
+`numeric` is the weakest type on every model but winnow-e4b: a value read off anchor
 letters misses more often than a label does.
 
 Distribution quality, lower is better for Brier and ECE, from the same
@@ -342,14 +345,16 @@ runs:
 
 | model | brier | ECE | mean confidence |
 |---|---:|---:|---:|
+| winnow-e4b Q8_0 | 0.070 | 0.032 | 89.9% |
 | qwen3.8-4b Q4_K_M | 0.200 | 0.121 | 67.0% |
 | spark-4b Q8_0 | 0.242 | 0.059 | 86.0% |
 | snap1-2b Q4_K_M | 0.208 | 0.128 | 63.6% |
 | minicpm5-2b Q4_K_M | 0.447 | 0.106 | 66.6% |
 
 The ECE column is the reason calibration exists, and accuracy alone
-doesn't show it. spark comes out of the box close to calibrated, with
-86.0% mean confidence at 85.7% accuracy. qwen is *under*confident, with
+doesn't show it. winnow-e4b and spark come out of the box close to
+calibrated, with 89.9% mean confidence at 95.1% accuracy and 86.0% at
+85.7%. qwen is *under*confident, with
 67% confidence at 86% accuracy, and `snap calibrate` brings its ECE from
 0.121 to 0.047 out of fold (see [Calibration](#calibration)). snap1-2b is
 underconfident on these cases too, with 63% confidence at 85% accuracy, while
@@ -361,6 +366,7 @@ cases):
 
 | model | options reversed | instruction reworded | unrelated context added |
 |---|---:|---:|---:|
+| winnow-e4b | 94% | 90% | 90% |
 | qwen3.8-4b | 87% | 85% | 84% |
 | spark-4b | 83% | 77% | 83% |
 | snap1-2b | 89% | 86% | 85% |
@@ -415,7 +421,10 @@ collapsing ≥95% of answers on a question is predicting the prior, not
 reading (minicpm5-2b zero-shot: 8/20 questions constant, acc 0.486;
 qwen3.8-4b: 8/20, acc 0.561, but its wins concentrate on lucky constants).
 snap1-2b, fine-tuned on other workflows only and so zero-shot here: 2/20
-constant, acc 0.655, KL 0.292, Brier 0.159, ECE 0.041.
+constant, acc 0.655, KL 0.292, Brier 0.159, ECE 0.041. winnow-e4b scores
+0.715 raw (KL 0.575, Brier 0.190) against 0.723 on its own card and 0.722
+on ollaya.dev: parity, on snap's prompt. Its training data is private and
+its card reports this panel, so it may be in-domain here.
 
 ```bash
 python3 eval/typed_decisions.py fetch       # test + train, pinned revision
